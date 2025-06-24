@@ -80,7 +80,7 @@ class NextCommands:
         return self
 
     @profile
-    def check_base_variables_threshold(self, free_variables: List[FreeVariable]) -> bool:
+    def are_uncertain_variables_needed(self, free_variables: List[FreeVariable]) -> bool:
         """
         Check if any base variable has values below its corresponding threshold
         :param free_variables: List of free variables
@@ -90,6 +90,6 @@ class NextCommands:
         """
         for free_variable in free_variables:
             if free_variable.is_base and self.free_variable_data[free_variable.name][0] > free_variable.threshold:
-                return False
-        return True
+                return True
+        return False
 

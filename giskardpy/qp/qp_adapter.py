@@ -19,7 +19,7 @@ from giskardpy.qp.free_variable import FreeVariable
 from giskardpy.qp.pos_in_vel_limits import b_profile
 from giskardpy.qp.qp_formulation import QPFormulation
 from giskardpy.qp.weight_gain import QuadraticWeightGain, LinearWeightGain
-from giskardpy.symbol_manager import SymbolManager
+from giskardpy.symbol_manager import SymbolManager, symbol_manager
 from giskardpy.utils.decorators import memoize
 from line_profiler import profile
 
@@ -1435,6 +1435,17 @@ class QPData:
     neq_matrix: Union[sp.csc_matrix, np.ndarray] = field(default=None)
     neq_lower_bounds: np.ndarray = field(default=None)
     neq_upper_bounds: np.ndarray = field(default=None)
+
+    def explicit_data(self):
+        return (self.quadratic_weights,
+                self.linear_weights,
+                self.box_lower_constraints,
+                self.box_upper_constraints,
+                self.eq_matrix,
+                self.eq_bounds,
+                self.neq_matrix,
+                self.neq_lower_bounds,
+                self.neq_upper_bounds)
 
     @property
     def sparse_hessian(self) -> sp.csc_matrix:

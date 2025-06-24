@@ -42,16 +42,19 @@ class QPSolverQPSwift(QPSolver):
         # 'VERBOSE': 1  # 0 = no print; 1 = print
     }
 
-    def solver_call_batch(self, qps: List[QPData]) -> np.ndarray:
-        result = qpSWIFT.solve_sparse_H_diag_batch(len(qps),
-                                                   tuple([qp.as_qpSWIFT_data(self.opts) for qp in qps]))
-        exit_flag = result['basicInfo']['ExitFlag']
-        if exit_flag != 0:
-            error_code = QPSWIFTExitFlags(exit_flag)
-            if error_code == QPSWIFTExitFlags.MAX_ITER_REACHED:
-                raise InfeasibleException(f'Failed to solve qp: {str(error_code)}')
-            raise QPSolverException(f'Failed to solve qp: {str(error_code)}')
-        return result['sol']
+    def solver_call_batch(self, qps: List[QPData]) -> List[np.ndarray]:
+        results = qpSWIFT.solve_sparse_H_diag_batch([qp.explicit_data() for qp in qps], options=self.opts)
+        xdots = []
+        for result in results:
+            if result.exit_flag != 0:
+                error_code = QPSWIFTExitFlags(result.exit_flag)
+                if error_code == QPSWIFTExitFlags.MAX_ITER_REACHED:
+                    xdots.append(InfeasibleException(f'Failed to solve qp: {str(error_code)}'))
+                else:
+                    xdots.append(QPSolverException(f'Failed to solve qp: {str(error_code)}'))
+            else:
+                xdots.append(result.x)
+        return xdots
 
     def solver_call_explicit_interface(self, qp_data: QPData) -> np.ndarray:
         result = qpSWIFT.solve_sparse_H_diag(H=qp_data.quadratic_weights, g=qp_data.linear_weights,

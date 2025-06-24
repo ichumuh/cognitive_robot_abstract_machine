@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 from abc import ABC
-from typing import TYPE_CHECKING, Type
+from typing import TYPE_CHECKING, Type, List
 
 import numpy as np
 
@@ -20,6 +20,10 @@ class QPSolver(ABC):
     @abc.abstractmethod
     def solver_call(self, qp_data: QPData) -> np.ndarray:
         ...
+
+    # @abc.abstractmethod
+    def solver_call_batch(self, qps: List[QPData]) -> np.ndarray:
+        raise NotImplemented()
 
     @abc.abstractmethod
     def solver_call_explicit_interface(self, qp_data: QPData) -> np.ndarray:
