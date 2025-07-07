@@ -178,9 +178,11 @@ class CartesianOrientation(Task):
 
         r_T_c = god_map.world.compose_fk_expression(self.root_link, self.tip_link)
         r_R_c = r_T_c.to_rotation()
+        c_R_r_eval = god_map.world.compose_fk_evaluated_expression(self.tip_link, self.root_link).to_rotation()
 
         self.add_rotation_goal_constraints(frame_R_current=r_R_c,
                                            frame_R_goal=root_R_goal,
+                                           current_R_frame_eval=c_R_r_eval,
                                            reference_velocity=self.reference_velocity,
                                            weight=self.weight)
         if point_of_debug_matrix is None:
@@ -273,9 +275,11 @@ class CartesianPose(Task):
 
         r_T_c = god_map.world.compose_fk_expression(self.root_link, self.tip_link)
         r_R_c = r_T_c.to_rotation()
+        c_R_r_eval = god_map.world.compose_fk_evaluated_expression(self.tip_link, self.root_link).to_rotation()
 
         self.add_rotation_goal_constraints(frame_R_current=r_R_c,
                                            frame_R_goal=root_R_goal,
+                                           current_R_frame_eval=c_R_r_eval,
                                            reference_velocity=self.reference_angular_velocity,
                                            weight=self.weight)
         debug_trans_matrix = cas.TransMatrix.from_point_rotation_matrix(point=goal_point,
