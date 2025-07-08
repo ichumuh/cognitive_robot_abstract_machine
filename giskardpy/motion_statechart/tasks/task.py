@@ -350,14 +350,9 @@ class Task(MotionStatechartNode):
         q_actual = frame_R_current.to_quaternion()
         q_goal = frame_R_goal.to_quaternion()
         q_goal = cas.if_less(q_goal.dot(q_actual), 0, -q_goal, q_goal)
-        # god_map.debug_expression_manager.add_debug_expression('flip', q_goal.dot(q_actual))
-        # god_map.debug_expression_manager.add_debug_expression('q_goal2', q_goal2)
-        # god_map.debug_expression_manager.add_debug_expression('q_goal', q_goal)
-        # god_map.debug_expression_manager.add_debug_expression('q_actual', q_actual)
-        # god_map.debug_expression_manager.add_debug_expression('error', (q_goal[:3] - q_actual[:3]))
         q_error = cas.quaternion_multiply(q_goal, cas.quaternion_conjugate(q_actual))
 
-        # w is not needed because its derivative is always 0 for identity quaternions
+        # w is redundant
         self.add_equality_constraint_vector(reference_velocities=[reference_velocity] * 3,
                                             equality_bounds=-q_error[:3],
                                             weights=[weight] * 3,
@@ -365,27 +360,6 @@ class Task(MotionStatechartNode):
                                             names=[f'{name}/rot/x',
                                                    f'{name}/rot/y',
                                                    f'{name}/rot/z'])
-
-        # hack2 = cas.RotationMatrix.from_axis_angle(cas.Vector3((0, 0, 1)), 0.0001)
-        # frame_R_current = frame_R_current.dot(hack2)  # hack to avoid singularity
-        # tip_Q_tipCurrent = current_R_frame_eval.dot(frame_R_current).to_quaternion()
-        # tip_R_goal = current_R_frame_eval.dot(frame_R_goal)
-        #
-        # tip_Q_goal = tip_R_goal.to_quaternion()
-        #
-        # tip_Q_goal = cas.if_greater_zero(-tip_Q_goal[3], -tip_Q_goal, tip_Q_goal)  # flip to get shortest path
-        #
-        # expr = tip_Q_tipCurrent
-        # god_map.debug_expression_manager.add_debug_expression('tip_Q_tipCurrent', tip_Q_tipCurrent)
-        # god_map.debug_expression_manager.add_debug_expression('tip_Q_goal[:3]', tip_Q_goal[:3])
-        # # w is not needed because its derivative is always 0 for identity quaternions
-        # self.add_equality_constraint_vector(reference_velocities=[reference_velocity] * 3,
-        #                                     equality_bounds=tip_Q_goal[:3],
-        #                                     weights=[0.00001] * 3,
-        #                                     task_expression=expr[:3],
-        #                                     names=[f'{name}/rot2/x',
-        #                                            f'{name}/rot2/y',
-        #                                            f'{name}/rot2/z'])
 
     def add_velocity_constraint(self,
                                 lower_velocity_limit: Union[cas.symbol_expr_float, List[cas.symbol_expr_float]],
