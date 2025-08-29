@@ -50,9 +50,9 @@ class QPSolverProxsuite(QPSolver):
 
         b_bA_len = lb.shape[0] + lbA.shape[0]
 
-        self.combined_vector_f = cas.StackedCompiledFunction(expressions=[lb, lbA, weights, g, bE, ub, ubA],
-                                                             parameters=free_symbols,
-                                                             additional_views=[
+        self.combined_vector_f = cas.CompiledFunctionWithViews(expressions=[lb, lbA, weights, g, bE, ub, ubA],
+                                                               parameters=free_symbols,
+                                                               additional_views=[
                                                                  slice(0, b_bA_len),
                                                                  slice(-b_bA_len, None)])
 

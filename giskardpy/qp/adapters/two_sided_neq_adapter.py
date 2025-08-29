@@ -85,16 +85,16 @@ class GiskardToTwoSidedNeqQPAdapter(GiskardToQPAdapter):
                              + eq_bounds.shape[0]
                              + neq_upper_bounds.shape[0])
 
-        self.combined_vector_f = cas.StackedCompiledFunction(expressions=[quadratic_weights,
-                                                                          box_lower_constraints,
-                                                                          eq_bounds,
-                                                                          neq_lower_bounds,
-                                                                          box_upper_constraints,
-                                                                          eq_bounds,
-                                                                          neq_upper_bounds,
-                                                                          linear_weights],
-                                                             parameters=self.free_symbols,
-                                                             additional_views=[
+        self.combined_vector_f = cas.CompiledFunctionWithViews(expressions=[quadratic_weights,
+                                                                            box_lower_constraints,
+                                                                            eq_bounds,
+                                                                            neq_lower_bounds,
+                                                                            box_upper_constraints,
+                                                                            eq_bounds,
+                                                                            neq_upper_bounds,
+                                                                            linear_weights],
+                                                               parameters=self.free_symbols,
+                                                               additional_views=[
                                                                  slice(quadratic_weights.shape[0], len_lb_be_lba_end),
                                                                  slice(len_lb_be_lba_end, len_ub_be_uba_end)])
 

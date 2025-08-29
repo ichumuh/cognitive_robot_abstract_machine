@@ -78,14 +78,14 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
         self.eq_matrix_compiled = eq_matrix.compile(parameters=self.free_symbols, sparse=self.sparse)
         self.neq_matrix_compiled = neq_matrix.compile(parameters=self.free_symbols, sparse=self.sparse)
 
-        self.combined_vector_f = cas.StackedCompiledFunction(expressions=[quadratic_weights,
-                                                                          linear_weights,
-                                                                          box_lower_constraints,
-                                                                          box_upper_constraints,
-                                                                          eq_bounds,
-                                                                          neq_lower_bounds,
-                                                                          neq_upper_bounds],
-                                                             parameters=self.free_symbols)
+        self.combined_vector_f = cas.CompiledFunctionWithViews(expressions=[quadratic_weights,
+                                                                            linear_weights,
+                                                                            box_lower_constraints,
+                                                                            box_upper_constraints,
+                                                                            eq_bounds,
+                                                                            neq_lower_bounds,
+                                                                            neq_upper_bounds],
+                                                               parameters=self.free_symbols)
 
         self.bE_filter = np.ones(eq_matrix.shape[0], dtype=bool)
         self.bA_filter = np.ones(neq_matrix.shape[0], dtype=bool)

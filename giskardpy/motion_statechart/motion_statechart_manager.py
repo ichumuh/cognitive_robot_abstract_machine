@@ -34,8 +34,8 @@ class MotionStatechartManager:
     monitor_state: MotionGraphNodeStateManager[Monitor]
     goal_state: MotionGraphNodeStateManager[Goal]
 
-    observation_state_updater: cas.StackedCompiledFunction
-    life_cycle_updater: cas.StackedCompiledFunction
+    observation_state_updater: cas.CompiledFunctionWithViews
+    life_cycle_updater: cas.CompiledFunctionWithViews
 
     task_state_history: List[Tuple[float, Tuple[np.ndarray, np.ndarray]]]  # time -> (state, life_cycle_state)
     monitor_state_history: List[Tuple[float, Tuple[np.ndarray, np.ndarray]]]  # time -> (state, life_cycle_state)
@@ -212,7 +212,7 @@ class MotionStatechartManager:
         monitor_life_cycle_expr, monitor_obs_expr = self.compile_node_state_updater(self.monitor_state)
         goal_life_cycle_expr, goal_obs_expr = self.compile_node_state_updater(self.goal_state)
 
-        self.life_cycle_updater = cas.StackedCompiledFunction(
+        self.life_cycle_updater = cas.CompiledFunctionWithViews(
             expressions=[task_life_cycle_expr,
                          monitor_life_cycle_expr,
                          goal_life_cycle_expr],
@@ -238,7 +238,7 @@ class MotionStatechartManager:
                 params.remove(s)
         self.aux_symbols = list(params)
 
-        self.observation_state_updater = cas.StackedCompiledFunction(
+        self.observation_state_updater = cas.CompiledFunctionWithViews(
             expressions=[task_obs_expr,
                          monitor_obs_expr,
                          goal_obs_expr],
