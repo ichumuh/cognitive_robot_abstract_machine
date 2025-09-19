@@ -1,16 +1,21 @@
 from typing import Optional, List
 
 import semantic_world.spatial_types.spatial_types as cas
-from semantic_world.connections import OmniDrive
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.world_description.connections import OmniDrive
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from giskardpy.god_map import god_map
 from giskardpy.motion_statechart.monitors.monitors import Monitor
 
 
 class InWorldSpace(Monitor):
 
-    def __init__(self, tip_link: PrefixedName, xyz: List[float],
-                 name: Optional[str] = None, plot: bool = True):
+    def __init__(
+        self,
+        tip_link: PrefixedName,
+        xyz: List[float],
+        name: Optional[str] = None,
+        plot: bool = True,
+    ):
         super().__init__(name=name, plot=plot)
         self.joint: OmniDrive = god_map.world.get_drive_joint()
         self.drive_link = self.joint.child_link_name
@@ -25,25 +30,35 @@ class InWorldSpace(Monitor):
 
         error = map_T_tip.to_position() - map_T_drive.to_position()
         error.vis_frame = self.drive_link
-        god_map.debug_expression_manager.add_debug_expression(f'{self.name}/error', error)
-        self.observation_expression = cas.logic_and(cas.less_equal(cas.abs(error.x), xyz[0]),
-                                                   cas.less_equal(cas.abs(error.y), xyz[1]))
+        god_map.debug_expression_manager.add_debug_expression(
+            f"{self.name}/error", error
+        )
+        self.observation_expression = cas.logic_and(
+            cas.less_equal(cas.abs(error.x), xyz[0]),
+            cas.less_equal(cas.abs(error.y), xyz[1]),
+        )
 
 
 class PoseReached(Monitor):
-    def __init__(self,
-                 root_link: PrefixedName,
-                 tip_link: PrefixedName,
-                 goal_pose: cas.TransformationMatrix,
-                 position_threshold: float = 0.01,
-                 orientation_threshold: float = 0.01,
-                 absolute: bool = False,
-                 name: Optional[str] = None):
+    def __init__(
+        self,
+        root_link: PrefixedName,
+        tip_link: PrefixedName,
+        goal_pose: cas.TransformationMatrix,
+        position_threshold: float = 0.01,
+        orientation_threshold: float = 0.01,
+        absolute: bool = False,
+        name: Optional[str] = None,
+    ):
         super().__init__(name=name)
         if absolute:
-            root_T_goal = god_map.world.transform(target_frame=root_link, spatial_object=goal_pose)
+            root_T_goal = god_map.world.transform(
+                target_frame=root_link, spatial_object=goal_pose
+            )
         else:
-            root_T_x = god_map.world.compose_fk_expression(root_link, goal_pose.reference_frame)
+            root_T_x = god_map.world.compose_fk_expression(
+                root_link, goal_pose.reference_frame
+            )
             root_T_goal = root_T_x.dot(goal_pose)
             root_T_goal = self.update_expression_on_starting(root_T_goal)
 
@@ -55,26 +70,36 @@ class PoseReached(Monitor):
 
         # %% orientation error
         r_R_g = root_T_goal.to_rotation_matrix()
-        r_R_c = god_map.world.compose_fk_expression(root_link, tip_link).to_rotation_matrix()
+        r_R_c = god_map.world.compose_fk_expression(
+            root_link, tip_link
+        ).to_rotation_matrix()
         rotation_error = cas.rotational_error(r_R_c, r_R_g)
         orientation_reached = cas.less(cas.abs(rotation_error), orientation_threshold)
 
-        self.observation_expression = cas.logic_and(position_reached, orientation_reached)
+        self.observation_expression = cas.logic_and(
+            position_reached, orientation_reached
+        )
 
 
 class PositionReached(Monitor):
-    def __init__(self,
-                 root_link: PrefixedName,
-                 tip_link: PrefixedName,
-                 goal_point: cas.Point3,
-                 threshold: float = 0.01,
-                 absolute: bool = False,
-                 name: Optional[str] = None):
+    def __init__(
+        self,
+        root_link: PrefixedName,
+        tip_link: PrefixedName,
+        goal_point: cas.Point3,
+        threshold: float = 0.01,
+        absolute: bool = False,
+        name: Optional[str] = None,
+    ):
         super().__init__(name=name)
         if absolute:
-            root_P_goal = god_map.world.transform(target_frame=root_link, spatial_object=goal_point)
+            root_P_goal = god_map.world.transform(
+                target_frame=root_link, spatial_object=goal_point
+            )
         else:
-            root_P_x = god_map.world.compose_fk_expression(root_link, goal_point.reference_frame)
+            root_P_x = god_map.world.compose_fk_expression(
+                root_link, goal_point.reference_frame
+            )
             root_P_goal = root_P_x.dot(goal_point)
             root_P_goal = self.update_expression_on_starting(root_P_goal)
 
@@ -84,72 +109,96 @@ class PositionReached(Monitor):
 
 
 class OrientationReached(Monitor):
-    def __init__(self,
-                 root_link: PrefixedName,
-                 tip_link: PrefixedName,
-                 goal_orientation: cas.RotationMatrix,
-                 threshold: float = 0.01,
-                 absolute: bool = False,
-                 name: Optional[str] = None):
+    def __init__(
+        self,
+        root_link: PrefixedName,
+        tip_link: PrefixedName,
+        goal_orientation: cas.RotationMatrix,
+        threshold: float = 0.01,
+        absolute: bool = False,
+        name: Optional[str] = None,
+    ):
         super().__init__(name=name)
         if absolute:
-            r_R_g = god_map.world.transform(target_frame=root_link, spatial_object=goal_orientation)
+            r_R_g = god_map.world.transform(
+                target_frame=root_link, spatial_object=goal_orientation
+            )
         else:
-            root_T_x = god_map.world.compose_fk_expression(root_link, goal_orientation.reference_frame)
+            root_T_x = god_map.world.compose_fk_expression(
+                root_link, goal_orientation.reference_frame
+            )
             root_R_goal = root_T_x.dot(goal_orientation)
             r_R_g = self.update_expression_on_starting(root_R_goal)
 
-        r_R_c = god_map.world.compose_fk_expression(root_link, tip_link).to_rotation_matrix()
+        r_R_c = god_map.world.compose_fk_expression(
+            root_link, tip_link
+        ).to_rotation_matrix()
         rotation_error = cas.rotational_error(r_R_c, r_R_g)
         self.observation_expression = cas.less(cas.abs(rotation_error), threshold)
 
 
 class PointingAt(Monitor):
-    def __init__(self,
-                 tip_link: PrefixedName,
-                 goal_point: cas.Point3,
-                 root_link: PrefixedName,
-                 pointing_axis: cas.Vector3,
-                 threshold: float = 0.01,
-                 name: Optional[str] = None):
+    def __init__(
+        self,
+        tip_link: PrefixedName,
+        goal_point: cas.Point3,
+        root_link: PrefixedName,
+        pointing_axis: cas.Vector3,
+        threshold: float = 0.01,
+        name: Optional[str] = None,
+    ):
         super().__init__(name=name)
         self.root = root_link
         self.tip = tip_link
-        self.root_P_goal_point = god_map.world.transform(target_frame=self.root, spatial_object=goal_point)
+        self.root_P_goal_point = god_map.world.transform(
+            target_frame=self.root, spatial_object=goal_point
+        )
 
-        tip_V_pointing_axis = god_map.world.transform(target_frame=self.tip, spatial_object=pointing_axis)
+        tip_V_pointing_axis = god_map.world.transform(
+            target_frame=self.tip, spatial_object=pointing_axis
+        )
         tip_V_pointing_axis.scale(1)
         root_T_tip = god_map.world.compose_fk_expression(self.root, self.tip)
         root_P_tip = root_T_tip.to_position()
 
         root_V_pointing_axis = root_T_tip.dot(tip_V_pointing_axis)
         root_V_pointing_axis.vis_frame = self.tip
-        distance = cas.distance_point_to_line(frame_P_point=self.root_P_goal_point,
-                                              frame_P_line_point=root_P_tip,
-                                              frame_V_line_direction=root_V_pointing_axis)
+        distance = cas.distance_point_to_line(
+            frame_P_point=self.root_P_goal_point,
+            frame_P_line_point=root_P_tip,
+            frame_V_line_direction=root_V_pointing_axis,
+        )
         expr = cas.less(cas.abs(distance), threshold)
         self.observation_expression = expr
 
 
 class VectorsAligned(Monitor):
-    def __init__(self,
-                 root_link: PrefixedName,
-                 tip_link: PrefixedName,
-                 goal_normal: cas.Vector3,
-                 tip_normal: cas.Vector3,
-                 threshold: float = 0.01,
-                 name: Optional[str] = None):
+    def __init__(
+        self,
+        root_link: PrefixedName,
+        tip_link: PrefixedName,
+        goal_normal: cas.Vector3,
+        tip_normal: cas.Vector3,
+        threshold: float = 0.01,
+        name: Optional[str] = None,
+    ):
         super().__init__(name=name)
         self.root = root_link
         self.tip = tip_link
 
-        self.tip_V_tip_normal = god_map.world.transform(target_frame=self.tip, spatial_object=tip_normal)
+        self.tip_V_tip_normal = god_map.world.transform(
+            target_frame=self.tip, spatial_object=tip_normal
+        )
         self.tip_V_tip_normal.scale(1)
 
-        self.root_V_root_normal = god_map.world.transform(target_frame=self.root, spatial_object=goal_normal)
+        self.root_V_root_normal = god_map.world.transform(
+            target_frame=self.root, spatial_object=goal_normal
+        )
         self.root_V_root_normal.scale(1)
 
-        root_R_tip = god_map.world.compose_fk_expression(self.root, self.tip).to_rotation_matrix()
+        root_R_tip = god_map.world.compose_fk_expression(
+            self.root, self.tip
+        ).to_rotation_matrix()
         root_V_tip_normal = root_R_tip.dot(self.tip_V_tip_normal)
         error = cas.angle_between_vector(root_V_tip_normal, self.root_V_root_normal)
         expr = cas.less(error, threshold)
@@ -157,27 +206,37 @@ class VectorsAligned(Monitor):
 
 
 class DistanceToLine(Monitor):
-    def __init__(self,
-                 root_link: PrefixedName,
-                 tip_link: PrefixedName,
-                 center_point: cas.Point3,
-                 line_axis: cas.Vector3,
-                 line_length: float,
-                 threshold: float = 0.01,
-                 name: Optional[str] = None):
+    def __init__(
+        self,
+        root_link: PrefixedName,
+        tip_link: PrefixedName,
+        center_point: cas.Point3,
+        line_axis: cas.Vector3,
+        line_length: float,
+        threshold: float = 0.01,
+        name: Optional[str] = None,
+    ):
         super().__init__(name=name)
         self.root = root_link
         self.tip = tip_link
 
-        root_P_current = god_map.world.compose_fk_expression(self.root, self.tip).to_position()
-        root_V_line_axis = god_map.world.transform(target_frame=self.root, spatial_object=line_axis)
+        root_P_current = god_map.world.compose_fk_expression(
+            self.root, self.tip
+        ).to_position()
+        root_V_line_axis = god_map.world.transform(
+            target_frame=self.root, spatial_object=line_axis
+        )
         root_V_line_axis.scale(1)
-        root_P_center = god_map.world.transform(target_frame=self.root, spatial_object=center_point)
+        root_P_center = god_map.world.transform(
+            target_frame=self.root, spatial_object=center_point
+        )
         root_P_line_start = root_P_center + root_V_line_axis * (line_length / 2)
         root_P_line_end = root_P_center - root_V_line_axis * (line_length / 2)
 
-        distance, closest_point = cas.distance_point_to_line_segment(frame_P_current=root_P_current,
-                                                                     frame_P_line_start=root_P_line_start,
-                                                                     frame_P_line_end=root_P_line_end)
+        distance, closest_point = cas.distance_point_to_line_segment(
+            frame_P_current=root_P_current,
+            frame_P_line_start=root_P_line_start,
+            frame_P_line_end=root_P_line_end,
+        )
         expr = cas.less(distance, threshold)
         self.observation_expression = expr

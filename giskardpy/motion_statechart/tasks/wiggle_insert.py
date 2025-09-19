@@ -4,7 +4,7 @@ from typing import Optional
 import numpy as np
 
 import semantic_world.spatial_types.spatial_types as cas
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from giskardpy.god_map import god_map
 from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_ABOVE_CA
 from semantic_world.spatial_types.symbol_manager import symbol_manager
@@ -12,23 +12,26 @@ from semantic_world.spatial_types.symbol_manager import symbol_manager
 
 class WiggleInsert(Task):
 
-    def __init__(self, *,
-                 root_link: PrefixedName,
-                 tip_link: PrefixedName,
-                 hole_point: cas.Point3,
-                 noise_translation: float,
-                 noise_angle: float,
-                 down_velocity: float,
-                 hole_normal: Optional[cas.Vector3] = None,
-                 threshold: float = 0.01,
-                 random_walk: bool = True,
-                 vector_momentum_factor: float = 0.9,
-                 angular_momentum_factor: float = 0.9,
-                 center_pull_strength_angle: float = 0.1,
-                 center_pull_strength_vector: float = 0.25,
-                 weight: float = WEIGHT_ABOVE_CA,
-                 name: Optional[str] = None,
-                 plot: bool = True):
+    def __init__(
+        self,
+        *,
+        root_link: PrefixedName,
+        tip_link: PrefixedName,
+        hole_point: cas.Point3,
+        noise_translation: float,
+        noise_angle: float,
+        down_velocity: float,
+        hole_normal: Optional[cas.Vector3] = None,
+        threshold: float = 0.01,
+        random_walk: bool = True,
+        vector_momentum_factor: float = 0.9,
+        angular_momentum_factor: float = 0.9,
+        center_pull_strength_angle: float = 0.1,
+        center_pull_strength_vector: float = 0.25,
+        weight: float = WEIGHT_ABOVE_CA,
+        name: Optional[str] = None,
+        plot: bool = True,
+    ):
         """
         Press down while wiggling the end effector.
         :param root_link:
@@ -65,11 +68,11 @@ class WiggleInsert(Task):
         self.hz = 1 / self.dt
 
         if random_walk:
-            vector_function = '.get_rand_walk_vector()'
-            angle_function = '.get_rand_walk_angle()'
+            vector_function = ".get_rand_walk_vector()"
+            angle_function = ".get_rand_walk_angle()"
         else:
-            vector_function = '.get_rand_vector()'
-            angle_function = '.get_rand_angle()'
+            vector_function = ".get_rand_vector()"
+            angle_function = ".get_rand_angle()"
 
         # Init-Values for angular random walk
         self.current_angle = 0
@@ -88,51 +91,74 @@ class WiggleInsert(Task):
         self.center_pull_strength_vector = center_pull_strength_vector
 
         v1, v2 = self.calculate_vectors(self.hole_normal.to_np()[:3])
-        self.v1 = cas.Vector3().from_xyz(*v1, reference_frame=hole_normal.reference_frame)
-        self.v2 = cas.Vector3().from_xyz(*v2, reference_frame=hole_normal.reference_frame)
+        self.v1 = cas.Vector3().from_xyz(
+            *v1, reference_frame=hole_normal.reference_frame
+        )
+        self.v2 = cas.Vector3().from_xyz(
+            *v2, reference_frame=hole_normal.reference_frame
+        )
 
-        r_P_c = god_map.world.compose_fk_expression(self.root_link, self.tip_link).to_position()
-        r_P_g = god_map.world.transform(target_frame=self.root_link, spatial_object=hole_point)
+        r_P_c = god_map.world.compose_fk_expression(
+            self.root_link, self.tip_link
+        ).to_position()
+        r_P_g = god_map.world.transform(
+            target_frame=self.root_link, spatial_object=hole_point
+        )
 
-        rand_v = symbol_manager.get_expr(self.ref_str +
-                                         vector_function,
-                                         input_type_hint=np.ndarray,
-                                         output_type_hint=cas.Vector3)
+        rand_v = symbol_manager.get_expr(
+            self.ref_str + vector_function,
+            input_type_hint=np.ndarray,
+            output_type_hint=cas.Vector3,
+        )
 
         r_P_g_rand = r_P_g + rand_v
 
-        self.add_point_goal_constraints(frame_P_current=r_P_c,
-                                        frame_P_goal=r_P_g_rand,
-                                        reference_velocity=down_velocity,
-                                        weight=weight,
-                                        name=f'{name}_point_goal')
+        self.add_point_goal_constraints(
+            frame_P_current=r_P_c,
+            frame_P_goal=r_P_g_rand,
+            reference_velocity=down_velocity,
+            weight=weight,
+            name=f"{name}_point_goal",
+        )
 
-        angle = symbol_manager.get_expr(self.ref_str +
-                                        angle_function,
-                                        input_type_hint=float,
-                                        output_type_hint=cas.Symbol)
+        angle = symbol_manager.get_expr(
+            self.ref_str + angle_function,
+            input_type_hint=float,
+            output_type_hint=cas.Symbol,
+        )
 
-        tip_V_hole_normal = god_map.world.transform(target_frame=self.tip_link, spatial_object=self.hole_normal)
-        tip_R_hole_normal = cas.RotationMatrix.from_axis_angle(angle=angle,
-                                                               axis=tip_V_hole_normal)
-        root_R_hole_normal = god_map.world.compute_fk(self.root_link, self.tip_link).dot(tip_R_hole_normal)
+        tip_V_hole_normal = god_map.world.transform(
+            target_frame=self.tip_link, spatial_object=self.hole_normal
+        )
+        tip_R_hole_normal = cas.RotationMatrix.from_axis_angle(
+            angle=angle, axis=tip_V_hole_normal
+        )
+        root_R_hole_normal = god_map.world.compute_fk(
+            self.root_link, self.tip_link
+        ).dot(tip_R_hole_normal)
 
         r_T_c = god_map.world.compose_fk_expression(self.root_link, self.tip_link)
         r_R_c = r_T_c.to_rotation_matrix()
 
-        self.add_rotation_goal_constraints(frame_R_current=r_R_c,
-                                           frame_R_goal=root_R_hole_normal,
-                                           reference_velocity=down_velocity,
-                                           weight=weight + 1)
+        self.add_rotation_goal_constraints(
+            frame_R_current=r_R_c,
+            frame_R_goal=root_R_hole_normal,
+            reference_velocity=down_velocity,
+            weight=weight + 1,
+        )
 
-        god_map.debug_expression_manager.add_debug_expression(name='r_P_g',
-                                                              expression=r_P_g)
-        god_map.debug_expression_manager.add_debug_expression(name='r_P_g_rand',
-                                                              expression=r_P_g_rand)
-        god_map.debug_expression_manager.add_debug_expression(name='root_R_hole_normal',
-                                                              expression=root_R_hole_normal)
-        god_map.debug_expression_manager.add_debug_expression(name='tip_R_hole_normal',
-                                                              expression=tip_R_hole_normal)
+        god_map.debug_expression_manager.add_debug_expression(
+            name="r_P_g", expression=r_P_g
+        )
+        god_map.debug_expression_manager.add_debug_expression(
+            name="r_P_g_rand", expression=r_P_g_rand
+        )
+        god_map.debug_expression_manager.add_debug_expression(
+            name="root_R_hole_normal", expression=root_R_hole_normal
+        )
+        god_map.debug_expression_manager.add_debug_expression(
+            name="tip_R_hole_normal", expression=tip_R_hole_normal
+        )
 
         dist = cas.euclidean_distance(r_P_c, r_P_g)
         end = cas.less_equal(dist, threshold)
@@ -151,17 +177,25 @@ class WiggleInsert(Task):
         now = god_map.time
         if now - self.last_angular_change >= self.dt:
             self.last_angular_change = now
-            random_angular_change = ((random.random() - 0.5) * self.noise_angle) / self.hz
+            random_angular_change = (
+                (random.random() - 0.5) * self.noise_angle
+            ) / self.hz
 
             # Update angular momentum (weighted average of previous momentum and new random change)
-            self.angular_momentum = (self.angular_momentum_factor * self.angular_momentum +
-                                     (1 - self.angular_momentum_factor) * random_angular_change)
+            self.angular_momentum = (
+                self.angular_momentum_factor * self.angular_momentum
+                + (1 - self.angular_momentum_factor) * random_angular_change
+            )
 
             self.current_angle += self.angular_momentum
             angle_diff = self.center_angle - self.current_angle
-            angle_diff = ((angle_diff + np.pi) % (2 * np.pi)) - np.pi  # Normalize angle difference to [-pi, pi] range
+            angle_diff = (
+                (angle_diff + np.pi) % (2 * np.pi)
+            ) - np.pi  # Normalize angle difference to [-pi, pi] range
             self.current_angle += angle_diff * self.center_pull_strength_angle
-            self.current_angle = self.current_angle % (2 * np.pi)  # Normalize current angle to [0, 2pi] range
+            self.current_angle = self.current_angle % (
+                2 * np.pi
+            )  # Normalize current angle to [0, 2pi] range
 
         return self.current_angle
 
@@ -170,9 +204,10 @@ class WiggleInsert(Task):
         if now - self.last_vector_change >= self.dt:
             self.last_vector_change = now
 
-            self.current_vector = (((random.random() - 0.5) * self.noise_translation * self.v1.to_np()
-                                    + (random.random() - 0.5) * self.noise_translation * self.v2.to_np())
-                                   / self.hz)
+            self.current_vector = (
+                (random.random() - 0.5) * self.noise_translation * self.v1.to_np()
+                + (random.random() - 0.5) * self.noise_translation * self.v2.to_np()
+            ) / self.hz
         return self.current_vector
 
     def get_rand_walk_vector(self) -> cas.Vector3:
@@ -180,11 +215,14 @@ class WiggleInsert(Task):
         if now - self.last_vector_change >= self.dt:
             self.last_vector_change = now
 
-            random_vector_change = (((random.random() - 0.5) * self.noise_translation * self.v1.to_np()[:3]
-                                     + (random.random() - 0.5) * self.noise_translation * self.v2.to_np()[:3])
-                                    / self.hz)
-            self.vector_momentum = (self.vector_momentum_factor * self.vector_momentum +
-                                    (1 - self.vector_momentum_factor) * random_vector_change)
+            random_vector_change = (
+                (random.random() - 0.5) * self.noise_translation * self.v1.to_np()[:3]
+                + (random.random() - 0.5) * self.noise_translation * self.v2.to_np()[:3]
+            ) / self.hz
+            self.vector_momentum = (
+                self.vector_momentum_factor * self.vector_momentum
+                + (1 - self.vector_momentum_factor) * random_vector_change
+            )
             self.current_vector += self.vector_momentum
             vector_diff = self.center_vector - self.current_vector
             self.current_vector += vector_diff * self.center_pull_strength_vector

@@ -1,29 +1,38 @@
 from typing import Optional
 
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition, CartesianOrientation
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPosition,
+    CartesianOrientation,
+)
 from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_BELOW_CA
 import semantic_world.spatial_types.spatial_types as cas
 from semantic_world.spatial_types.symbol_manager import symbol_manager
 
 
 class SpiralMixing(Task):
-    def __init__(self, *, name: Optional[str] = None,
-                 end_time: float,
-                 object_name: PrefixedName,
-                 tool_height: float,
-                 tip_link: PrefixedName,
-                 root_link: PrefixedName,
-                 radial_increment: float,
-                 angle_increment: float,
-                 upward_increment: float,
-                 weight: float = WEIGHT_BELOW_CA,
-                 plot: bool = True):
+    def __init__(
+        self,
+        *,
+        name: Optional[str] = None,
+        end_time: float,
+        object_name: PrefixedName,
+        tool_height: float,
+        tip_link: PrefixedName,
+        root_link: PrefixedName,
+        radial_increment: float,
+        angle_increment: float,
+        upward_increment: float,
+        weight: float = WEIGHT_BELOW_CA,
+        plot: bool = True
+    ):
 
         super().__init__(name=name, plot=plot)
 
-        root_T_tip = god_map.world.compose_fk_expression(root_link=root_link, tip_link=tip_link)
+        root_T_tip = god_map.world.compose_fk_expression(
+            root_link=root_link, tip_link=tip_link
+        )
         t = god_map.time_symbol
 
         r = radial_increment * t
@@ -39,19 +48,26 @@ class SpiralMixing(Task):
         object_T_goal.y = y
         object_T_goal.z = z
 
-        root_T_object = god_map.world.compose_fk_expression(root_link=root_link,
-                                                            tip_link=object_name)
+        root_T_object = god_map.world.compose_fk_expression(
+            root_link=root_link, tip_link=object_name
+        )
         root_T_goal = root_T_object.dot(object_T_goal)
         root_T_goal.z += tool_height + 0.05
 
-        self.add_point_goal_constraints(frame_P_current=root_T_tip.to_position(),
-                                        frame_P_goal=root_T_goal.to_position(),
-                                        reference_velocity=CartesianPosition.default_reference_velocity,
-                                        weight=weight)
-        god_map.debug_expression_manager.add_debug_expression('root_T_goal', root_T_goal)
-        self.add_rotation_goal_constraints(frame_R_current=root_T_tip.to_rotation_matrix(),
-                                           frame_R_goal=root_T_goal.to_rotation_matrix(),
-                                           reference_velocity=CartesianOrientation.default_reference_velocity,
-                                           weight=weight)
+        self.add_point_goal_constraints(
+            frame_P_current=root_T_tip.to_position(),
+            frame_P_goal=root_T_goal.to_position(),
+            reference_velocity=CartesianPosition.default_reference_velocity,
+            weight=weight,
+        )
+        god_map.debug_expression_manager.add_debug_expression(
+            "root_T_goal", root_T_goal
+        )
+        self.add_rotation_goal_constraints(
+            frame_R_current=root_T_tip.to_rotation_matrix(),
+            frame_R_goal=root_T_goal.to_rotation_matrix(),
+            reference_velocity=CartesianOrientation.default_reference_velocity,
+            weight=weight,
+        )
 
         self.observation_expression = cas.greater(t, end_time)

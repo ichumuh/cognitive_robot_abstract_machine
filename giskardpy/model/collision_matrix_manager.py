@@ -14,11 +14,11 @@ from giskardpy.data_types.key_default_dict import KeyDefaultDict
 from giskardpy.god_map import god_map
 from giskardpy.qp.free_variable import FreeVariable
 from semantic_world.collision_checking.collision_detector import CollisionCheck
-from semantic_world.connections import ActiveConnection
-from semantic_world.degree_of_freedom import DegreeOfFreedom
+from semantic_world.world_description.connections import ActiveConnection
+from semantic_world.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_world.robots import AbstractRobot
 from semantic_world.world import World
-from semantic_world.world_entity import Body
+from semantic_world.world_description.world_entity import Body
 
 
 @dataclass
@@ -82,6 +82,7 @@ class CollisionMatrixManager:
     """
     Handles all matrix related operations for multiple robots.
     """
+
     world: World
     robots: Set[AbstractRobot]
 
@@ -166,13 +167,18 @@ class CollisionMatrixManager:
             disabled_pairs = self.world.disabled_collision_pairs
             for body1 in view_1_bodies:
                 for body2 in view2_bodies:
-                    collision_check = CollisionCheck(body_a=body1, body_b=body2, distance=0, _world=self.world)
+                    collision_check = CollisionCheck(
+                        body_a=body1, body_b=body2, distance=0, _world=self.world
+                    )
                     (robot_body, env_body) = collision_check.bodies()
                     if (robot_body, env_body) in disabled_pairs:
                         continue
                     if collision_request.distance is None:
-                        distance = max(robot_body.get_collision_config().buffer_zone_distance or 0.0,
-                                       env_body.get_collision_config().buffer_zone_distance or 0.0)
+                        distance = max(
+                            robot_body.get_collision_config().buffer_zone_distance
+                            or 0.0,
+                            env_body.get_collision_config().buffer_zone_distance or 0.0,
+                        )
                     else:
                         distance = collision_request.distance
                     if not collision_request.is_allow_collision():
@@ -220,12 +226,16 @@ class CollisionMatrixManager:
         """
         Tell Giskard to check this collision, even if it got disabled through other means such as allow_all_collisions.
         """
-        check = CollisionCheck.create_and_validate(body_a=body_a, body_b=body_b, distance=distance, world=god_map.world)
+        check = CollisionCheck.create_and_validate(
+            body_a=body_a, body_b=body_b, distance=distance, world=god_map.world
+        )
         if check in self.added_checks:
             raise ValueError(f"Collision check {check} already added")
         self.added_checks.add(check)
 
-    def parse_collision_requests(self, collision_goals: List[CollisionViewRequest]) -> None:
+    def parse_collision_requests(
+        self, collision_goals: List[CollisionViewRequest]
+    ) -> None:
         """
         Resolve an incoming list of collision goals into collision checks.
         1. remove redundancy
@@ -236,11 +246,11 @@ class CollisionMatrixManager:
         for i, collision_goal in enumerate(reversed(collision_goals)):
             if collision_goal.is_avoid_all_collision():
                 # remove everything before the avoid all
-                collision_goals = collision_goals[len(collision_goals) - i - 1:]
+                collision_goals = collision_goals[len(collision_goals) - i - 1 :]
                 break
             if collision_goal.is_allow_all_collision():
                 # remove everything before the allow all, including the allow all
-                collision_goals = collision_goals[len(collision_goals) - i:]
+                collision_goals = collision_goals[len(collision_goals) - i :]
                 break
         else:
             # put an avoid all at the front
@@ -268,7 +278,9 @@ class CollisionMatrixManager:
     #             robot.collision_config.disabled_pairs.update(disabled_pairs)
 
     def get_non_robot_bodies(self) -> Set[Body]:
-        return set(self.world.bodies_with_enabled_collision).difference(self.get_robot_bodies())
+        return set(self.world.bodies_with_enabled_collision).difference(
+            self.get_robot_bodies()
+        )
 
     def get_robot_bodies(self) -> Set[Body]:
         robot_bodies = set()

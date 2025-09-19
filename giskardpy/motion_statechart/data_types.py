@@ -18,10 +18,11 @@ class LifeCycleState(IntEnum):
 
 class FloatEnum(float, Enum):
     """Enum where members are also (and must be) floats"""
+
     pass
 
 
 class ObservationState(FloatEnum):
-    false = cas.TrinaryFalse
-    unknown = cas.TrinaryUnknown
-    true = cas.TrinaryTrue
+    false = cas.TrinaryFalse.to_np()[0]
+    unknown = cas.TrinaryUnknown.to_np()[0]
+    true = cas.TrinaryTrue.to_np()[0]

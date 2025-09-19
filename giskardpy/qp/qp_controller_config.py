@@ -15,7 +15,7 @@ from giskardpy.qp.qp_formulation import QPFormulation
 from giskardpy.qp.solvers.qp_solver import QPSolver
 from giskardpy.qp.solvers.qp_solver_ids import SupportedQPSolver
 from giskardpy.utils.utils import get_all_classes_in_module
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import DerivativeMap
 
 available_solvers: Dict[SupportedQPSolver, Type[QPSolver]] = {}
@@ -25,17 +25,20 @@ def detect_solvers():
     global available_solvers
     qp_solver_class: Type[QPSolver]
     for qp_solver_name in SupportedQPSolver:
-        module_name = f'giskardpy.qp.solvers.qp_solver_{qp_solver_name.name}'
+        module_name = f"giskardpy.qp.solvers.qp_solver_{qp_solver_name.name}"
         try:
-            qp_solver_class = list(get_all_classes_in_module(module_name, QPSolver).items())[0][1]
+            qp_solver_class = list(
+                get_all_classes_in_module(module_name, QPSolver).items()
+            )[0][1]
             available_solvers[qp_solver_name] = qp_solver_class
         except Exception:
             continue
     solver_names = [solver_name.name for solver_name in available_solvers.keys()]
-    print(f'Found these qp solvers: {solver_names}')
+    print(f"Found these qp solvers: {solver_names}")
 
 
 detect_solvers()
+
 
 @dataclass
 class QPControllerConfig:
@@ -45,11 +48,20 @@ class QPControllerConfig:
     """
 
     dof_weights: Dict[PrefixedName, DerivativeMap[float]] = field(
-        default_factory=lambda: defaultdict(lambda: DerivativeMap([None, 0.01, np.inf, None])))
+        default_factory=lambda: defaultdict(
+            lambda: DerivativeMap([None, 0.01, np.inf, None])
+        )
+    )
     dof_lower_limits_overwrite: Dict[PrefixedName, DerivativeMap[float]] = field(
-        default_factory=lambda: defaultdict(lambda: DerivativeMap([None, -1, -np.inf, None])))
+        default_factory=lambda: defaultdict(
+            lambda: DerivativeMap([None, -1, -np.inf, None])
+        )
+    )
     dof_upper_limits_overwrite: Dict[PrefixedName, DerivativeMap[float]] = field(
-        default_factory=lambda: defaultdict(lambda: DerivativeMap([None, 1, np.inf, None])))
+        default_factory=lambda: defaultdict(
+            lambda: DerivativeMap([None, 1, np.inf, None])
+        )
+    )
     max_derivative: Derivatives = field(default=Derivatives.jerk)
     qp_solver_id: Optional[SupportedQPSolver] = field(default=None)
     qp_solver_class: Type[QPSolver] = field(init=False)
@@ -69,7 +81,7 @@ class QPControllerConfig:
             self.max_derivative = Derivatives.velocity
 
         if self.prediction_horizon < 4:
-            raise ValueError('prediction horizon must be >= 4.')
+            raise ValueError("prediction horizon must be >= 4.")
         self.__endless_mode = self.max_trajectory_length is None
         self.set_qp_solver(self.qp_solver_id)
 
@@ -85,11 +97,15 @@ class QPControllerConfig:
                     self.qp_solver_class = available_solvers[solver_id]
                     break
             else:
-                raise QPSolverException(f'No qp solver found')
+                raise QPSolverException(f"No qp solver found")
             self.qp_solver_id = self.qp_solver_class.solver_id
-        get_middleware().loginfo(f'QP Solver set to "{self.qp_solver_class.solver_id.name}"')
+        get_middleware().loginfo(
+            f'QP Solver set to "{self.qp_solver_class.solver_id.name}"'
+        )
 
-    def set_dof_weight(self, dof_name: PrefixedName, derivative: Derivatives, weight: float):
+    def set_dof_weight(
+        self, dof_name: PrefixedName, derivative: Derivatives, weight: float
+    ):
         """Set weight for a specific DOF derivative."""
         self.dof_weights[dof_name].data[derivative] = weight
 

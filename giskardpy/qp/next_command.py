@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, TYPE_CHECKING, Optional, Union
 import numpy as np
 
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.qp.free_variable import FreeVariable
 import giskardpy.utils.math as giskard_math
@@ -26,8 +26,12 @@ def derivative_offset(offset, prediction_horizon, derivative, max_derivative):
 @memoize
 @profile
 def joint_derivative_filter(offset, prediction_horizon, max_derivative):
-    return np.array([derivative_offset(offset, prediction_horizon, derivative, max_derivative)
-                     for derivative in Derivatives.range(Derivatives.velocity, max_derivative)])
+    return np.array(
+        [
+            derivative_offset(offset, prediction_horizon, derivative, max_derivative)
+            for derivative in Derivatives.range(Derivatives.velocity, max_derivative)
+        ]
+    )
 
 
 @dataclass
@@ -38,12 +42,19 @@ class NextCommands:
 
     @classmethod
     @profile
-    def from_xdot(cls, free_variables: List[FreeVariable], xdot: np.ndarray, max_derivative: Derivatives,
-                  prediction_horizon: int) -> NextCommands:
+    def from_xdot(
+        cls,
+        free_variables: List[FreeVariable],
+        xdot: np.ndarray,
+        max_derivative: Derivatives,
+        prediction_horizon: int,
+    ) -> NextCommands:
         self = cls()
         self.free_variable_data = {}
         offset = len(free_variables)
-        joint_derivative_filter_ = joint_derivative_filter(offset, prediction_horizon, max_derivative)
+        joint_derivative_filter_ = joint_derivative_filter(
+            offset, prediction_horizon, max_derivative
+        )
         self.free_variable_data = {
             free_variable.name: xdot[joint_derivative_filter_ + i]
             for i, free_variable in enumerate(free_variables)
@@ -52,32 +63,63 @@ class NextCommands:
 
     @classmethod
     @profile
-    def from_xdot_implicit(cls, free_variables: List[FreeVariable], xdot: np.ndarray, max_derivative: Derivatives,
-                  prediction_horizon: int, world: World, dt: float) -> NextCommands:
+    def from_xdot_implicit(
+        cls,
+        free_variables: List[FreeVariable],
+        xdot: np.ndarray,
+        max_derivative: Derivatives,
+        prediction_horizon: int,
+        world: World,
+        dt: float,
+    ) -> NextCommands:
         self = cls()
         self.free_variable_data = {}
         offset = len(free_variables)
-        last_state = np.array([world.state[v.name].data[1:max_derivative+1] for v in free_variables])
-        joint_derivative_filter_ = joint_derivative_filter(offset, prediction_horizon, Derivatives.velocity)
+        last_state = np.array(
+            [world.state[v.name].data[1 : max_derivative + 1] for v in free_variables]
+        )
+        joint_derivative_filter_ = joint_derivative_filter(
+            offset, prediction_horizon, Derivatives.velocity
+        )
         self.free_variable_data = {
-            free_variable.name: [float(xdot[joint_derivative_filter_ + i]),
-                                 float(xdot[joint_derivative_filter_ + i])/dt-last_state[i][0]/dt ,
-                                 float(xdot[joint_derivative_filter_ + i])/dt**2-last_state[i][0]/dt**2-last_state[i][1]/dt ] for i, free_variable in enumerate(free_variables)
+            free_variable.name: [
+                float(xdot[joint_derivative_filter_ + i]),
+                float(xdot[joint_derivative_filter_ + i]) / dt - last_state[i][0] / dt,
+                float(xdot[joint_derivative_filter_ + i]) / dt**2
+                - last_state[i][0] / dt**2
+                - last_state[i][1] / dt,
+            ]
+            for i, free_variable in enumerate(free_variables)
         }
         return self
 
     @classmethod
     @profile
-    def from_xdot_explicit_no_acc(cls, free_variables: List[FreeVariable], xdot: np.ndarray, max_derivative: Derivatives,
-                  prediction_horizon: int, world: World, dt: float) -> NextCommands:
+    def from_xdot_explicit_no_acc(
+        cls,
+        free_variables: List[FreeVariable],
+        xdot: np.ndarray,
+        max_derivative: Derivatives,
+        prediction_horizon: int,
+        world: World,
+        dt: float,
+    ) -> NextCommands:
         self = cls()
         self.free_variable_data = {}
         offset = len(free_variables)
-        last_state = np.array([world.state[v.name].data[1:max_derivative+1] for v in free_variables])
-        joint_derivative_filter_ = joint_derivative_filter(offset, prediction_horizon, Derivatives.jerk)[:2]
+        last_state = np.array(
+            [world.state[v.name].data[1 : max_derivative + 1] for v in free_variables]
+        )
+        joint_derivative_filter_ = joint_derivative_filter(
+            offset, prediction_horizon, Derivatives.jerk
+        )[:2]
         self.free_variable_data = {
-            free_variable.name: [float(xdot[joint_derivative_filter_ + i][0]),
-                                 float(xdot[joint_derivative_filter_ + i][0])/dt-last_state[i][0]/dt,
-                                 float(xdot[joint_derivative_filter_ + i][1])] for i, free_variable in enumerate(free_variables)
+            free_variable.name: [
+                float(xdot[joint_derivative_filter_ + i][0]),
+                float(xdot[joint_derivative_filter_ + i][0]) / dt
+                - last_state[i][0] / dt,
+                float(xdot[joint_derivative_filter_ + i][1]),
+            ]
+            for i, free_variable in enumerate(free_variables)
         }
         return self

@@ -7,11 +7,11 @@ from line_profiler import profile
 import semantic_world.spatial_types.spatial_types as cas
 from giskardpy.middleware import get_middleware
 from giskardpy.model.trajectory import Trajectory
-from semantic_world.geometry import Color
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.world_description.geometry import Color
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.spatial_types.symbol_manager import symbol_manager
-from semantic_world.world_state import WorldState
+from semantic_world.world_description.world_state import WorldState
 
 
 class DebugExpressionManager:
@@ -29,9 +29,14 @@ class DebugExpressionManager:
         self.compiled_debug_expressions = {}
         self.evaluated_debug_expressions = {}
 
-    def add_debug_expression(self, name: str, expression: cas.Expression, color: Optional[Color] = None,
-                             derivative: Derivatives = Derivatives.position,
-                             derivatives_to_plot: Optional[List[Derivatives]] = None):
+    def add_debug_expression(
+        self,
+        name: str,
+        expression: cas.Expression,
+        color: Optional[Color] = None,
+        derivative: Derivatives = Derivatives.position,
+        derivatives_to_plot: Optional[List[Derivatives]] = None,
+    ):
         if derivatives_to_plot is None:
             derivatives_to_plot = [derivative]
         if isinstance(expression, (int, float)):
@@ -40,7 +45,7 @@ class DebugExpressionManager:
             expression.color = color
         expression.debug_derivative = derivative
         expression.debug_derivatives_to_plot = derivatives_to_plot
-        self.debug_expressions[PrefixedName(name, prefix='')] = expression
+        self.debug_expressions[PrefixedName(name, prefix="")] = expression
 
     def compile_debug_expressions(self):
         for name, expr in self.debug_expressions.items():
@@ -55,7 +60,9 @@ class DebugExpressionManager:
             self.compiled_debug_expressions[name] = expr.compile(free_symbols)
         num_debug_expressions = len(self.compiled_debug_expressions)
         if num_debug_expressions > 0:
-            get_middleware().loginfo(f'Compiled {len(self.compiled_debug_expressions)} debug expressions.')
+            get_middleware().loginfo(
+                f"Compiled {len(self.compiled_debug_expressions)} debug expressions."
+            )
 
     @profile
     def eval_debug_expressions(self, log_traj: bool = True):  # renamed
@@ -73,7 +80,9 @@ class DebugExpressionManager:
 
     def raw_traj_to_traj(self, control_dt: float) -> Trajectory:
         debug_trajectory = Trajectory()
-        for control_cycle_counter, evaluated_debug_expressions in enumerate(self._raw_debug_trajectory):
+        for control_cycle_counter, evaluated_debug_expressions in enumerate(
+            self._raw_debug_trajectory
+        ):
             if control_cycle_counter >= 1:
                 last_mjs = debug_trajectory[control_cycle_counter - 1]
                 js = deepcopy(last_mjs)
@@ -85,21 +94,42 @@ class DebugExpressionManager:
                     if len(value.shape) == 2:
                         for x in range(value.shape[0]):
                             for y in range(value.shape[1]):
-                                tmp_name = f'{name}|{x}_{y}'
-                                self.evaluated_expr_to_js(tmp_name, last_mjs, js, float(value[x, y]), control_dt,
-                                                          self.debug_expressions[name].debug_derivative,
-                                                          control_cycle_counter)
+                                tmp_name = f"{name}|{x}_{y}"
+                                self.evaluated_expr_to_js(
+                                    tmp_name,
+                                    last_mjs,
+                                    js,
+                                    float(value[x, y]),
+                                    control_dt,
+                                    self.debug_expressions[name].debug_derivative,
+                                    control_cycle_counter,
+                                )
                     else:
                         for x in range(value.shape[0]):
-                            tmp_name = f'{name}|{x}'
-                            self.evaluated_expr_to_js(tmp_name, last_mjs, js, float(value[x]), control_dt,
-                                                      self.debug_expressions[name].debug_derivative,
-                                                      control_cycle_counter)
+                            tmp_name = f"{name}|{x}"
+                            self.evaluated_expr_to_js(
+                                tmp_name,
+                                last_mjs,
+                                js,
+                                float(value[x]),
+                                control_dt,
+                                self.debug_expressions[name].debug_derivative,
+                                control_cycle_counter,
+                            )
                 else:
-                    self.evaluated_expr_to_js(name, last_mjs, js, float(value), control_dt,
-                                              self.debug_expressions[name].debug_derivative, control_cycle_counter)
+                    self.evaluated_expr_to_js(
+                        name,
+                        last_mjs,
+                        js,
+                        float(value),
+                        control_dt,
+                        self.debug_expressions[name].debug_derivative,
+                        control_cycle_counter,
+                    )
             debug_trajectory.append(js)
-        for control_cycle_counter, evaluated_debug_expressions in enumerate(self._raw_debug_trajectory):
+        for control_cycle_counter, evaluated_debug_expressions in enumerate(
+            self._raw_debug_trajectory
+        ):
             js = debug_trajectory[control_cycle_counter]
             for name in self.debug_expressions:
                 for d in Derivatives.range(Derivatives.position, Derivatives.jerk):
@@ -108,11 +138,19 @@ class DebugExpressionManager:
 
         return debug_trajectory
 
-    def evaluated_expr_to_js(self, name: Union[PrefixedName, str], last_js: WorldState, next_js: WorldState, value: float,
-                             dt:float, derivative: Derivatives, control_cycle_counter: int):
+    def evaluated_expr_to_js(
+        self,
+        name: Union[PrefixedName, str],
+        last_js: WorldState,
+        next_js: WorldState,
+        value: float,
+        dt: float,
+        derivative: Derivatives,
+        control_cycle_counter: int,
+    ):
         next_js[name][derivative] = value
 
-        for i in range(derivative + 1, 4 + min(control_cycle_counter-3, 0)):
+        for i in range(derivative + 1, 4 + min(control_cycle_counter - 3, 0)):
             next_js[name][i] = (next_js[name][i - 1] - last_js[name][i - 1]) / dt
 
         for i in range(derivative - 1, -1, -1):
@@ -120,14 +158,17 @@ class DebugExpressionManager:
 
     def to_pandas(self):
         import pandas as pd
+
         p_debug = {}
         for name, value in self.evaluated_debug_expressions.items():
             if isinstance(value, np.ndarray):
                 if len(value.shape) == 2:
-                    p_debug[str(name)] = value.reshape((value.shape[0] * value.shape[1]))
+                    p_debug[str(name)] = value.reshape(
+                        (value.shape[0] * value.shape[1])
+                    )
                 else:
                     p_debug[str(name)] = value
             else:
                 p_debug[str(name)] = np.array(value)
-        self.p_debug = pd.DataFrame.from_dict(p_debug, orient='index').sort_index()
+        self.p_debug = pd.DataFrame.from_dict(p_debug, orient="index").sort_index()
         return self.p_debug

@@ -9,12 +9,12 @@ import numpy as np
 
 from giskardpy.model.utils import robot_name_from_urdf_string
 from semantic_world.adapters.urdf import URDFParser
-from semantic_world.connections import Connection6DoF, OmniDrive
-from semantic_world.geometry import Color
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.world_description.connections import Connection6DoF, OmniDrive
+from semantic_world.world_description.geometry import Color
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.world import World
-from semantic_world.world_entity import Body
+from semantic_world.world_description.world_entity import Body
 
 
 @dataclass
@@ -44,21 +44,23 @@ class EmptyWorld(WorldConfig):
         #     Derivatives.jerk: None
         # }
         # self.set_default_limits(self._default_limits)
-        self.add_empty_link(PrefixedName('map'))
+        self.add_empty_link(PrefixedName("map"))
 
 
 class WorldWithFixedRobot(WorldConfig):
-    def __init__(self,
-                 urdf: str,
-                 map_name: str = 'map'):
+    def __init__(self, urdf: str, map_name: str = "map"):
         super().__init__()
         self.urdf = urdf
         self.map_name = PrefixedName(map_name)
 
     def setup_world(self, robot_name: Optional[str] = None) -> None:
-        self.set_default_limits({Derivatives.velocity: 1,
-                                 Derivatives.acceleration: np.inf,
-                                 Derivatives.jerk: None})
+        self.set_default_limits(
+            {
+                Derivatives.velocity: 1,
+                Derivatives.acceleration: np.inf,
+                Derivatives.jerk: None,
+            }
+        )
         self.add_empty_link(self.map_name)
         self.add_robot_urdf(self.urdf, robot_name)
         root_link_name = self.get_root_link_of_group(self.robot_group_name)
@@ -68,9 +70,9 @@ class WorldWithFixedRobot(WorldConfig):
 @dataclass
 class WorldWithOmniDriveRobot(WorldConfig):
     urdf: str = field(kw_only=True)
-    root_name: PrefixedName = field(default=PrefixedName('map'))
-    robot_name: PrefixedName = field(default=PrefixedName('robot'))
-    odom_body_name: PrefixedName = field(default=PrefixedName('odom'))
+    root_name: PrefixedName = field(default=PrefixedName("map"))
+    robot_name: PrefixedName = field(default=PrefixedName("robot"))
+    odom_body_name: PrefixedName = field(default=PrefixedName("odom"))
 
     def setup_world(self):
         map = Body(name=self.root_name)
@@ -81,12 +83,16 @@ class WorldWithOmniDriveRobot(WorldConfig):
         urdf_parser = URDFParser(urdf=self.urdf)
         world_with_robot = urdf_parser.parse()
 
-        odom = OmniDrive(parent=odom, child=world_with_robot.root,
-                         translation_velocity_limits=0.2,
-                         rotation_velocity_limits=0.2,
-                         _world=self.world)
+        odom = OmniDrive(
+            parent=odom,
+            child=world_with_robot.root,
+            translation_velocity_limits=0.2,
+            rotation_velocity_limits=0.2,
+            _world=self.world,
+        )
 
         self.world.merge_world(world_with_robot, odom)
+
 
 class WorldWithDiffDriveRobot(WorldConfig):
     map_name: str
@@ -94,12 +100,14 @@ class WorldWithDiffDriveRobot(WorldConfig):
     odom_link_name: str
     drive_joint_name: str
 
-    def __init__(self,
-                 urdf: str,
-                 map_name: str = 'map',
-                 localization_joint_name: str = 'localization',
-                 odom_link_name: str = 'odom',
-                 drive_joint_name: str = 'brumbrum'):
+    def __init__(
+        self,
+        urdf: str,
+        map_name: str = "map",
+        localization_joint_name: str = "localization",
+        odom_link_name: str = "odom",
+        drive_joint_name: str = "brumbrum",
+    ):
         super().__init__()
         self.urdf = urdf
         self.map_name = map_name
@@ -108,26 +116,35 @@ class WorldWithDiffDriveRobot(WorldConfig):
         self.drive_joint_name = drive_joint_name
 
     def setup_world(self):
-        self.set_default_limits({Derivatives.velocity: 1,
-                                 Derivatives.acceleration: np.inf,
-                                 Derivatives.jerk: None})
+        self.set_default_limits(
+            {
+                Derivatives.velocity: 1,
+                Derivatives.acceleration: np.inf,
+                Derivatives.jerk: None,
+            }
+        )
         self.add_empty_link(PrefixedName(self.map_name))
         self.add_empty_link(PrefixedName(self.odom_link_name))
-        self.add_6dof_joint(parent_link=self.map_name, child_link=self.odom_link_name,
-                            joint_name=self.localization_joint_name)
+        self.add_6dof_joint(
+            parent_link=self.map_name,
+            child_link=self.odom_link_name,
+            joint_name=self.localization_joint_name,
+        )
         self.add_robot_urdf(urdf=self.urdf)
         root_link_name = self.get_root_link_of_group(self.robot_group_name)
-        self.add_diff_drive_joint(name=self.drive_joint_name,
-                                  parent_link_name=self.odom_link_name,
-                                  child_link_name=root_link_name,
-                                  translation_limits={
-                                      Derivatives.velocity: 0.2,
-                                      Derivatives.acceleration: np.inf,
-                                      Derivatives.jerk: None
-                                  },
-                                  rotation_limits={
-                                      Derivatives.velocity: 0.2,
-                                      Derivatives.acceleration: np.inf,
-                                      Derivatives.jerk: None
-                                  },
-                                  robot_group_name=self.robot_group_name)
+        self.add_diff_drive_joint(
+            name=self.drive_joint_name,
+            parent_link_name=self.odom_link_name,
+            child_link_name=root_link_name,
+            translation_limits={
+                Derivatives.velocity: 0.2,
+                Derivatives.acceleration: np.inf,
+                Derivatives.jerk: None,
+            },
+            rotation_limits={
+                Derivatives.velocity: 0.2,
+                Derivatives.acceleration: np.inf,
+                Derivatives.jerk: None,
+            },
+            robot_group_name=self.robot_group_name,
+        )

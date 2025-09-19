@@ -2,7 +2,7 @@ from __future__ import division
 
 from typing import Optional
 
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from giskardpy.motion_statechart.goals.goal import Goal
 from giskardpy.motion_statechart.monitors.monitors import TrueMonitor, CancelMotion
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose

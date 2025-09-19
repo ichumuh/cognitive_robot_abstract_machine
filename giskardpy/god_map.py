@@ -4,18 +4,23 @@ from typing import TYPE_CHECKING, List, Dict, Tuple
 
 from giskardpy.middleware import get_middleware
 from giskardpy.utils.utils import create_path
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.symbol_manager import symbol_manager
 
 if TYPE_CHECKING:
-    from semantic_world.degree_of_freedom import DegreeOfFreedom
+    from semantic_world.world_description.degree_of_freedom import DegreeOfFreedom
     from semantic_world.world import World
     from giskardpy.qp.next_command import NextCommands
     from giskardpy.model.trajectory import Trajectory
     from giskardpy.qp.qp_controller import QPController
-    from giskardpy.motion_statechart.motion_statechart_manager import MotionStatechartManager
+    from giskardpy.motion_statechart.motion_statechart_manager import (
+        MotionStatechartManager,
+    )
     from giskardpy.debug_expression_manager import DebugExpressionManager
-    from giskardpy.model.collision_world_syncer import CollisionWorldSynchronizer, Collisions
+    from giskardpy.model.collision_world_syncer import (
+        CollisionWorldSynchronizer,
+        Collisions,
+    )
     import semantic_world.spatial_types.spatial_types as cas
 
 
@@ -46,22 +51,29 @@ class GodMap:
 
     def __getattr__(self, item):
         # automatically initialize certain attributes
-        if item == 'world':
+        if item == "world":
             from semantic_world.world import World
+
             self.world = World()
-        elif item == 'motion_statechart_manager':
-            from giskardpy.motion_statechart.motion_statechart_manager import MotionStatechartManager
+        elif item == "motion_statechart_manager":
+            from giskardpy.motion_statechart.motion_statechart_manager import (
+                MotionStatechartManager,
+            )
+
             self.motion_statechart_manager = MotionStatechartManager()
-        elif item == 'debug_expression_manager':
+        elif item == "debug_expression_manager":
             from giskardpy.debug_expression_manager import DebugExpressionManager
+
             self.debug_expression_manager = DebugExpressionManager()
-        elif item == 'time_symbol':
-            self.time_symbol = symbol_manager.register_symbol_provider('time', lambda: self.time)
+        elif item == "time_symbol":
+            self.time_symbol = symbol_manager.register_symbol_provider(
+                "time", lambda: self.time
+            )
         return super().__getattribute__(item)
 
     def to_tmp_path(self, file_name: str) -> str:
         path = god_map.tmp_folder
-        return get_middleware().resolve_iri(f'{path}{file_name}')
+        return get_middleware().resolve_iri(f"{path}{file_name}")
 
     def write_to_tmp(self, file_name: str, file_str: str) -> str:
         """
@@ -72,14 +84,14 @@ class GodMap:
         """
         new_path = self.to_tmp_path(file_name)
         create_path(new_path)
-        with open(new_path, 'w') as f:
+        with open(new_path, "w") as f:
             f.write(file_str)
         return new_path
 
     def load_from_tmp(self, file_name: str):
         new_path = self.to_tmp_path(file_name)
         create_path(new_path)
-        with open(new_path, 'r') as f:
+        with open(new_path, "r") as f:
             loaded_file = f.read()
         return loaded_file
 

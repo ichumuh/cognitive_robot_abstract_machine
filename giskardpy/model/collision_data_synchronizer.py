@@ -6,7 +6,17 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import product, combinations_with_replacement
-from typing import List, Dict, Optional, Tuple, Iterable, Set, DefaultDict, Callable, TYPE_CHECKING
+from typing import (
+    List,
+    Dict,
+    Optional,
+    Tuple,
+    Iterable,
+    Set,
+    DefaultDict,
+    Callable,
+    TYPE_CHECKING,
+)
 
 import numpy as np
 from line_profiler import profile
@@ -20,7 +30,7 @@ from giskardpy.model.collision_data_synchronizer import CollisionDataSynchronize
 from giskardpy.model.collision_detector import CollisionDetector
 from giskardpy.model.collision_matrix_manager import CollisionMatrixManager
 from giskardpy.qp.free_variable import FreeVariable
-from semantic_world.connections import ActiveConnection
+from semantic_world.world_description.connections import ActiveConnection
 from semantic_world.robots import AbstractRobot
 from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.spatial_types.symbol_manager import symbol_manager
@@ -34,4 +44,3 @@ class CollisionDataSynchronizer:
     """
 
     closest_points: Collisions = field(default_factory=Collisions)
-

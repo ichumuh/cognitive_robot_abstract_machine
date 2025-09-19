@@ -5,8 +5,8 @@ from typing import Optional, List
 import numpy as np
 
 import semantic_world.spatial_types.spatial_types as cas
-from semantic_world.connections import OmniDrive
-from semantic_world.prefixed_name import PrefixedName
+from semantic_world.world_description.connections import OmniDrive
+from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.motion_statechart.goals.goal import Goal
 from giskardpy.god_map import god_map

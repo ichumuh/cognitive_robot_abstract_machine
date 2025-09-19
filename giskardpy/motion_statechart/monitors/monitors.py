@@ -100,9 +100,9 @@ class LocalMinimumReached(Monitor):
         ref = cas.Expression(ref)
         vel_symbols = cas.Expression(symbols)
 
-        traj_longer_than_1_sec = cas.greater(god_map.time_symbol, 1)
+        traj_longer_than_1_sec = god_map.time_symbol > 1
         self.observation_expression = cas.logic_and(traj_longer_than_1_sec,
-                                                    cas.logic_all(cas.less(vel_symbols, ref)))
+                                                    cas.logic_all(vel_symbols < ref))
 
 
 @dataclass
@@ -111,7 +111,7 @@ class TimeAbove(Monitor):
 
     def __post_init__(self):
         traj_length_in_sec = god_map.time_symbol
-        condition = cas.greater(traj_length_in_sec, self.threshold)
+        condition = traj_length_in_sec > self.threshold
         self.observation_expression = condition
 
 
@@ -124,7 +124,7 @@ class Alternator(Monitor):
         super().__init__(name=name,
                          plot=plot)
         time = god_map.time_symbol
-        expr = cas.equal(cas.fmod(cas.floor(time), mod), 0)
+        expr = cas.fmod(cas.floor(time), mod) == 0
         self.observation_expression = expr
 
 

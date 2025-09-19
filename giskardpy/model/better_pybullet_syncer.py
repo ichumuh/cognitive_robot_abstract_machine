@@ -8,9 +8,12 @@ from giskardpy.god_map import god_map
 from giskardpy.middleware import get_middleware
 from giskardpy.model.bpb_wrapper import create_shape_from_link, create_collision
 from giskardpy.model.collisions import GiskardCollision
-from semantic_world.collision_checking.collision_detector import CollisionDetector, CollisionCheck
-from semantic_world.prefixed_name import PrefixedName
-from semantic_world.world_entity import Body
+from semantic_world.collision_checking.collision_detector import (
+    CollisionDetector,
+    CollisionCheck,
+)
+from semantic_world.datastructures.prefixed_name import PrefixedName
+from semantic_world.world_description.world_entity import Body
 
 
 @dataclass
@@ -19,7 +22,9 @@ class BulletCollisionDetector(CollisionDetector):
     def __post_init__(self):
         self.kw = bpb.KineverseWorld()
         self.body_to_bpb_obj: Dict[Body, bpb.CollisionObject] = {}
-        self.query: Optional[DefaultDict[PrefixedName, Set[Tuple[bpb.CollisionObject, float]]]] = None
+        self.query: Optional[
+            DefaultDict[PrefixedName, Set[Tuple[bpb.CollisionObject, float]]]
+        ] = None
 
     @profile
     def add_object(self, body: Body):
@@ -33,18 +38,25 @@ class BulletCollisionDetector(CollisionDetector):
         self.query = None
 
     @profile
-    def cut_off_distances_to_query(self, collision_matrix: Set[CollisionCheck],
-                                   buffer: float = 0.05) -> DefaultDict[
-        PrefixedName, Set[Tuple[bpb.CollisionObject, float]]]:
+    def cut_off_distances_to_query(
+        self, collision_matrix: Set[CollisionCheck], buffer: float = 0.05
+    ) -> DefaultDict[PrefixedName, Set[Tuple[bpb.CollisionObject, float]]]:
         if self.query is None:
-            self.query = {(self.body_to_bpb_obj[check.body_a],
-                           self.body_to_bpb_obj[check.body_b]): check.distance + buffer for check in
-                          collision_matrix}
+            self.query = {
+                (
+                    self.body_to_bpb_obj[check.body_a],
+                    self.body_to_bpb_obj[check.body_b],
+                ): check.distance
+                + buffer
+                for check in collision_matrix
+            }
         return self.query
 
-    def check_collisions(self,
-                         collision_matrix: Optional[Set[CollisionCheck]] = None,
-                         buffer: float = 0.05) -> List[GiskardCollision]:
+    def check_collisions(
+        self,
+        collision_matrix: Optional[Set[CollisionCheck]] = None,
+        buffer: float = 0.05,
+    ) -> List[GiskardCollision]:
 
         query = self.cut_off_distances_to_query(collision_matrix, buffer=buffer)
         result: List[bpb.Collision] = self.kw.get_closest_filtered_map_batch(query)
@@ -79,19 +91,23 @@ class BulletCollisionDetector(CollisionDetector):
 
     def sync_world_model(self) -> None:
         self.reset_cache()
-        get_middleware().logdebug('hard sync')
+        get_middleware().logdebug("hard sync")
         for o in self.kw.collision_objects:
             self.kw.remove_collision_object(o)
         self.body_to_bpb_obj = {}
         self.objects_in_order = []
 
-        for body in sorted(god_map.world.bodies_with_enabled_collision, key=lambda b: b.name):
+        for body in sorted(
+            god_map.world.bodies_with_enabled_collision, key=lambda b: b.name
+        ):
             self.add_object(body)
             self.objects_in_order.append(self.body_to_bpb_obj[body])
 
     def sync_world_state(self) -> None:
-        bpb.batch_set_transforms(self.objects_in_order,
-                                 god_map.world.compute_forward_kinematics_of_all_collision_bodies())
+        bpb.batch_set_transforms(
+            self.objects_in_order,
+            god_map.world.compute_forward_kinematics_of_all_collision_bodies(),
+        )
 
     @profile
     def get_map_T_geometry(self, body: Body, collision_id: int = 0):
