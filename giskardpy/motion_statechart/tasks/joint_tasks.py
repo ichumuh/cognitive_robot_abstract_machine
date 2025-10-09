@@ -336,11 +336,11 @@ class JointVelocity(Task):
 
 @dataclass
 class UnlimitedJointGoal(Task):
-    connection: ActiveConnection
+    connection: ActiveConnection1DOF
     goal_position: float
 
     def __post_init__(self):
-        connection_symbol = self.connection.origin_as_position_quaternion()
+        connection_symbol = self.connection.dof.symbols.position
         self.add_position_constraint(
             expr_current=connection_symbol,
             expr_goal=self.goal_position,
