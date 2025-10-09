@@ -297,7 +297,7 @@ class Collisions:
         def is_joint_movable(connection: ActiveConnection):
             return (
                 isinstance(connection, ActiveConnection)
-                and connection.is_controlled
+                and connection.has_hardware_interface
                 and not connection.frozen_for_collision_avoidance
             )
 
