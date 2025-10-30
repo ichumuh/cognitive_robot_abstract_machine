@@ -238,3 +238,79 @@ def test_joint_goal():
     assert msg.observation_state[end] == msg.observation_state.TrinaryTrue
     assert msg.life_cycle_state[task1] == msg.life_cycle_state.RUNNING
     assert msg.life_cycle_state[end] == msg.life_cycle_state.RUNNING
+
+
+def test_reset():
+    msg = MotionStatechart(World())
+    node1 = TrueMonitor(name=PrefixedName("muh"), motion_statechart=msg)
+    node2 = TrueMonitor(name=PrefixedName("muh2"), motion_statechart=msg)
+    node3 = TrueMonitor(name=PrefixedName("muh3"), motion_statechart=msg)
+    end = EndMotion(name=PrefixedName("done"), motion_statechart=msg)
+    node1.reset_condition = node2
+    node2.start_condition = node1
+    node3.start_condition = node2
+    node2.end_condition = node2
+    end.start_condition = cas.trinary_logic_and(node1, node2, node3)
+
+    msg.compile()
+
+    msg.tick()
+    assert msg.observation_state[node1] == msg.observation_state.TrinaryUnknown
+    assert msg.observation_state[node2] == msg.observation_state.TrinaryUnknown
+    assert msg.observation_state[end] == msg.observation_state.TrinaryUnknown
+    assert msg.life_cycle_state[node1] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[node2] == msg.life_cycle_state.NOT_STARTED
+    assert msg.life_cycle_state[end] == msg.life_cycle_state.NOT_STARTED
+    assert not msg.is_end_motion()
+
+    msg.tick()
+    assert msg.observation_state[node1] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[node2] == msg.observation_state.TrinaryUnknown
+    assert msg.observation_state[end] == msg.observation_state.TrinaryUnknown
+    assert msg.life_cycle_state[node1] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[node2] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[end] == msg.life_cycle_state.NOT_STARTED
+    assert not msg.is_end_motion()
+
+    msg.tick()
+    assert msg.observation_state[node1] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[node2] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[end] == msg.observation_state.TrinaryUnknown
+    assert msg.life_cycle_state[node1] == msg.life_cycle_state.NOT_STARTED
+    assert msg.life_cycle_state[node2] == msg.life_cycle_state.DONE
+    assert msg.life_cycle_state[node3] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[end] == msg.life_cycle_state.NOT_STARTED
+    assert not msg.is_end_motion()
+
+    msg.tick()
+    assert msg.observation_state[node1] == msg.observation_state.TrinaryUnknown
+    assert msg.observation_state[node2] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[node3] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[end] == msg.observation_state.TrinaryUnknown
+    assert msg.life_cycle_state[node1] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[node2] == msg.life_cycle_state.DONE
+    assert msg.life_cycle_state[node3] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[end] == msg.life_cycle_state.NOT_STARTED
+    assert not msg.is_end_motion()
+
+    msg.tick()
+    assert msg.observation_state[node1] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[node2] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[node3] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[end] == msg.observation_state.TrinaryUnknown
+    assert msg.life_cycle_state[node1] == msg.life_cycle_state.NOT_STARTED
+    assert msg.life_cycle_state[node2] == msg.life_cycle_state.DONE
+    assert msg.life_cycle_state[node3] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[end] == msg.life_cycle_state.RUNNING
+    assert not msg.is_end_motion()
+
+    msg.tick()
+    assert msg.observation_state[node1] == msg.observation_state.TrinaryUnknown
+    assert msg.observation_state[node2] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[node3] == msg.observation_state.TrinaryTrue
+    assert msg.observation_state[end] == msg.observation_state.TrinaryTrue
+    assert msg.life_cycle_state[node1] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[node2] == msg.life_cycle_state.DONE
+    assert msg.life_cycle_state[node3] == msg.life_cycle_state.RUNNING
+    assert msg.life_cycle_state[end] == msg.life_cycle_state.RUNNING
+    assert msg.is_end_motion()
