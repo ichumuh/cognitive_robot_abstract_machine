@@ -18,7 +18,8 @@ from typing_extensions import (
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.motion_statechart.data_types import LifeCycleValues
-from giskardpy.qp.constraint import Constraint
+from giskardpy.qp.constraint import BaseConstraint
+from giskardpy.qp.constraint_factory import ConstraintCollection
 from giskardpy.utils.utils import string_shortener
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
@@ -199,11 +200,11 @@ class MotionStatechartNode(SubclassJSONSerializer):
         Use this to create attributes that are used in both methods.
         """
 
-    def create_constraints(self) -> List[Constraint]:
+    def create_constraints(self) -> ConstraintCollection:
         """
         Create and return a list of motion constraints that will be active, while this node is active.
         """
-        return []
+        return ConstraintCollection()
 
     def create_observation_expression(self) -> cas.Expression:
         """

@@ -6,7 +6,8 @@ from giskardpy.data_types.exceptions import GoalInitalizationException
 from giskardpy.god_map import god_map
 from giskardpy.motion_statechart.monitors.joint_monitors import JointGoalReached
 from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_BELOW_CA
-from giskardpy.qp.constraint import Constraint
+from giskardpy.qp.constraint import BaseConstraint
+from giskardpy.qp.constraint_factory import ConstraintCollection
 from giskardpy.utils.decorators import validated_dataclass
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
@@ -46,9 +47,10 @@ class JointPositionList(Task):
                 error = cas.shortest_angular_distance(current, target)
             else:
                 error = target - current
+            self._constraints = ConstraintCollection()
 
-            self.add_equality_constraint(
-                name=f"{self.name}/{connection.name}",
+            self._constraints.add_equality_constraint(
+                name=PrefixedName(str(connection.name), str(self.name)),
                 reference_velocity=velocity,
                 equality_bound=error,
                 weight=self.weight,
@@ -56,8 +58,8 @@ class JointPositionList(Task):
             )
             self.errors.append(cas.abs(error) < self.threshold)
 
-    def create_constraints(self) -> List[Constraint]:
-        return []
+    def create_constraints(self) -> ConstraintCollection:
+        return self._constraints
 
     def create_observation_expression(self) -> cas.Expression:
         return cas.logic_all(cas.Expression(self.errors))

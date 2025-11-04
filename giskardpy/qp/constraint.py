@@ -1,170 +1,133 @@
-from collections import namedtuple
-from copy import copy
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 
-DebugConstraint = namedtuple("debug", ["expr"])
-
 
 @dataclass
-class Constraint:
-    constraint_name: str
-    parent_task_name: str
+class BaseConstraint:
+    """
+    Defines a (slack-relaxed) constraint on expression for a quadratic program.
+    """
 
-    @property
-    def name(self) -> str:
-        return str(PrefixedName(self.constraint_name, self.parent_task_name))
+    name: PrefixedName
 
-
-@dataclass
-class InequalityConstraint(Constraint):
     expression: cas.SymbolicScalar
 
-    velocity_limit: float
     quadratic_weight: cas.ScalarData
 
-    lower_error: cas.ScalarData = -1e4
-    upper_error: cas.ScalarData = 1e4
+    linear_weight: cas.ScalarData
 
-    lower_slack_limit: cas.ScalarData = -1e4
-    upper_slack_limit: cas.ScalarData = 1e4
 
-    linear_weight: cas.ScalarData = 0
-
-    def __copy__(self):
-        return InequalityConstraint(
-            constraint_name=self.constraint_name,
-            parent_task_name=self.parent_task_name,
-            expression=copy(self.expression),
-            lower_error=copy(self.lower_error),
-            upper_error=copy(self.upper_error),
-            velocity_limit=self.velocity_limit,
-            quadratic_weight=self.quadratic_weight,
-            linear_weight=self.linear_weight,
-            lower_slack_limit=copy(self.lower_slack_limit),
-            upper_slack_limit=copy(self.upper_slack_limit),
-        )
+@dataclass
+class IntegralConstraint(BaseConstraint):
+    normalization_factor: cas.ScalarData
+    """
+    This value is important to make constraints with different units comparable.
+    The meaning depends on derivative.
+    If the derivative is position, the normalization factor is rough velocity with which the expression can change.
+    For example:
+        - If you have a joint position constraint, the normalization factor should be the joint velocity limit.
+        - If you have a cartesian position constraint, the normalization factor should be the cartesian velocity limit.
+    In practice, use joint limits from the URDF for joint space constraints and define two values for cartesian constraints:
+        - a m/s limit for translation
+        - a rad/s value for rotation
+    """
 
     def normalized_weight(self, control_horizon: int) -> cas.Expression:
-        weight_normalized = self.quadratic_weight * (
-            1 / (self.velocity_limit**2 * control_horizon)
+        return self.quadratic_weight * (
+            1 / (self.normalization_factor**2 * control_horizon)
         )
-        return weight_normalized
+
+    def _apply_cap(
+        self, value: cas.Expression, dt: float, control_horizon: int
+    ) -> cas.Expression:
+        return cas.limit(
+            value,
+            -self.normalization_factor * dt * control_horizon,
+            self.normalization_factor * dt * control_horizon,
+        )
+
+
+@dataclass
+class InequalityConstraint(IntegralConstraint):
+    """
+    Adds
+    capped_lower_error(lower_error) <= expression * control_horizon + slack <= capped_upper_error(upper_error)
+    lower_slack_limit <= slack <= upper_slack_limit
+    """
+
+    lower_error: cas.ScalarData
+    upper_error: cas.ScalarData
+
+    lower_slack_limit: cas.ScalarData
+    upper_slack_limit: cas.ScalarData
 
     def capped_lower_error(self, dt: float, control_horizon: int) -> cas.Expression:
-        return cas.limit(
-            self.lower_error,
-            -self.velocity_limit * dt * control_horizon,
-            self.velocity_limit * dt * control_horizon,
-        )
+        return self._apply_cap(self.lower_error, dt, control_horizon)
 
     def capped_upper_error(self, dt: float, control_horizon: int) -> cas.Expression:
-        return cas.limit(
-            self.upper_error,
-            -self.velocity_limit * dt * control_horizon,
-            self.velocity_limit * dt * control_horizon,
-        )
+        return self._apply_cap(self.upper_error, dt, control_horizon)
 
 
 @dataclass
-class EqualityConstraint(Constraint):
-    expression: cas.SymbolicScalar
+class EqualityConstraint(IntegralConstraint):
+    """ """
 
     bound: cas.ScalarData
-    velocity_limit: cas.ScalarData
-    quadratic_weight: cas.ScalarData
 
-    lower_slack_limit: cas.ScalarData = -1e4
-    upper_slack_limit: cas.ScalarData = 1e4
-
-    linear_weight: cas.ScalarData = 0
-
-    def __copy__(self):
-        return EqualityConstraint(
-            constraint_name=self.constraint_name,
-            parent_task_name=self.parent_task_name,
-            expression=copy(self.expression),
-            bound=copy(self.bound),
-            velocity_limit=self.velocity_limit,
-            quadratic_weight=self.quadratic_weight,
-            linear_weight=self.linear_weight,
-            lower_slack_limit=copy(self.lower_slack_limit),
-            upper_slack_limit=copy(self.upper_slack_limit),
-        )
-
-    def normalized_weight(self, control_horizon: int) -> cas.Expression:
-        weight_normalized = self.quadratic_weight * (
-            1 / (self.velocity_limit**2 * control_horizon)
-        )
-        return weight_normalized
+    lower_slack_limit: cas.ScalarData
+    upper_slack_limit: cas.ScalarData
 
     def capped_bound(self, dt: float, control_horizon: int) -> cas.Expression:
-        return cas.limit(
-            self.bound,
-            -self.velocity_limit * dt * control_horizon,
-            self.velocity_limit * dt * control_horizon,
-        )
+        return self._apply_cap(self.bound, dt, control_horizon)
 
 
 @dataclass
-class DerivativeInequalityConstraint(Constraint):
-    derivative: Derivatives
-    expression: cas.Expression
+class DerivativeConstraint(BaseConstraint):
+    derivative: Derivatives = field(kw_only=True)
+    """
+    The constraint will be applied to the derivative of the expression.
+    Position constraints are implemented by constraining the integral of the expressions' derivative over a prediction horizon.
+    All other constraints are applied directly to that derivative of the expression.
+    As a result, position constraints are cheaper, as they only require a single constraint.
+    """
+
+    normalization_factor: cas.ScalarData = field(kw_only=True)
+    """
+    This value is important to make constraints with different units comparable.
+    The meaning depends on derivative.
+    If the derivative is position, the normalization factor is rough velocity with which the expression can change.
+    For example:
+        - If you have a joint position constraint, the normalization factor should be the joint velocity limit.
+        - If you have a cartesian position constraint, the normalization factor should be the cartesian velocity limit.
+    For other derivatives, the normalization factor is the same unit as the expression.
+    For example:
+        - Joint velocity constraint -> joint velocity limit
+        - Cartesian velocity constraint -> cartesian velocity limit
+    .. Warning: This number is different from the bounds of the expression. 
+                If you want to enforce a bound below the actual limit, the normalization factor should still be the true limit.
+    In practice, use joint limits from the URDF for joint space constraints and define two values for cartesian constraints:
+        - a m/s limit for translation
+        - a rad/s value for rotation
+    """
+
+    def normalized_weight(self) -> float:
+        return self.quadratic_weight * (1 / self.normalization_factor) ** 2
+
+
+@dataclass
+class DerivativeInequalityConstraint(DerivativeConstraint):
     lower_limit: cas.ScalarData
     upper_limit: cas.ScalarData
-    quadratic_weight: cas.ScalarData
-    normalization_factor: Optional[cas.ScalarData]
+
     lower_slack_limit: cas.ScalarData
     upper_slack_limit: cas.ScalarData
-    linear_weight: cas.ScalarData = None
-
-    def __copy__(self):
-        return DerivativeInequalityConstraint(
-            constraint_name=self.constraint_name,
-            parent_task_name=self.parent_task_name,
-            derivative=self.derivative,
-            expression=copy(self.expression),
-            lower_limit=copy(self.lower_limit),
-            upper_limit=copy(self.upper_limit),
-            quadratic_weight=self.quadratic_weight,
-            normalization_factor=self.normalization_factor,
-            lower_slack_limit=copy(self.lower_slack_limit),
-            upper_slack_limit=copy(self.upper_slack_limit),
-            linear_weight=self.linear_weight,
-        )
-
-    def normalized_weight(self, t) -> float:
-        return self.quadratic_weight * (1 / self.normalization_factor) ** 2
 
 
 @dataclass
-class DerivativeEqualityConstraint(Constraint):
-    derivative: Derivatives
-    expression: cas.Expression
+class DerivativeEqualityConstraint(DerivativeConstraint):
     bound: cas.ScalarData
-    quadratic_weight: cas.ScalarData
-    normalization_factor: Optional[cas.ScalarData]
     lower_slack_limit: cas.ScalarData
     upper_slack_limit: cas.ScalarData
-    linear_weight: cas.ScalarData = None
-
-    def __copy__(self):
-        return DerivativeEqualityConstraint(
-            constraint_name=self.constraint_name,
-            parent_task_name=self.parent_task_name,
-            derivative=self.derivative,
-            expression=copy(self.expression),
-            bound=copy(self.bound),
-            quadratic_weight=self.quadratic_weight,
-            normalization_factor=self.normalization_factor,
-            lower_slack_limit=copy(self.lower_slack_limit),
-            upper_slack_limit=copy(self.upper_slack_limit),
-            linear_weight=self.linear_weight,
-        )
-
-    def normalized_weight(self, t) -> float:
-        return self.quadratic_weight * (1 / self.normalization_factor) ** 2
