@@ -100,7 +100,9 @@ class TrinaryCondition:
             str_representation = str(cas.is_true_symbol(self.expression))
         else:
             str_representation = cas.trinary_logic_to_str(self.expression)
-        str_representation = re.sub(r'"(.*)/observation"', r'"\1"', str_representation)
+        str_representation = re.sub(
+            r'"([^"]*?)/observation"', r'"\1"', str_representation
+        )
         return str_representation
 
     def __repr__(self):

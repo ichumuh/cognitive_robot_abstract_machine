@@ -1,15 +1,15 @@
-import pytest
 import time
 from dataclasses import dataclass
 
+import pytest
+
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.motion_statechart.data_types import LifeCycleValues
-from giskardpy.motion_statechart.graph_node import Goal
 from giskardpy.motion_statechart.graph_node import (
-    MotionStatechartNode,
     EndMotion,
     CancelMotion,
 )
+from giskardpy.motion_statechart.graph_node import Goal
 from giskardpy.motion_statechart.graph_node import ThreadPayloadMonitor
 from giskardpy.motion_statechart.monitors.monitors import TrueMonitor
 from giskardpy.motion_statechart.monitors.payload_monitors import Print
@@ -46,7 +46,7 @@ def test_condition_to_str():
         ),
     )
     a = str(end._start_condition)
-    assert a == '("muh/observation" and ("muh2/observation" or not "muh3/observation"))'
+    assert a == '("muh" and ("muh2" or not "muh3"))'
 
 
 def test_motion_statechart_to_dot():
@@ -61,7 +61,7 @@ def test_motion_statechart_to_dot():
     end.start_condition = cas.trinary_logic_and(
         node1.observation_variable, node2.observation_variable
     )
-    msc.draw()
+    msc.draw("muh.pdf")
 
 
 @pytest.mark.skip(reason="not implemented yet")
@@ -465,7 +465,7 @@ def test_nested_goals():
 
     # compile and check initial states
     msc.compile()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryUnknown
     assert sub_node1.observation_state == msc.observation_state.TrinaryUnknown
     assert sub_node2.observation_state == msc.observation_state.TrinaryUnknown
@@ -483,7 +483,7 @@ def test_nested_goals():
 
     # tick 1: start trigger begins running
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryUnknown
     assert sub_node1.observation_state == msc.observation_state.TrinaryUnknown
     assert sub_node2.observation_state == msc.observation_state.TrinaryUnknown
@@ -501,7 +501,7 @@ def test_nested_goals():
 
     # tick 2: start trigger turns true; inner sub_node1 already resolves to True and sub_node2 starts
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node1.observation_state == msc.observation_state.TrinaryUnknown
     assert sub_node2.observation_state == msc.observation_state.TrinaryUnknown
@@ -519,7 +519,7 @@ def test_nested_goals():
 
     # tick 3: inner sub_node2 turns true (inner goal still evaluating)
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node2.observation_state == msc.observation_state.TrinaryUnknown
@@ -537,7 +537,7 @@ def test_nested_goals():
 
     # tick 4: inner sub_node2 turns true
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node2.observation_state == msc.observation_state.TrinaryTrue
@@ -555,7 +555,7 @@ def test_nested_goals():
 
     # tick 5: inner goal becomes true, outer still running, end starts running
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node2.observation_state == msc.observation_state.TrinaryTrue
@@ -573,7 +573,7 @@ def test_nested_goals():
 
     # tick 6: outer goal becomes true; end still running
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node1.observation_state == msc.observation_state.TrinaryTrue
     assert sub_node2.observation_state == msc.observation_state.TrinaryTrue
@@ -591,7 +591,7 @@ def test_nested_goals():
 
     # tick 7: end motion becomes true
     msc.tick()
-    msc.draw()
+    msc.draw("muh.pdf")
     assert end.observation_state == msc.observation_state.TrinaryTrue
     assert msc.is_end_motion()
 
