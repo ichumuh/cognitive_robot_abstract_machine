@@ -7,7 +7,11 @@ from dataclasses import field
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.god_map import god_map
 from giskardpy.motion_statechart.data_types import ObservationState
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from giskardpy.motion_statechart.graph_node import (
+    MotionStatechartNode,
+    BuildContext,
+    NodeArtifacts,
+)
 from giskardpy.utils.decorators import dataclass
 
 
@@ -76,11 +80,11 @@ class Alternator(MotionStatechartNode):
 
 @dataclass(eq=False, repr=False)
 class TrueMonitor(MotionStatechartNode):
-    def _create_observation_expression(self) -> cas.Expression:
-        return cas.TrinaryTrue
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=cas.TrinaryTrue)
 
 
 @dataclass(eq=False, repr=False)
 class FalseMonitor(MotionStatechartNode):
-    def _create_observation_expression(self) -> cas.Expression:
-        return cas.TrinaryFalse
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=cas.TrinaryFalse)

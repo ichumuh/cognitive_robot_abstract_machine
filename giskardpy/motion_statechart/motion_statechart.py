@@ -20,6 +20,7 @@ from giskardpy.motion_statechart.graph_node import (
     GenericMotionStatechartNode,
     ObservationVariable,
     LifeCycleVariable,
+    BuildContext,
 )
 from giskardpy.motion_statechart.plotters.graphviz import MotionStatechartGraphviz
 from giskardpy.qp.constraint_collection import ConstraintCollection
@@ -191,7 +192,7 @@ class ObservationState(State):
                 b_result_cases=[
                     (
                         int(LifeCycleValues.RUNNING),
-                        node._create_observation_expression(),
+                        node._observation_expression,
                     ),
                     (
                         int(LifeCycleValues.NOT_STARTED),
@@ -324,9 +325,13 @@ class MotionStatechart(SubclassJSONSerializer):
         for parent_node in condition.variables:
             self.rx_graph.add_edge(owner.index, parent_node.index, condition)
 
-    def _build_commons_of_nodes(self):
+    def _build_nodes(self):
+        context = BuildContext(world=self.world)
         for node in self.nodes:
-            node.build_common()
+            artifacts = node.build(context=context)
+            node._constraint_collection = artifacts.constraints
+            node._constraint_collection.link_to_motion_statechart_node(node)
+            node._observation_expression = artifacts.observation
 
     def _apply_goal_conditions_to_their_children(self):
         for goal in self.get_nodes_by_type(Goal):
@@ -338,7 +343,7 @@ class MotionStatechart(SubclassJSONSerializer):
         :param controller_config: If not None, the QP controller will be compiled.
         """
         self._apply_goal_conditions_to_their_children()
-        self._build_commons_of_nodes()
+        self._build_nodes()
         self._add_transitions()
         self.observation_state.compile()
         self.life_cycle_state.compile()
@@ -348,7 +353,7 @@ class MotionStatechart(SubclassJSONSerializer):
     def _combine_constraint_collections_of_nodes(self) -> ConstraintCollection:
         combined_constraint_collection = ConstraintCollection()
         for node in self.nodes:
-            combined_constraint_collection.merge(node.create_constraints())
+            combined_constraint_collection.merge(node._constraint_collection)
         return combined_constraint_collection
 
     def _compile_qp_controller(self, controller_config: QPControllerConfig):

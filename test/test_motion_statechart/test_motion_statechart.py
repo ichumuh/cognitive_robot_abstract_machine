@@ -8,6 +8,7 @@ from giskardpy.motion_statechart.data_types import LifeCycleValues
 from giskardpy.motion_statechart.graph_node import (
     EndMotion,
     CancelMotion,
+    NodeArtifacts,
 )
 from giskardpy.motion_statechart.graph_node import Goal
 from giskardpy.motion_statechart.graph_node import ThreadPayloadMonitor
@@ -450,13 +451,15 @@ def test_nested_goals():
     inner.add_node(sub_node2)
     sub_node1.end_condition = sub_node1.observation_variable
     sub_node2.start_condition = sub_node1.observation_variable
-    inner._create_observation_expression = lambda: sub_node2.observation_variable
+    inner.build = lambda context: NodeArtifacts(
+        observation=sub_node2.observation_variable
+    )
 
     # outer goal that contains the inner goal as a node
     outer = Goal(name=PrefixedName("outer"))
     msc.add_node(outer)
     outer.add_node(inner)
-    outer._create_observation_expression = lambda: inner.observation_variable
+    outer.build = lambda context: NodeArtifacts(observation=inner.observation_variable)
     outer.start_condition = node1.observation_variable
 
     end = EndMotion(name=PrefixedName("done nested"))
@@ -679,7 +682,9 @@ def test_goal():
     goal.add_node(sub_node2)
     sub_node1.end_condition = sub_node1.observation_variable
     sub_node2.start_condition = sub_node1.observation_variable
-    goal._create_observation_expression = lambda: sub_node2.observation_variable
+    goal.build = lambda context: NodeArtifacts(
+        observation=sub_node2.observation_variable
+    )
     goal.start_condition = node1.observation_variable
 
     end = EndMotion(name=PrefixedName("done"))

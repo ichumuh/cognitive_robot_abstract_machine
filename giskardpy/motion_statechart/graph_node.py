@@ -235,6 +235,17 @@ class LifeCycleVariable(cas.FloatVariable):
         return self.motion_statechart_node.life_cycle_state
 
 
+@dataclass
+class BuildContext:
+    world: World
+
+
+@dataclass
+class NodeArtifacts:
+    constraints: ConstraintCollection = field(default_factory=ConstraintCollection)
+    observation: cas.Expression = field(default_factory=lambda: cas.TrinaryUnknown)
+
+
 @dataclass(repr=False, eq=False)
 class MotionStatechartNode(SubclassJSONSerializer):
     name: PrefixedName = field(kw_only=True)
@@ -261,6 +272,9 @@ class MotionStatechartNode(SubclassJSONSerializer):
     A symbol referring to the life cycle state of this node.
     """
     _observation_variable: ObservationVariable = field(init=False)
+
+    _constraint_collection: ConstraintCollection = field(init=False)
+    _observation_expression: cas.Expression = field(init=False)
 
     _start_condition: TrinaryCondition = field(init=False)
     _pause_condition: TrinaryCondition = field(init=False)
@@ -327,34 +341,15 @@ class MotionStatechartNode(SubclassJSONSerializer):
     def motion_statechart(self, motion_statechart: MotionStatechart) -> None:
         self._motion_statechart = motion_statechart
 
-    def build_common(self):
+    def build(self, context: BuildContext) -> NodeArtifacts:
         """
-        Triggered before `create_constraints` and `create_observation_expression` are called during the compilation
-        of the Motion Statechart.
-        Use this to create attributes that are used in both methods.
+        Describe this node by returning its constraints and the observation expression.
+        Called exactly once during motion statechart compilation.
         """
-
-    def create_constraints(self) -> ConstraintCollection:
-        constraint_collection = self._create_constraints()
-        constraint_collection.link_to_motion_statechart_node(self)
-        return constraint_collection
-
-    def _create_constraints(self) -> ConstraintCollection:
-        """
-        Create and return a list of motion constraints that will be active, while this node is active.
-        """
-        return ConstraintCollection()
-
-    def _create_observation_expression(self) -> cas.Expression:
-        """
-        Create and return a symbolic expression that will be evaluated to compute the observation state, while this node is active.
-        It serves a similar purpose as `on_running`, but you can reuse the same expressions you used on `create_constraints`.
-        Furthermore, this expression is compiled, so evaluation will be faster.
-
-        The default implementation returns the observation symbol, which copies the last state.
-        :return: The expression that computes the observation state.
-        """
-        return cas.Expression(self.observation_variable)
+        return NodeArtifacts(
+            constraints=ConstraintCollection(),
+            observation=cas.Expression(self.observation_variable),
+        )
 
     def on_start(self) -> Optional[float]:
         """
@@ -556,6 +551,10 @@ class Goal(MotionStatechartNode):
     def apply_start_condition_to_node(self, node: MotionStatechartNode):
         if cas.is_const_trinary_true(node.start_condition):
             node.start_condition = self.start_condition
+            return
+        node.start_condition = cas.trinary_logic_and(
+            node.start_condition, self.start_condition
+        )
 
     def apply_pause_condition_to_node(self, node: MotionStatechartNode):
         if cas.is_const_trinary_false(node.pause_condition):
@@ -651,8 +650,8 @@ class EndMotion(MotionStatechartNode):
         default_factory=lambda: ["rounded"], kw_only=True
     )
 
-    def _create_observation_expression(self) -> cas.Expression:
-        return cas.TrinaryTrue
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=cas.TrinaryTrue)
 
 
 @dataclass(eq=False, repr=False)
@@ -667,8 +666,8 @@ class CancelMotion(MotionStatechartNode):
     _plot_style: str = field(default="filled, rounded", init=False)
     _plot_shape: str = field(default="rectangle", init=False)
 
-    def _create_observation_expression(self) -> cas.Expression:
-        return cas.TrinaryTrue
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=cas.TrinaryTrue)
 
     def on_tick(self) -> Optional[float]:
         raise self.exception
