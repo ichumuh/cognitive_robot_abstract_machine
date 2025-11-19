@@ -1,25 +1,25 @@
 from __future__ import division
 
+from dataclasses import dataclass, field
+
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.goals.goal import Goal
-from giskardpy.motion_statechart.monitors.monitors import TrueMonitor, CancelMotion
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Goal, CancelMotion
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
-from giskardpy.motion_statechart.tasks.task import WEIGHT_ABOVE_CA
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class GraspSequence(Goal):
-    tip_link: Body
-    root_link: Body
-    gripper_joint: PrefixedName
-    goal_pose: cas.TransformationMatrix
+    tip_link: Body = field(kw_only=True)
+    root_link: Body = field(kw_only=True)
+    gripper_joint: PrefixedName = field(kw_only=True)
+    goal_pose: cas.TransformationMatrix = field(kw_only=True)
     max_velocity: float = 100
-    weight: float = WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
     def __post_init__(self):
         """
@@ -52,8 +52,8 @@ class GraspSequence(Goal):
         )
         self.add_task(grasp)
 
-        lift_pose = god_map.world.transform(
-            target_frame=god_map.world.root_link_name, spatial_object=self.goal_pose
+        lift_pose = context.world.transform(
+            target_frame=context.world.root_link_name, spatial_object=self.goal_pose
         )
         lift_pose.z += 0.1
 
@@ -69,17 +69,17 @@ class GraspSequence(Goal):
         self.observation_expression = lift.observation_state_symbol
 
 
-@validated_dataclass
+@dataclass
 class Cutting(Goal):
-    tip_link: Body
-    root_link: Body
-    depth: float
-    right_shift: float
+    tip_link: Body = field(kw_only=True)
+    root_link: Body = field(kw_only=True)
+    depth: float = field(kw_only=True)
+    right_shift: float = field(kw_only=True)
     max_velocity: float = 100
-    weight: float = WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
     def __post_init__(self):
-        schnibble_down_pose = god_map.world.compute_forward_kinematics(
+        schnibble_down_pose = context.world.compute_forward_kinematics(
             root=self.tip_link, tip=self.tip_link
         )
         schnibble_down_pose.x = -self.depth
@@ -92,7 +92,7 @@ class Cutting(Goal):
         )
         self.add_task(cut_down)
 
-        made_contact = TrueMonitor(name=f"{self.name}/Made Contact?")
+        made_contact = ConstTrueNode(name=f"{self.name}/Made Contact?")
         self.add_monitor(made_contact)
         made_contact.start_condition = cut_down
         made_contact.end_condition = made_contact
@@ -103,7 +103,7 @@ class Cutting(Goal):
         self.add_monitor(cancel)
         cancel.start_condition = f"not {made_contact.name}"
 
-        schnibble_up_pose = god_map.world.compute_forward_kinematics(
+        schnibble_up_pose = context.world.compute_forward_kinematics(
             root=self.tip_link, tip=self.tip_link
         )
         schnibble_up_pose.x = self.depth
@@ -116,7 +116,7 @@ class Cutting(Goal):
         )
         self.add_task(cut_up)
 
-        schnibble_right_pose = god_map.world.compute_forward_kinematics(
+        schnibble_right_pose = context.world.compute_forward_kinematics(
             root=self.tip_link, tip=self.tip_link
         )
         schnibble_right_pose.y = self.right_shift
@@ -131,7 +131,7 @@ class Cutting(Goal):
 
         self.arrange_in_sequence([cut_down, cut_up, move_right])
         self.observation_expression = cas.if_else(
-            cas.is_trinary_true(move_right.observation_state_symbol),
+            move_right.observation_state_symbol == cas.TrinaryTrue,
             cas.TrinaryTrue,
             cas.TrinaryFalse,
         )

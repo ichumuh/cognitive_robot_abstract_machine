@@ -1,15 +1,16 @@
+from dataclasses import dataclass
+
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
+from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
     CartesianOrientation,
 )
-from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_BELOW_CA
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class SpiralMixing(Task):
 
     end_time: float
@@ -20,14 +21,14 @@ class SpiralMixing(Task):
     radial_increment: float
     angle_increment: float
     upward_increment: float
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
 
     def __post_init__(self):
 
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             root_link=self.root_link, tip_link=self.tip_link
         )
-        t = god_map.time_symbol
+        t = context.time_symbol
 
         r = self.radial_increment * t
         a = self.angle_increment * t
@@ -42,7 +43,7 @@ class SpiralMixing(Task):
         object_T_goal.y = y
         object_T_goal.z = z
 
-        root_T_object = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_object = context.world._forward_kinematic_manager.compose_expression(
             root_link=self.root_link, tip_link=self.object_name
         )
         root_T_goal = root_T_object.dot(object_T_goal)
@@ -54,9 +55,7 @@ class SpiralMixing(Task):
             reference_velocity=CartesianPosition.default_reference_velocity,
             weight=self.weight,
         )
-        god_map.debug_expression_manager.add_debug_expression(
-            "root_T_goal", root_T_goal
-        )
+        context.add_debug_expression("root_T_goal", root_T_goal)
         self.add_rotation_goal_constraints(
             frame_R_current=root_T_tip.to_rotation_matrix(),
             frame_R_goal=root_T_goal.to_rotation_matrix(),

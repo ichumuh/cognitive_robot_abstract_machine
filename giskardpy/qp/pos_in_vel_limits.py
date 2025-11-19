@@ -2,14 +2,12 @@ from copy import copy
 from typing import List
 
 import numpy as np
-import semantic_digital_twin.spatial_types.spatial_types as cas
-import giskardpy.utils.math as gm
-from giskardpy.utils.decorators import memoize
-from giskardpy.god_map import god_map
 from line_profiler import profile
 
+import giskardpy.utils.math as gm
+import semantic_digital_twin.spatial_types.spatial_types as cas
+from giskardpy.utils.decorators import memoize
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
-from semantic_digital_twin.spatial_types.symbol_manager import symbol_manager
 
 
 def shifted_velocity_profile(vel_profile, acc_profile, distance, dt):
@@ -143,7 +141,7 @@ def implicit_vel_profile(
 @memoize
 @profile
 def b_profile(
-    dof_symbols: DerivativeMap[cas.Symbol],
+    dof_symbols: DerivativeMap[cas.FloatVariable],
     lower_limits: DerivativeMap[float],
     upper_limits: DerivativeMap[float],
     solver_class,

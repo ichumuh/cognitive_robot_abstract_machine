@@ -1,21 +1,21 @@
 from __future__ import division
 
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.goals.goal import Goal
-from giskardpy.motion_statechart.tasks.task import WEIGHT_ABOVE_CA, Task
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Goal
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class InsertCylinder(Goal):
-    cylinder_name: Body
-    hole_point: cas.Point3
+    cylinder_name: Body = field(kw_only=True)
+    hole_point: cas.Point3 = field(kw_only=True)
     cylinder_height: Optional[float] = None
     up: Optional[cas.Vector3] = None
     pre_grasp_height: float = 0.1
@@ -23,27 +23,27 @@ class InsertCylinder(Goal):
     get_straight_after: float = 0.02
 
     def __post_init__(self):
-        self.root = god_map.world.root
+        self.root = context.world.root
         self.tip = self.cylinder_name
         if self.cylinder_height is None:
-            self.cylinder_height = god_map.world.links[self.tip].collisions[0].height
+            self.cylinder_height = context.world.links[self.tip].collisions[0].height
         else:
             self.cylinder_height = self.cylinder_height
-        self.root_P_hole = god_map.world.transform(
+        self.root_P_hole = context.world.transform(
             target_frame=self.root, spatial_object=self.hole_point
         )
         if self.up is None:
             self.up = cas.Vector3.Z()
             self.up.reference_frame = self.root
-        self.root_V_up = god_map.world.transform(
+        self.root_V_up = context.world.transform(
             target_frame=self.root, spatial_object=self.up
         )
 
-        self.weight = WEIGHT_ABOVE_CA
+        self.weight = DefaultWeights.WEIGHT_ABOVE_CA
 
         root_P_hole = self.root_P_hole
         root_V_up = self.root_V_up
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root, self.tip
         )
         root_P_tip = root_T_tip.to_position()

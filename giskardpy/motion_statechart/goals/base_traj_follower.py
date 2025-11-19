@@ -1,28 +1,24 @@
 from __future__ import division
 
+from dataclasses import field, dataclass
+
 from line_profiler import profile
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.goals.goal import Goal
-from giskardpy.motion_statechart.tasks.task import (
-    WEIGHT_ABOVE_CA,
-    WEIGHT_BELOW_CA,
-    Task,
-)
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Goal
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
-from semantic_digital_twin.spatial_types.symbol_manager import symbol_manager
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Connection
 
 
-@validated_dataclass
+@dataclass
 class BaseTrajFollower(Goal):
-    connection: Connection
+    connection: Connection = field(kw_only=True)
     track_only_velocity: bool = False
-    weight: float = WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
     def __post_init__(self):
         self.joint: OmniDrive = self.connection
@@ -30,7 +26,7 @@ class BaseTrajFollower(Goal):
         self.base_footprint_link = self.joint.child
         self.task = Task(name="base")
         self.add_task(self.task)
-        trajectory = god_map.trajectory
+        trajectory = trajectory  # fixme god_map?
         self.trajectory_length = len(trajectory)
         self.add_trans_constraints()
         self.add_rot_constraints()
@@ -41,7 +37,7 @@ class BaseTrajFollower(Goal):
         t: int,
         free_variable_name: PrefixedName,
         derivative: Derivatives = Derivatives.position,
-    ) -> cas.Symbol:
+    ) -> cas.FloatVariable:
         expr = (
             f"god_map.trajectory.get_exact({t})['{free_variable_name}'][{derivative}]"
         )
@@ -54,10 +50,10 @@ class BaseTrajFollower(Goal):
         start_t: float,
         derivative: Derivatives = Derivatives.position,
     ) -> cas.Expression:
-        time = god_map.time_symbol
+        time = context.time_symbol
         b_result_cases = []
         for t in range(self.trajectory_length):
-            b = t * god_map.qp_controller.mpc_dt
+            b = t * context.qp_controller.mpc_dt
             eq_result = self.x_symbol(t, free_variable_name, derivative)
             b_result_cases.append((b, eq_result))
             # FIXME if less eq cases behavior changed
@@ -91,46 +87,48 @@ class BaseTrajFollower(Goal):
         odom_T_base_footprint_goal = self.make_odom_T_base_footprint_goal(
             t_in_s, derivative
         )
-        map_T_odom = god_map.world._forward_kinematic_manager.compose_expression(
-            god_map.world.root_link_name, self.odom_link
+        map_T_odom = context.world._forward_kinematic_manager.compose_expression(
+            context.world.root_link_name, self.odom_link
         )
         return map_T_odom @ odom_T_base_footprint_goal
 
     @profile
     def trans_error_at(self, t_in_s: float):
         odom_T_base_footprint_goal = self.make_odom_T_base_footprint_goal(t_in_s)
-        map_T_odom = god_map.world.compute_forward_kinematics(
-            god_map.world.root_link_name, self.odom_link
+        map_T_odom = context.world.compute_forward_kinematics(
+            context.world.root_link_name, self.odom_link
         )
         map_T_base_footprint_goal = map_T_odom @ odom_T_base_footprint_goal
         map_T_base_footprint_current = (
-            god_map.world._forward_kinematic_manager.compose_expression(
-                god_map.world.root_link_name, self.base_footprint_link
+            context.world._forward_kinematic_manager.compose_expression(
+                context.world.root_link_name, self.base_footprint_link
             )
         )
 
         frame_P_goal = map_T_base_footprint_goal.to_position()
         frame_P_current = map_T_base_footprint_current.to_position()
-        error = (frame_P_goal - frame_P_current) / god_map.qp_controller.mpc_dt
+        error = (frame_P_goal - frame_P_current) / context.qp_controller.mpc_dt
         return error[0], error[1]
 
     @profile
     def add_trans_constraints(self):
         errors_x = []
         errors_y = []
-        map_T_base_footprint = god_map.world._forward_kinematic_manager.compose_expression(
-            god_map.world.root_link_name, self.base_footprint_link
+        map_T_base_footprint = (
+            context.world._forward_kinematic_manager.compose_expression(
+                context.world.root_link_name, self.base_footprint_link
+            )
         )
-        for t in range(god_map.qp_controller.prediction_horizon):
+        for t in range(context.qp_controller.prediction_horizon):
             x = self.current_traj_point(
                 self.joint.x_velocity.name,
-                t * god_map.qp_controller.mpc_dt,
+                t * context.qp_controller.mpc_dt,
                 Derivatives.velocity,
             )
             if isinstance(self.joint, OmniDrive):
                 y = self.current_traj_point(
                     self.joint.y_velocity.name,
-                    t * god_map.qp_controller.mpc_dt,
+                    t * context.qp_controller.mpc_dt,
                     Derivatives.velocity,
                 )
             else:
@@ -144,7 +142,7 @@ class BaseTrajFollower(Goal):
             else:
                 errors_x.append(map_P_vel[0])
                 errors_y.append(map_P_vel[1])
-        weight_vel = WEIGHT_ABOVE_CA
+        weight_vel = DefaultWeights.WEIGHT_ABOVE_CA
         lba_x = errors_x
         uba_x = errors_x
         lba_y = errors_y
@@ -171,21 +169,21 @@ class BaseTrajFollower(Goal):
     @profile
     def rot_error_at(self, t_in_s: int):
         rotation_goal = self.current_traj_point(self.joint.yaw.name, t_in_s)
-        rotation_current = self.joint.yaw.symbols.position
+        rotation_current = self.joint.yaw.variables.position
         error = (
             cas.shortest_angular_distance(rotation_current, rotation_goal)
-            / god_map.qp_controller.mpc_dt
+            / context.qp_controller.mpc_dt
         )
         return error
 
     @profile
     def add_rot_constraints(self):
         errors = []
-        for t in range(god_map.qp_controller.prediction_horizon):
+        for t in range(context.qp_controller.prediction_horizon):
             errors.append(
                 self.current_traj_point(
                     self.joint.yaw.name,
-                    t * god_map.qp_controller.mpc_dt,
+                    t * context.qp_controller.mpc_dt,
                     Derivatives.velocity,
                 )
             )
@@ -194,8 +192,8 @@ class BaseTrajFollower(Goal):
         self.task.add_velocity_constraint(
             lower_velocity_limit=errors,
             upper_velocity_limit=errors,
-            weight=WEIGHT_BELOW_CA,
-            task_expression=self.joint.yaw.symbols.position,
+            weight=DefaultWeights.WEIGHT_BELOW_CA,
+            task_expression=self.joint.yaw.variables.position,
             velocity_limit=0.5,
             name="/rot",
         )

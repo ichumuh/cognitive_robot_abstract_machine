@@ -1,17 +1,16 @@
 import random
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_ABOVE_CA
-from giskardpy.utils.decorators import validated_dataclass
-from semantic_digital_twin.spatial_types.symbol_manager import symbol_manager
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class WiggleInsert(Task):
     root_link: Body
     tip_link: Body
@@ -26,7 +25,7 @@ class WiggleInsert(Task):
     angular_momentum_factor: float = 0.9
     center_pull_strength_angle: float = 0.1
     center_pull_strength_vector: float = 0.25
-    weight: float = WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
     def __post_init__(self):
         """
@@ -49,13 +48,13 @@ class WiggleInsert(Task):
                                                                          hole_point
         """
         if self.hole_normal is None:
-            self.hole_normal = cas.Vector3(0, 0, 0, reference_frame=god_map.world.root)
+            self.hole_normal = cas.Vector3(0, 0, 0, reference_frame=context.world.root)
 
         # Random-Sample works better with control_dt and Random-Walk with throttling using self.dt in my testing
         if self.random_walk:
-            self.dt = god_map.qp_controller.control_dt
+            self.dt = context.qp_controller.control_dt
         else:
-            self.dt = god_map.qp_controller.control_dt
+            self.dt = context.qp_controller.control_dt
         self.hz = 1 / self.dt
 
         if self.random_walk:
@@ -81,10 +80,10 @@ class WiggleInsert(Task):
         self.v1 = cas.Vector3(*v1, reference_frame=self.hole_normal.reference_frame)
         self.v2 = cas.Vector3(*v2, reference_frame=self.hole_normal.reference_frame)
 
-        r_P_c = god_map.world._forward_kinematic_manager.compose_expression(
+        r_P_c = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_position()
-        r_P_g = god_map.world.transform(
+        r_P_g = context.world.transform(
             target_frame=self.root_link, spatial_object=self.hole_point
         )
 
@@ -107,20 +106,20 @@ class WiggleInsert(Task):
         angle = symbol_manager.get_expr(
             self.ref_str + angle_function,
             input_type_hint=float,
-            output_type_hint=cas.Symbol,
+            output_type_hint=cas.FloatVariable,
         )
 
-        tip_V_hole_normal = god_map.world.transform(
+        tip_V_hole_normal = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.hole_normal
         )
         tip_R_hole_normal = cas.RotationMatrix.from_axis_angle(
             angle=angle, axis=tip_V_hole_normal
         )
-        root_R_hole_normal = god_map.world.compute_fk(
+        root_R_hole_normal = context.world.compute_fk(
             self.root_link, self.tip_link
         ).dot(tip_R_hole_normal)
 
-        r_T_c = god_map.world._forward_kinematic_manager.compose_expression(
+        r_T_c = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         )
         r_R_c = r_T_c.to_rotation_matrix()
@@ -132,26 +131,22 @@ class WiggleInsert(Task):
             weight=self.weight + 1,
         )
 
-        god_map.debug_expression_manager.add_debug_expression(
-            name="r_P_g", expression=r_P_g
-        )
-        god_map.debug_expression_manager.add_debug_expression(
-            name="r_P_g_rand", expression=r_P_g_rand
-        )
-        god_map.debug_expression_manager.add_debug_expression(
+        god_map.context.add_debug_expression(name="r_P_g", expression=r_P_g)
+        god_map.context.add_debug_expression(name="r_P_g_rand", expression=r_P_g_rand)
+        god_map.context.add_debug_expression(
             name="root_R_hole_normal", expression=root_R_hole_normal
         )
-        god_map.debug_expression_manager.add_debug_expression(
+        god_map.context.add_debug_expression(
             name="tip_R_hole_normal", expression=tip_R_hole_normal
         )
 
         dist = r_P_c.euclidean_distance(r_P_g)
-        end = dist <= threshold
+        end = dist <= self.threshold
 
         self.observation_expression = end
 
     def get_rand_angle(self) -> float:
-        now = god_map.time
+        now = context.time
         if now - self.last_angular_change >= self.dt:
             self.last_angular_change = now
 
@@ -159,7 +154,7 @@ class WiggleInsert(Task):
         return self.current_angle
 
     def get_rand_walk_angle(self):
-        now = god_map.time
+        now = context.time
         if now - self.last_angular_change >= self.dt:
             self.last_angular_change = now
             random_angular_change = (
@@ -185,7 +180,7 @@ class WiggleInsert(Task):
         return self.current_angle
 
     def get_rand_vector(self) -> cas.Vector3:
-        now = god_map.time
+        now = context.time
         if now - self.last_vector_change >= self.dt:
             self.last_vector_change = now
 
@@ -196,7 +191,7 @@ class WiggleInsert(Task):
         return self.current_vector
 
     def get_rand_walk_vector(self) -> cas.Vector3:
-        now = god_map.time
+        now = context.time
         if now - self.last_vector_change >= self.dt:
             self.last_vector_change = now
 

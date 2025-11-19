@@ -1,17 +1,16 @@
 from __future__ import division
 
-from dataclasses import field
+from dataclasses import field, dataclass
 from typing import Union
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.tasks.task import WEIGHT_BELOW_CA, Task
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class FeatureFunctionGoal(Task):
     """
     Parent class of all feature function tasks. It instantiates the controlled and reference features in the correct
@@ -24,19 +23,19 @@ class FeatureFunctionGoal(Task):
     reference_feature: Union[cas.Point3, cas.Vector3] = field(init=False)
 
     def __post_init__(self):
-        root_reference_feature = god_map.world.transform(
+        root_reference_feature = context.world.transform(
             target_frame=self.root_link, spatial_object=self.reference_feature
         )
-        tip_controlled_feature = god_map.world.transform(
+        tip_controlled_feature = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.controlled_feature
         )
 
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         )
         if isinstance(self.controlled_feature, cas.Point3):
             self.root_P_controlled_feature = root_T_tip @ tip_controlled_feature
-            god_map.debug_expression_manager.add_debug_expression(
+            context.add_debug_expression(
                 "root_P_controlled_feature",
                 self.root_P_controlled_feature,
                 color=Color(1, 0, 0, 1),
@@ -44,7 +43,7 @@ class FeatureFunctionGoal(Task):
         elif isinstance(self.controlled_feature, cas.Vector3):
             self.root_V_controlled_feature = root_T_tip @ tip_controlled_feature
             self.root_V_controlled_feature.vis_frame = self.controlled_feature.vis_frame
-            god_map.debug_expression_manager.add_debug_expression(
+            context.add_debug_expression(
                 "root_V_controlled_feature",
                 self.root_V_controlled_feature,
                 color=Color(1, 0, 0, 1),
@@ -52,7 +51,7 @@ class FeatureFunctionGoal(Task):
 
         if isinstance(self.reference_feature, cas.Point3):
             self.root_P_reference_feature = root_reference_feature
-            god_map.debug_expression_manager.add_debug_expression(
+            god_map.context.add_debug_expression(
                 "root_P_reference_feature",
                 self.root_P_reference_feature,
                 color=Color(0, 1, 0, 1),
@@ -60,14 +59,14 @@ class FeatureFunctionGoal(Task):
         if isinstance(self.reference_feature, cas.Vector3):
             self.root_V_reference_feature = root_reference_feature
             self.root_V_reference_feature.vis_frame = self.controlled_feature.vis_frame
-            god_map.debug_expression_manager.add_debug_expression(
+            god_map.context.add_debug_expression(
                 "root_V_reference_feature",
                 self.root_V_reference_feature,
                 color=Color(0, 1, 0, 1),
             )
 
 
-@validated_dataclass
+@dataclass
 class AlignPerpendicular(FeatureFunctionGoal):
     """
     Aligns the tip_normal to the reference_normal such that they are perepndicular to each other.
@@ -79,7 +78,7 @@ class AlignPerpendicular(FeatureFunctionGoal):
     root_link: Body
     tip_normal: cas.Vector3
     reference_normal: cas.Vector3
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_vel: float = 0.2
     threshold: float = 0.01
 
@@ -102,7 +101,7 @@ class AlignPerpendicular(FeatureFunctionGoal):
         self.observation_expression = cas.abs(0 - expr) < self.threshold
 
 
-@validated_dataclass
+@dataclass
 class HeightGoal(FeatureFunctionGoal):
     """
     Moves the tip_point to be the specified distance away from the reference_point along the z-axis of the map frame.
@@ -118,7 +117,7 @@ class HeightGoal(FeatureFunctionGoal):
     reference_point: cas.Point3
     lower_limit: float
     upper_limit: float
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_vel: float = 0.2
 
     def __post_init__(self):
@@ -144,7 +143,7 @@ class HeightGoal(FeatureFunctionGoal):
         )
 
 
-@validated_dataclass
+@dataclass
 class DistanceGoal(FeatureFunctionGoal):
     """
     Moves the tip_point to be the specified distance away from the reference_point measured in the x-y-plane of the map frame.
@@ -160,7 +159,7 @@ class DistanceGoal(FeatureFunctionGoal):
     reference_point: cas.Point3
     lower_limit: float
     upper_limit: float
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_vel: float = 0.2
 
     def __post_init__(self):
@@ -199,7 +198,7 @@ class DistanceGoal(FeatureFunctionGoal):
         )
 
 
-@validated_dataclass
+@dataclass
 class AngleGoal(FeatureFunctionGoal):
     """
     Controls the angle between the tip_vector and the reference_vector to be between lower_angle and upper_angle.
@@ -215,7 +214,7 @@ class AngleGoal(FeatureFunctionGoal):
     reference_vector: cas.Vector3
     lower_angle: float
     upper_angle: float
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_vel: float = 0.2
 
     def __post_init__(self):

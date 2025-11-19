@@ -1,34 +1,34 @@
 from __future__ import division
 
+from dataclasses import dataclass
 from typing import Optional
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.tasks.task import WEIGHT_ABOVE_CA, Task
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class DiffDriveTangentialToPoint(Task):
     goal_point: cas.Point3
     forward: Optional[cas.Vector3] = None
     group_name: Optional[cas.Vector3] = None
-    weight: bool = WEIGHT_ABOVE_CA
+    weight: bool = DefaultWeights.WEIGHT_ABOVE_CA
     drive: bool = False
 
     def __post_init__(self):
-        self.tip = god_map.world.get_kinematic_structure_entity_by_name(
+        self.tip = context.world.get_kinematic_structure_entity_by_name(
             PrefixedName("base_footprint", prefix=self.group_name)
         )
-        self.root = god_map.world.root()
-        self.goal_point = god_map.world.transform(
-            target_frame=god_map.world.root_link_name, spatial_object=self.goal_point
+        self.root = context.world.root()
+        self.goal_point = context.world.transform(
+            target_frame=context.world.root_link_name, spatial_object=self.goal_point
         )
         self.goal_point.z = 0
         if self.forward is not None:
-            self.tip_V_pointing_axis = god_map.world.transform(
+            self.tip_V_pointing_axis = context.world.transform(
                 target_frame=self.tip, spatial_object=self.forward
             )
             self.tip_V_pointing_axis.scale(1)
@@ -37,7 +37,7 @@ class DiffDriveTangentialToPoint(Task):
             self.tip_V_pointing_axis.reference_frame = self.tip
 
         map_P_center = self.goal_point
-        map_T_base = god_map.world._forward_kinematic_manager.compose_expression(
+        map_T_base = context.world._forward_kinematic_manager.compose_expression(
             self.root, self.tip
         )
         map_P_base = map_T_base.to_position()
@@ -78,23 +78,23 @@ class DiffDriveTangentialToPoint(Task):
             )
 
 
-@validated_dataclass
+@dataclass
 class KeepHandInWorkspace(Task):
     tip_link: Body
     base_footprint: Optional[Body] = None
     map_frame: Optional[Body] = None
     pointing_axis: Optional[cas.Vector3] = None
     max_velocity: float = 0.3
-    weight: float = WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
     def __post_init__(self):
         if self.base_footprint is None:
-            self.base_footprint = god_map.world.search_for_link_name("base_footprint")
+            self.base_footprint = context.world.search_for_link_name("base_footprint")
         if self.map_frame is None:
-            self.map_frame = god_map.world.root_link_name
+            self.map_frame = context.world.root_link_name
 
         if self.pointing_axis is not None:
-            self.map_V_pointing_axis = god_map.world.transform(
+            self.map_V_pointing_axis = context.world.transform(
                 target_frame=self.base_footprint, spatial_object=self.pointing_axis
             )
             self.map_V_pointing_axis.scale(1)
@@ -102,13 +102,15 @@ class KeepHandInWorkspace(Task):
             self.map_V_pointing_axis = cas.Vector3(1, 0, 0)
             self.map_V_pointing_axis.reference_frame = self.map_frame
 
-        weight = WEIGHT_ABOVE_CA
+        weight = DefaultWeights.WEIGHT_ABOVE_CA
         base_footprint_V_pointing_axis = cas.Vector3(self.map_V_pointing_axis)
-        map_T_base_footprint = god_map.world._forward_kinematic_manager.compose_expression(
-            self.map_frame, self.base_footprint
+        map_T_base_footprint = (
+            context.world._forward_kinematic_manager.compose_expression(
+                self.map_frame, self.base_footprint
+            )
         )
         map_V_pointing_axis = map_T_base_footprint @ base_footprint_V_pointing_axis
-        map_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        map_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.map_frame, self.tip_link
         )
         map_V_tip = cas.Vector3(map_T_tip.to_position())

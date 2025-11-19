@@ -1,29 +1,27 @@
-from dataclasses import field
+from dataclasses import field, dataclass
 from typing import Union
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.monitors.monitors import Monitor
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
-class FeatureMonitor(Monitor):
+@dataclass
+class FeatureMonitor(MotionStatechartNode):
     tip_link: Body
     root_link: Body
     reference_feature: Union[cas.Point3, cas.Vector3] = field(init=False)
     controlled_feature: Union[cas.Point3, cas.Vector3] = field(init=False)
 
     def __post_init__(self):
-        root_reference_feature = god_map.world.transform(
+        root_reference_feature = context.world.transform(
             target_frame=self.root_link, spatial_object=self.reference_feature
         )
-        tip_controlled_feature = god_map.world.transform(
+        tip_controlled_feature = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.controlled_feature
         )
 
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         )
         if isinstance(self.controlled_feature, cas.Point3):
@@ -37,7 +35,7 @@ class FeatureMonitor(Monitor):
             self.root_V_reference_feature = root_reference_feature
 
 
-@validated_dataclass
+@dataclass
 class HeightMonitor(FeatureMonitor):
     reference_point: cas.Point3
     tip_point: cas.Point3
@@ -49,7 +47,9 @@ class HeightMonitor(FeatureMonitor):
         self.controlled_feature = self.tip_point
         super().__post_init__()
 
-        distance = (self.root_P_controlled_feature - self.root_P_reference_feature) @ cas.Vector3.Z()
+        distance = (
+            self.root_P_controlled_feature - self.root_P_reference_feature
+        ) @ cas.Vector3.Z()
         expr = cas.logic_and(
             distance >= self.lower_limit,
             distance <= self.upper_limit,
@@ -57,7 +57,7 @@ class HeightMonitor(FeatureMonitor):
         self.observation_expression = expr
 
 
-@validated_dataclass
+@dataclass
 class PerpendicularMonitor(FeatureMonitor):
     reference_normal: cas.Vector3
     tip_normal: cas.Vector3
@@ -72,7 +72,7 @@ class PerpendicularMonitor(FeatureMonitor):
         self.observation_expression = cas.abs(expr) <= self.threshold
 
 
-@validated_dataclass
+@dataclass
 class DistanceMonitor(FeatureMonitor):
     reference_point: cas.Point3
     tip_point: cas.Point3
@@ -93,7 +93,7 @@ class DistanceMonitor(FeatureMonitor):
         )
 
 
-@validated_dataclass
+@dataclass
 class AngleMonitor(FeatureMonitor):
     reference_vector: cas.Vector3
     tip_vector: cas.Vector3

@@ -1,19 +1,17 @@
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.data_types.exceptions import GoalInitalizationException
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.goals.goal import Goal
-from giskardpy.motion_statechart.tasks.task import WEIGHT_BELOW_CA, Task
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Goal
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class AlignToPushDoor(Goal):
     root_link: Body
     tip_link: Body
@@ -22,7 +20,7 @@ class AlignToPushDoor(Goal):
     tip_gripper_axis: cas.Vector3
     reference_linear_velocity: float = 0.1
     reference_angular_velocity: float = 0.5
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
 
     def __post_init__(self):
         """
@@ -32,25 +30,25 @@ class AlignToPushDoor(Goal):
         self.tip = self.tip_link
         self.handle = self.door_handle
 
-        object_joint_name = god_map.world.get_movable_parent_joint(self.door_object)
-        object_joint_angle = god_map.world.state[object_joint_name].position
+        object_joint_name = context.world.get_movable_parent_joint(self.door_object)
+        object_joint_angle = context.world.state[object_joint_name].position
 
         self.tip_gripper_axis.scale(1)
         object_V_object_rotation_axis = cas.Vector3(
-            god_map.world.get_joint(object_joint_name).axis
+            context.world.get_joint(object_joint_name).axis
         )
-        joint_limit = god_map.world.compute_joint_limits(object_joint_name, 0)
+        joint_limit = context.world.compute_joint_limits(object_joint_name, 0)
 
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root, self.tip
         )
-        root_T_door_expr = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_door_expr = context.world._forward_kinematic_manager.compose_expression(
             self.root, self.door_object
         )
         tip_V_tip_grasp_axis = cas.Vector3.from_iterable(self.tip_gripper_axis)
         root_V_object_rotation_axis = root_T_door_expr @ object_V_object_rotation_axis
         root_V_tip_grasp_axis = root_T_tip @ tip_V_tip_grasp_axis
-        door_P_handle = god_map.world.compute_fk_point(self.door_object, self.handle)
+        door_P_handle = context.world.compute_fk_point(self.door_object, self.handle)
         temp_point = np.asarray(
             [door_P_handle.x.to_np(), door_P_handle.y.to_np(), door_P_handle.z.to_np()]
         )
@@ -83,14 +81,14 @@ class AlignToPushDoor(Goal):
         minimum_angle_to_push_door = joint_limit[1] / 4
 
         if object_joint_angle >= minimum_angle_to_push_door:
-            god_map.debug_expression_manager.add_debug_expression(
+            context.context.add_debug_expression(
                 "goal_point", root_P_top, color=Color(0, 0.5, 0.5, 1)
             )
 
-            god_map.debug_expression_manager.add_debug_expression(
+            context.context.add_debug_expression(
                 "root_V_grasp_axis", root_V_tip_grasp_axis
             )
-            god_map.debug_expression_manager.add_debug_expression(
+            context.context.add_debug_expression(
                 "root_V_object_axis", root_V_object_rotation_axis
             )
             align_to_push_task = Task(name="align_to_push_door")

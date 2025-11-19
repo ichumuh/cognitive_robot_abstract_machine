@@ -9,7 +9,6 @@ from line_profiler import profile
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.qp.adapters.qp_adapter import GiskardToQPAdapter
 from giskardpy.qp.qp_data import QPData
-from semantic_digital_twin.spatial_types.symbol_manager import SymbolManager
 
 if TYPE_CHECKING:
     pass
@@ -29,7 +28,7 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
 
     bE_filter: np.ndarray
     bA_filter: np.ndarray
-    aux_symbols: List[cas.Symbol]
+    aux_symbols: List[cas.FloatVariable]
 
     def general_qp_to_specific_qp(
         self,
@@ -64,33 +63,12 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
             ]
         )
 
-        free_symbols = set(quadratic_weights.free_symbols())
-        free_symbols.update(linear_weights.free_symbols())
-        free_symbols.update(box_lower_constraints.free_symbols())
-        free_symbols.update(box_upper_constraints.free_symbols())
-        free_symbols.update(eq_matrix.free_symbols())
-        free_symbols.update(eq_bounds.free_symbols())
-        free_symbols.update(neq_matrix.free_symbols())
-        free_symbols.update(neq_lower_bounds.free_symbols())
-        free_symbols.update(neq_upper_bounds.free_symbols())
-        for s in itertools.chain(
-            self.world_state_symbols,
-            self.task_life_cycle_symbols,
-            self.goal_life_cycle_symbols,
-            self.external_collision_symbols,
-            self.self_collision_symbols,
-        ):
-            if s in free_symbols:
-                free_symbols.remove(s)
-        self.aux_symbols = list(free_symbols)
-
         self.free_symbols = [
             self.world_state_symbols,
-            self.task_life_cycle_symbols,
-            self.goal_life_cycle_symbols,
+            self.life_cycle_symbols,
             self.external_collision_symbols,
             self.self_collision_symbols,
-            self.aux_symbols,
+            self.auxiliary_variables,
         ]
 
         self.eq_matrix_compiled = eq_matrix.compile(
@@ -110,7 +88,7 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
                 neq_lower_bounds,
                 neq_upper_bounds,
             ],
-            symbol_parameters=self.free_symbols,
+            variable_parameters=self.free_symbols,
         )
 
         self.bE_filter = np.ones(eq_matrix.shape[0], dtype=bool)
@@ -146,30 +124,20 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
     def evaluate(
         self,
         world_state: np.ndarray,
-        task_life_cycle_state: np.ndarray,
-        goal_life_cycle_state: np.ndarray,
+        life_cycle_state: np.ndarray,
         external_collision_data: np.ndarray,
         self_collision_data: np.ndarray,
-        symbol_manager: SymbolManager,
+        auxiliary_variables: np.ndarray,
     ) -> QPData:
-        aux_substitutions = symbol_manager.resolve_symbols([self.aux_symbols])
-
-        eq_matrix_np_raw = self.eq_matrix_compiled(
+        args = [
             world_state,
-            task_life_cycle_state,
-            goal_life_cycle_state,
+            life_cycle_state,
             external_collision_data,
             self_collision_data,
-            *aux_substitutions,
-        )
-        neq_matrix_np_raw = self.neq_matrix_compiled(
-            world_state,
-            task_life_cycle_state,
-            goal_life_cycle_state,
-            external_collision_data,
-            self_collision_data,
-            *aux_substitutions,
-        )
+            auxiliary_variables,
+        ]
+        eq_matrix_np_raw = self.eq_matrix_compiled(*args)
+        neq_matrix_np_raw = self.neq_matrix_compiled(*args)
         (
             quadratic_weights_np_raw,
             linear_weights_np_raw,
@@ -178,14 +146,7 @@ class GiskardToExplicitQPAdapter(GiskardToQPAdapter):
             eq_bounds_np_raw,
             neq_lower_bounds_np_raw,
             neq_upper_bounds_np_raw,
-        ) = self.combined_vector_f(
-            world_state,
-            task_life_cycle_state,
-            goal_life_cycle_state,
-            external_collision_data,
-            self_collision_data,
-            *aux_substitutions,
-        )
+        ) = self.combined_vector_f(*args)
 
         self.qp_data_raw = QPData(
             quadratic_weights=quadratic_weights_np_raw,

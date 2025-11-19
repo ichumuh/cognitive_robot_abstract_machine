@@ -1,15 +1,16 @@
+from dataclasses import dataclass
+
 import numpy as np
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.goals.goal import Goal
-from giskardpy.motion_statechart.tasks.task import WEIGHT_BELOW_CA, Task
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Goal
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class PrePushDoor(Goal):
     root_link: Body
     tip_link: Body
@@ -17,7 +18,7 @@ class PrePushDoor(Goal):
     door_handle: Body
     reference_linear_velocity: float = 0.1
     reference_angular_velocity: float = 0.5
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
 
     def __post_init__(self):
         """
@@ -27,16 +28,16 @@ class PrePushDoor(Goal):
             ActiveConnection1DOF
         )
         object_V_object_rotation_axis = cas.Vector3(
-            god_map.world.get_joint(object_joint_name).axis
+            context.world.get_joint(object_joint_name).axis
         )
 
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         )
-        root_T_door = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_door = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.door_object
         )
-        door_P_handle = god_map.world.compute_forward_kinematics(
+        door_P_handle = context.world.compute_forward_kinematics(
             self.door_object, self.door_handle
         )
         temp_point = np.asarray(
@@ -50,7 +51,7 @@ class PrePushDoor(Goal):
         door_V_v2 = object_V_object_rotation_axis  # B
         door_V_v1 = cas.Vector3(door_V_v1)  # A
 
-        door_Pose_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        door_Pose_tip = context.world._forward_kinematic_manager.compose_expression(
             self.door_object, self.tip_link
         )
         door_P_tip = door_Pose_tip.to_position()
@@ -62,7 +63,7 @@ class PrePushDoor(Goal):
             root_T_door
         ) @ cas.Point3.from_iterable(door_P_nearest)
 
-        god_map.debug_expression_manager.add_debug_expression(
+        context.context.add_debug_expression(
             "goal_point_on_plane",
             cas.Point3.from_iterable(root_P_nearest_in_rotated_door),
         )

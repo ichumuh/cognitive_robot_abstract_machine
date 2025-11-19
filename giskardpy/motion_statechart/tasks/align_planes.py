@@ -1,12 +1,13 @@
+from dataclasses import dataclass
+
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.tasks.task import WEIGHT_ABOVE_CA, Task
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
+@dataclass
 class AlignPlanes(Task):
     root_link: Body
     tip_link: Body
@@ -14,7 +15,7 @@ class AlignPlanes(Task):
     tip_normal: cas.Vector3
     threshold: float = 0.01
     reference_velocity: float = 0.5
-    weight: float = WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
     def __post_init__(self):
         """
@@ -26,17 +27,17 @@ class AlignPlanes(Task):
         :param reference_velocity: rad/s
         :param weight:
         """
-        self.tip_V_tip_normal = god_map.world.transform(
+        self.tip_V_tip_normal = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.tip_normal
         )
         self.tip_V_tip_normal.scale(1)
 
-        self.root_V_root_normal = god_map.world.transform(
+        self.root_V_root_normal = context.world.transform(
             target_frame=self.root_link, spatial_object=self.goal_normal
         )
         self.root_V_root_normal.scale(1)
 
-        root_R_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_R_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_rotation_matrix()
         root_V_tip_normal = root_R_tip @ self.tip_V_tip_normal
@@ -47,11 +48,11 @@ class AlignPlanes(Task):
             weight=self.weight,
         )
         root_V_tip_normal.vis_frame = self.tip_link
-        god_map.debug_expression_manager.add_debug_expression(
+        context.add_debug_expression(
             f"{self.name}/current_normal", root_V_tip_normal, color=Color(1, 0, 0, 1)
         )
         self.root_V_root_normal.vis_frame = self.tip_link
-        god_map.debug_expression_manager.add_debug_expression(
+        context.add_debug_expression(
             f"{self.name}/goal_normal", self.root_V_root_normal, color=Color(0, 0, 1, 1)
         )
 

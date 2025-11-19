@@ -1,9 +1,9 @@
+from dataclasses import field, dataclass
 from typing import Dict
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.data_types.exceptions import GoalInitalizationException
-from giskardpy.motion_statechart.monitors.monitors import Monitor
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection,
@@ -11,15 +11,15 @@ from semantic_digital_twin.world_description.connections import (
 )
 
 
-@validated_dataclass
-class JointGoalReached(Monitor):
-    goal_state: Dict[ActiveConnection1DOF, float]
+@dataclass
+class JointGoalReached(MotionStatechartNode):
+    goal_state: Dict[ActiveConnection1DOF, float] = field(kw_only=True)
     threshold: float = 0.01
 
     def __post_init__(self):
         comparison_list = []
         for connection, goal in self.goal_state.items():
-            current = connection.dof.symbols.position
+            current = connection.dof.variables.position
             if (
                 isinstance(connection, RevoluteConnection)
                 and not connection.dof.has_position_limits()
@@ -32,10 +32,10 @@ class JointGoalReached(Monitor):
         self.observation_expression = expression
 
 
-@validated_dataclass
-class JointPositionAbove(Monitor):
-    connection: ActiveConnection
-    threshold: float
+@dataclass
+class JointPositionAbove(MotionStatechartNode):
+    connection: ActiveConnection = field(kw_only=True)
+    threshold: float = field(kw_only=True)
 
     def __post_init__(self):
         if not isinstance(self.connection, ActiveConnection1DOF):
@@ -50,6 +50,6 @@ class JointPositionAbove(Monitor):
                 f"{self.__class__.__name__} does not support joints of type continuous."
             )
 
-        current = self.connection.dof.symbols.position
+        current = self.connection.dof.variables.position
         expression = current > self.threshold
         self.observation_expression = expression

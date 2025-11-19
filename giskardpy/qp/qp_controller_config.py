@@ -6,17 +6,15 @@ from typing import Optional, Dict, Type
 
 import numpy as np
 
-from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from giskardpy.data_types.exceptions import QPSolverException
-from giskardpy.god_map import god_map
 from giskardpy.middleware import get_middleware
-from giskardpy.qp.qp_controller import QPController
 from giskardpy.qp.qp_formulation import QPFormulation
 from giskardpy.qp.solvers.qp_solver import QPSolver
 from giskardpy.qp.solvers.qp_solver_ids import SupportedQPSolver
 from giskardpy.utils.utils import get_all_classes_in_module
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+from semantic_digital_twin.spatial_types.derivatives import Derivatives
 
 available_solvers: Dict[SupportedQPSolver, Type[QPSolver]] = {}
 
@@ -54,7 +52,6 @@ class QPControllerConfig:
     )
     max_derivative: Derivatives = field(default=Derivatives.jerk)
     qp_solver_id: Optional[SupportedQPSolver] = field(default=None)
-    qp_solver_class: Type[QPSolver] = field(init=False)
     prediction_horizon: int = field(default=7)
     mpc_dt: float = field(default=0.0125)
     max_trajectory_length: Optional[float] = field(default=30)
@@ -65,6 +62,9 @@ class QPControllerConfig:
     weight_factor: float = field(default=100)
     verbose: bool = field(default=True)
 
+    # %% init false
+    qp_solver_class: Type[QPSolver] = field(init=False)
+
     def __post_init__(self):
         if not self.qp_formulation.is_mpc:
             self.prediction_horizon = 1
@@ -73,18 +73,23 @@ class QPControllerConfig:
         if self.prediction_horizon < 4:
             raise ValueError("prediction horizon must be >= 4.")
         self.__endless_mode = self.max_trajectory_length is None
-        self.set_qp_solver(self.qp_solver_id)
+        self.set_qp_solver()
 
-    def setup(self):
-        self.init_qp_controller()
+    @classmethod
+    def create_default_with_50hz(cls):
+        return cls(
+            control_dt=0.02,
+            mpc_dt=0.02,
+            prediction_horizon=7,
+        )
 
-    def set_qp_solver(self, solver_id: SupportedQPSolver) -> None:
-        if solver_id is not None:
-            self.qp_solver_class = available_solvers[solver_id]
+    def set_qp_solver(self) -> None:
+        if self.qp_solver_id is not None:
+            self.qp_solver_class = available_solvers[self.qp_solver_id]
         else:
-            for solver_id in SupportedQPSolver:
-                if solver_id in available_solvers:
-                    self.qp_solver_class = available_solvers[solver_id]
+            for qp_solver_id in SupportedQPSolver:
+                if qp_solver_id in available_solvers:
+                    self.qp_solver_class = available_solvers[qp_solver_id]
                     break
             else:
                 raise QPSolverException(f"No qp solver found")
@@ -106,6 +111,3 @@ class QPControllerConfig:
     def get_dof_weight(self, dof_name: PrefixedName, derivative: Derivatives) -> float:
         """Get weight for a specific DOF derivative."""
         return self.dof_weights[dof_name].data[derivative]
-
-    def init_qp_controller(self):
-        god_map.qp_controller = QPController(config=self)

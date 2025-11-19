@@ -1,92 +1,76 @@
-from dataclasses import field
-from typing import Dict, Tuple
+import time
+from dataclasses import field, dataclass
+from typing import Optional
 
-import numpy as np
-from line_profiler import profile
-
-from giskardpy.god_map import god_map
-from giskardpy.middleware import get_middleware
-from giskardpy.motion_statechart.data_types import ObservationState
-from giskardpy.motion_statechart.monitors.monitors import PayloadMonitor, Monitor
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.context import ExecutionContext
+from giskardpy.motion_statechart.data_types import ObservationStateValues
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 
 
-@validated_dataclass
-class CheckMaxTrajectoryLength(Monitor):
+@dataclass
+class CheckMaxTrajectoryLength(MotionStatechartNode):
     length: float
 
     def __post_init__(self):
-        self.observation_expression = god_map.time_symbol > self.length
+        self.observation_expression = context.time_symbol > self.length
 
 
-@validated_dataclass
-class Print(PayloadMonitor):
+@dataclass(eq=False, repr=False)
+class Print(MotionStatechartNode):
     message: str = ""
 
-    def __call__(self):
-        get_middleware().loginfo(self.message)
-        self.state = ObservationState.true
+    def on_tick(self, context: ExecutionContext) -> ObservationStateValues:
+        print(self.message)
+        return ObservationStateValues.TRUE
 
 
-@validated_dataclass
-class Sleep(PayloadMonitor):
-    seconds: float
-    start_time: float = field(default=None, init=False)
-
-    def __post_init__(self):
-        self.start_time = None
-
-    def __call__(self):
-        if self.start_time is None:
-            self.start_time = god_map.time
-        self.state = god_map.time - self.start_time >= self.seconds
-
-
-@validated_dataclass
-class CollisionMatrixUpdater(PayloadMonitor):
-    new_collision_matrix: Dict[Tuple[str, str], float]
-
-    @profile
-    def __call__(self):
-        god_map.collision_scene.set_collision_matrix(self.new_collision_matrix)
-        god_map.collision_scene.reset_cache()
-        self.state = ObservationState.true
+# @dataclass
+# class Sleep(MotionStatechartNode):
+#     seconds: float
+#     start_time: Optional[float] = field(default=None, init=False)
+#
+#     def on_start(self, context: ExecutionContext):
+#         self.start_time = None
+#
+#     def on_tick(self, context: ExecutionContext) -> Optional[float]:
+#         if self.start_time is None:
+#             self.start_time = god_map.time
+#         return god_map.time - self.start_time >= self.seconds
 
 
-@validated_dataclass
-class PayloadAlternator(PayloadMonitor):
-    mod: int = 2
+@dataclass
+class CountSeconds(MotionStatechartNode):
+    """
+    This node counts X seconds and then turns True.
+    Only counts while in state RUNNING.
+    """
 
-    def __call__(self):
-        self.state = np.floor(god_map.time) % self.mod == 0
+    seconds: float = field(kw_only=True)
+    _start_time: float = field(init=False)
 
+    def on_tick(self, context: ExecutionContext) -> Optional[ObservationStateValues]:
+        difference = time.time() - self._start_time
+        if difference >= self.seconds:
+            return ObservationStateValues.TRUE
+        return None
 
-@validated_dataclass
-class Counter(PayloadMonitor):
-    number: int
-    counter: int = field(default=0, init=False)
-
-    def __call__(self):
-        if self.state == ObservationState.unknown:
-            self.counter = 0
-        if self.counter >= self.number:
-            self.state = ObservationState.true
-        else:
-            self.state = ObservationState.false
-        self.counter += 1
+    def on_start(self, context: ExecutionContext):
+        self._start_time = time.time()
 
 
-@validated_dataclass
-class Pulse(PayloadMonitor):
-    after_ticks: int
-    true_for_ticks: int = 1
-    ticks: int = field(default=0, init=False)
+@dataclass
+class Pulse(MotionStatechartNode):
+    """
+    Will stay True for a single tick, then turn False.
+    """
 
-    def __call__(self):
-        if self.state == ObservationState.unknown:
-            self.counter = 0
-        if self.after_ticks <= self.counter <= self.after_ticks + self.true_for_ticks:
-            self.state = ObservationState.true
-        else:
-            self.state = ObservationState.false
-        self.counter += 1
+    _triggered: bool = field(default=False, init=False)
+
+    def on_tick(self, context: ExecutionContext) -> Optional[ObservationStateValues]:
+        if not self._triggered:
+            self._triggered = True
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE
+
+    def on_reset(self, context: ExecutionContext):
+        self._triggered = False

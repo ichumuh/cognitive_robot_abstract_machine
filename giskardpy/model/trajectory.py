@@ -9,14 +9,15 @@ from threading import Lock
 from typing import Dict, Tuple, Optional, List
 
 import numpy as np
+from giskardpy_ros.tree.blackboard_utils import GiskardBlackboard
 from line_profiler import profile
 from sortedcontainers import SortedDict
 
-from giskardpy.god_map import god_map
 from giskardpy.middleware import get_middleware
 from giskardpy.utils.utils import cm_to_inch
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_state import WorldState
 
 plot_lock = Lock()
@@ -43,6 +44,7 @@ class Trajectory:
 
     def to_dict(
         self,
+        world: World,
         normalize_position: Optional[bool] = None,
         filter_0_vel: bool = True,
         sort: bool = True,
@@ -56,8 +58,8 @@ class Trajectory:
             for free_variable, trajectory in d_data.items():
                 d_data[free_variable] = np.array(trajectory, dtype=float)
                 if (
-                    free_variable in god_map.world.degrees_of_freedom
-                    and not god_map.world.get_degree_of_freedom_by_name(
+                    free_variable in self.world.degrees_of_freedom
+                    and not self.world.get_degree_of_freedom_by_name(
                         free_variable
                     ).has_position_limits()
                 ):
@@ -120,7 +122,9 @@ class Trajectory:
         cm_per_second = cm_to_inch(cm_per_second)
         height_per_derivative = cm_to_inch(height_per_derivative)
         hspace = cm_to_inch(hspace)
-        max_derivative = god_map.qp_controller.config.max_derivative
+        max_derivative = (
+            GiskardBlackboard().executor.qp_controller.config.max_derivative
+        )
         with plot_lock:
 
             def ceil(val, base=0.0, stride=1.0):

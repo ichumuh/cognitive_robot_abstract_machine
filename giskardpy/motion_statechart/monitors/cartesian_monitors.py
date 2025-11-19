@@ -1,28 +1,27 @@
+from dataclasses import dataclass
 from typing import List
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.monitors.monitors import Monitor
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@validated_dataclass
-class InWorldSpace(Monitor):
+@dataclass
+class InWorldSpace(MotionStatechartNode):
     tip_link: Body
     xyz: List[float]
 
     def __post_init__(self):
-        self.joint: OmniDrive = god_map.world.get_connections_by_type(OmniDrive)[0]
+        self.joint: OmniDrive = context.world.get_connections_by_type(OmniDrive)[0]
         self.drive_link = self.joint.child
         self.tip_link = self.tip_link
         self.map = self.joint.parent
 
-        map_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        map_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.map, self.tip_link
         )
-        map_T_drive = god_map.world._forward_kinematic_manager.compose_expression(
+        map_T_drive = context.world._forward_kinematic_manager.compose_expression(
             self.map, self.drive_link
         )
 
@@ -31,17 +30,15 @@ class InWorldSpace(Monitor):
 
         error = map_T_tip.to_position() - map_T_drive.to_position()
         error.vis_frame = self.drive_link
-        god_map.debug_expression_manager.add_debug_expression(
-            f"{self.name}/error", error
-        )
+        context.context.add_debug_expression(f"{self.name}/error", error)
         self.observation_expression = cas.logic_and(
             cas.abs(error.x) <= self.xyz[0],
             cas.abs(error.y) <= self.xyz[1],
         )
 
 
-@validated_dataclass
-class PoseReached(Monitor):
+@dataclass
+class PoseReached(MotionStatechartNode):
     root_link: Body
     tip_link: Body
     goal_pose: cas.TransformationMatrix
@@ -51,11 +48,11 @@ class PoseReached(Monitor):
 
     def __post_init__(self):
         if self.absolute:
-            root_T_goal = god_map.world.transform(
+            root_T_goal = context.world.transform(
                 target_frame=self.root_link, spatial_object=self.goal_pose
             )
         else:
-            root_T_x = god_map.world._forward_kinematic_manager.compose_expression(
+            root_T_x = context.world._forward_kinematic_manager.compose_expression(
                 self.root_link, self.goal_pose.reference_frame
             )
             root_T_goal = root_T_x @ self.goal_pose
@@ -63,7 +60,7 @@ class PoseReached(Monitor):
 
         # %% position error
         r_P_g = root_T_goal.to_position()
-        r_P_c = god_map.world._forward_kinematic_manager.compose_expression(
+        r_P_c = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_position()
         distance_to_goal = r_P_g.euclidean_distance(r_P_c)
@@ -71,7 +68,7 @@ class PoseReached(Monitor):
 
         # %% orientation error
         r_R_g = root_T_goal.to_rotation_matrix()
-        r_R_c = god_map.world._forward_kinematic_manager.compose_expression(
+        r_R_c = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_rotation_matrix()
         rotation_error = r_R_c.rotational_error(r_R_g)
@@ -82,8 +79,8 @@ class PoseReached(Monitor):
         )
 
 
-@validated_dataclass
-class PositionReached(Monitor):
+@dataclass
+class PositionReached(MotionStatechartNode):
     root_link: Body
     tip_link: Body
     goal_point: cas.Point3
@@ -92,25 +89,25 @@ class PositionReached(Monitor):
 
     def __post_init__(self):
         if self.absolute:
-            root_P_goal = god_map.world.transform(
+            root_P_goal = context.world.transform(
                 target_frame=self.root_link, spatial_object=self.goal_point
             )
         else:
-            root_P_x = god_map.world._forward_kinematic_manager.compose_expression(
+            root_P_x = context.world._forward_kinematic_manager.compose_expression(
                 self.root_link, self.goal_point.reference_frame
             )
             root_P_goal = root_P_x.dot(self.goal_point)
             root_P_goal = self.update_expression_on_starting(root_P_goal)
 
-        r_P_c = god_map.world._forward_kinematic_manager.compose_expression(
+        r_P_c = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_position()
         distance_to_goal = root_P_goal.euclidean_distance(r_P_c)
         self.observation_expression = distance_to_goal < self.threshold
 
 
-@validated_dataclass
-class OrientationReached(Monitor):
+@dataclass
+class OrientationReached(MotionStatechartNode):
     root_link: Body
     tip_link: Body
     goal_orientation: cas.RotationMatrix
@@ -119,25 +116,25 @@ class OrientationReached(Monitor):
 
     def __post_init__(self):
         if self.absolute:
-            r_R_g = god_map.world.transform(
+            r_R_g = context.world.transform(
                 target_frame=self.root_link, spatial_object=self.goal_orientation
             )
         else:
-            root_T_x = god_map.world._forward_kinematic_manager.compose_expression(
+            root_T_x = context.world._forward_kinematic_manager.compose_expression(
                 self.root_link, self.goal_orientation.reference_frame
             )
             root_R_goal = root_T_x @ self.goal_orientation
             r_R_g = self.update_expression_on_starting(root_R_goal)
 
-        r_R_c = god_map.world._forward_kinematic_manager.compose_expression(
+        r_R_c = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_rotation_matrix()
         rotation_error = r_R_c.rotational_error(r_R_g)
         self.observation_expression = cas.abs(rotation_error) < self.threshold
 
 
-@validated_dataclass
-class PointingAt(Monitor):
+@dataclass
+class PointingAt(MotionStatechartNode):
     tip_link: Body
     goal_point: cas.Point3
     root_link: Body
@@ -145,15 +142,15 @@ class PointingAt(Monitor):
     threshold: float = 0.01
 
     def __post_init__(self):
-        self.root_P_goal_point = god_map.world.transform(
+        self.root_P_goal_point = context.world.transform(
             target_frame=self.root_link, spatial_object=self.goal_point
         )
 
-        tip_V_pointing_axis = god_map.world.transform(
+        tip_V_pointing_axis = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.pointing_axis
         )
         tip_V_pointing_axis.scale(1)
-        root_T_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         )
         root_P_tip = root_T_tip.to_position()
@@ -168,8 +165,8 @@ class PointingAt(Monitor):
         self.observation_expression = expr
 
 
-@validated_dataclass
-class VectorsAligned(Monitor):
+@dataclass
+class VectorsAligned(MotionStatechartNode):
     root_link: Body
     tip_link: Body
     goal_normal: cas.Vector3
@@ -177,17 +174,17 @@ class VectorsAligned(Monitor):
     threshold: float = 0.01
 
     def __post_init__(self):
-        self.tip_V_tip_normal = god_map.world.transform(
+        self.tip_V_tip_normal = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.tip_normal
         )
         self.tip_V_tip_normal.scale(1)
 
-        self.root_V_root_normal = god_map.world.transform(
+        self.root_V_root_normal = context.world.transform(
             target_frame=self.root_link, spatial_object=self.goal_normal
         )
         self.root_V_root_normal.scale(1)
 
-        root_R_tip = god_map.world._forward_kinematic_manager.compose_expression(
+        root_R_tip = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_rotation_matrix()
         root_V_tip_normal = root_R_tip.dot(self.tip_V_tip_normal)
@@ -196,8 +193,8 @@ class VectorsAligned(Monitor):
         self.observation_expression = expr
 
 
-@validated_dataclass
-class DistanceToLine(Monitor):
+@dataclass
+class DistanceToLine(MotionStatechartNode):
     root_link: Body
     tip_link: Body
     center_point: cas.Point3
@@ -206,14 +203,14 @@ class DistanceToLine(Monitor):
     threshold: float = 0.01
 
     def __post_init__(self):
-        root_P_current = god_map.world._forward_kinematic_manager.compose_expression(
+        root_P_current = context.world._forward_kinematic_manager.compose_expression(
             self.root_link, self.tip_link
         ).to_position()
-        root_V_line_axis = god_map.world.transform(
+        root_V_line_axis = context.world.transform(
             target_frame=self.root_link, spatial_object=self.line_axis
         )
         root_V_line_axis.scale(1)
-        root_P_center = god_map.world.transform(
+        root_P_center = context.world.transform(
             target_frame=self.root_link, spatial_object=self.center_point
         )
         root_P_line_start = root_P_center + root_V_line_axis * (self.line_length / 2)

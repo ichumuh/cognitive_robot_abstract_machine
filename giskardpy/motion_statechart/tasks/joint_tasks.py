@@ -1,14 +1,19 @@
-from dataclasses import field
-from typing import Optional, Dict, List, Tuple, Union
+from dataclasses import field, dataclass, InitVar
+from typing import Optional, Dict, List, Tuple, Union, Any
+
+from krrood.adapters.json_serializer import SubclassJSONSerializer
+from typing_extensions import Self
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.data_types.exceptions import GoalInitalizationException
-from giskardpy.god_map import god_map
+from giskardpy.motion_statechart.context import BuildContext
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.graph_node import NodeArtifacts
 from giskardpy.motion_statechart.monitors.joint_monitors import JointGoalReached
-from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_BELOW_CA
-from giskardpy.utils.decorators import validated_dataclass
+from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection,
@@ -17,71 +22,110 @@ from semantic_digital_twin.world_description.connections import (
 )
 
 
-@validated_dataclass
-class JointPositionList(Task):
-    goal_state: Dict[ActiveConnection1DOF, Union[int, float]]
-    threshold: float = 0.01
-    weight: float = WEIGHT_BELOW_CA
-    max_velocity: float = 1.0
+@dataclass
+class JointState(SubclassJSONSerializer):
+    mapping: InitVar[Dict[ActiveConnection1DOF, float]]
 
-    def __post_init__(self):
-        self.current_positions = []
-        self.goal_positions = []
-        self.velocity_limits = []
-        self.connections = []
+    _connections: List[ActiveConnection1DOF] = field(init=False, default_factory=list)
+    _target_values: List[float] = field(init=False, default_factory=list)
+
+    def __post_init__(self, mapping: Dict[ActiveConnection1DOF, float]):
+        for connection, target in mapping.items():
+            self._connections.append(connection)
+            self._target_values.append(target)
+
+    def __len__(self):
+        return len(self._connections)
+
+    def items(self):
+        return zip(self._connections, self._target_values)
+
+    @classmethod
+    def from_str_dict(cls, mapping: Dict[str, float], world: World):
+        mapping = {
+            world.get_connection_by_name(connection_name): target
+            for connection_name, target in mapping.items()
+        }
+        return cls(mapping=mapping)
+
+    @classmethod
+    def from_lists(cls, connections: List[ActiveConnection1DOF], targets: List[float]):
+        return cls(mapping=dict(zip(connections, targets)))
+
+    def to_json(self) -> Dict[str, Any]:
+        return {
+            **super().to_json(),
+            "_connections": [
+                connection.name.to_json() for connection in self._connections
+            ],
+            "_target_values": self._target_values,
+        }
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        world: World = kwargs["world"]
+        connections = [
+            world.get_connection_by_name(PrefixedName.from_json(name, **kwargs))
+            for name in data["_connections"]
+        ]
+        target_values = data["_target_values"]
+        return cls.from_lists(connections, target_values)
+
+
+@dataclass(eq=False, repr=False)
+class JointPositionList(Task):
+    goal_state: JointState = field(kw_only=True)
+    threshold: float = field(default=0.01, kw_only=True)
+    weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
+    max_velocity: float = field(default=1.0, kw_only=True)
+
+    def build(self, context: BuildContext) -> NodeArtifacts:
         if len(self.goal_state) == 0:
             raise GoalInitalizationException(f"Can't initialize {self} with no joints.")
 
-        for connection, goal_position in self.goal_state.items():
-            self.connections.append(connection)
-            if not isinstance(connection, ActiveConnection1DOF):
-                raise GoalInitalizationException(
-                    f"Connection {connection.name} must be of type ActiveConnection1DOF"
-                )
+        artifacts = NodeArtifacts()
 
-            ul_pos = connection.dof.upper_limits.position
-            ll_pos = connection.dof.lower_limits.position
-            if ll_pos is not None:
-                goal_position = cas.limit(goal_position, ll_pos, ul_pos)
-
-            ul_vel = connection.dof.upper_limits.velocity
-            ll_vel = connection.dof.lower_limits.velocity
-            velocity_limit = cas.limit(self.max_velocity, ll_vel, ul_vel)
-
-            self.current_positions.append(connection.dof.symbols.position)
-            self.goal_positions.append(goal_position)
-            self.velocity_limits.append(velocity_limit)
-
-        for connection, current, goal, velocity_limit in zip(
-            self.connections,
-            self.current_positions,
-            self.goal_positions,
-            self.velocity_limits,
-        ):
+        errors = []
+        for connection, target in self.goal_state.items():
+            current = connection.dof.variables.position
+            target = self.apply_limits_to_target(target, connection)
+            velocity = self.apply_limits_to_velocity(self.max_velocity, connection)
             if (
                 isinstance(connection, RevoluteConnection)
                 and not connection.dof.has_position_limits()
             ):
-                error = cas.shortest_angular_distance(current, goal)
+                error = cas.shortest_angular_distance(current, target)
             else:
-                error = goal - current
-
-            self.add_equality_constraint(
-                name=f"{self.name}/{connection.name}",
-                reference_velocity=velocity_limit,
+                error = target - current
+            artifacts.constraints.add_equality_constraint(
+                name=str(connection.name),
+                reference_velocity=velocity,
                 equality_bound=error,
                 weight=self.weight,
                 task_expression=current,
             )
-        joint_monitor = JointGoalReached(
-            goal_state=self.goal_state,
-            threshold=self.threshold,
-            name=f"{self.name}_monitor",
-        )
-        self.observation_expression = joint_monitor.observation_expression
+            errors.append(cas.abs(error) < self.threshold)
+        artifacts.observation = cas.logic_all(cas.Expression(errors))
+        return artifacts
+
+    def apply_limits_to_target(
+        self, target: float, connection: ActiveConnection1DOF
+    ) -> cas.Expression:
+        ul_pos = connection.dof.upper_limits.position
+        ll_pos = connection.dof.lower_limits.position
+        if ll_pos is not None:
+            target = cas.limit(target, ll_pos, ul_pos)
+        return target
+
+    def apply_limits_to_velocity(
+        self, velocity: float, connection: ActiveConnection1DOF
+    ) -> cas.Expression:
+        ul_vel = connection.dof.upper_limits.velocity
+        ll_vel = connection.dof.lower_limits.velocity
+        return cas.limit(velocity, ll_vel, ul_vel)
 
 
-@validated_dataclass
+@dataclass
 class MirrorJointPosition(Task):
     mapping: Dict[Union[PrefixedName, str], str] = field(default_factory=lambda: dict)
     threshold: float = 0.01
@@ -90,7 +134,7 @@ class MirrorJointPosition(Task):
 
     def __post_init__(self):
         if self.weight is None:
-            self.weight = WEIGHT_BELOW_CA
+            self.weight = DefaultWeights.WEIGHT_BELOW_CA
         if self.max_velocity is None:
             self.max_velocity = 1.0
         self.current_positions = []
@@ -99,9 +143,9 @@ class MirrorJointPosition(Task):
         self.connections = []
         goal_state = {}
         for joint_name, target_joint_name in self.mapping.items():
-            connection = god_map.world.get_connection_by_name(joint_name)
+            connection = context.world.get_connection_by_name(joint_name)
             self.connections.append(connection)
-            target_connection = god_map.world.get_connection_by_name(target_joint_name)
+            target_connection = context.world.get_connection_by_name(target_joint_name)
 
             ll_vel = connection.dof.lower_limits
             ul_vel = connection.dof.upper_limits
@@ -138,10 +182,12 @@ class MirrorJointPosition(Task):
         self.observation_expression = joint_monitor.observation_expression
 
 
-@validated_dataclass
+@dataclass
 class JointPositionLimitList(Task):
-    lower_upper_limits: Dict[Union[PrefixedName, str], Tuple[float, float]]
-    weight: float = WEIGHT_BELOW_CA
+    lower_upper_limits: Dict[Union[PrefixedName, str], Tuple[float, float]] = field(
+        kw_only=True
+    )
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_velocity: float = 1
 
     def __post_init__(self):
@@ -163,7 +209,7 @@ class JointPositionLimitList(Task):
             raise GoalInitalizationException(f"Can't initialize {self} with no joints.")
 
         for joint_name, (lower_limit, upper_limit) in self.lower_upper_limits.items():
-            connection: ActiveConnection1DOF = god_map.world.get_connection_by_name(
+            connection: ActiveConnection1DOF = context.world.get_connection_by_name(
                 joint_name
             )
             self.connections.append(connection)
@@ -212,12 +258,12 @@ class JointPositionLimitList(Task):
             )
 
 
-@validated_dataclass
+@dataclass
 class JustinTorsoLimit(Task):
-    connection: ActiveConnection
+    connection: ActiveConnection = field(kw_only=True)
     lower_limit: Optional[float] = None
     upper_limit: Optional[float] = None
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_velocity: float = 1
 
     def __post_init__(self):
@@ -234,19 +280,15 @@ class JustinTorsoLimit(Task):
             lower_error = self.lower_limit - current
             upper_error = self.upper_limit - current
 
-        god_map.debug_expression_manager.add_debug_expression("torso 4 joint", current)
-        god_map.debug_expression_manager.add_debug_expression(
+        context.add_debug_expression("torso 4 joint", current)
+        context.add_debug_expression(
             "torso 2 joint", joint.q1.get_symbol(Derivatives.position)
         )
-        god_map.debug_expression_manager.add_debug_expression(
+        context.add_debug_expression(
             "torso 3 joint", joint.q2.get_symbol(Derivatives.position)
         )
-        god_map.debug_expression_manager.add_debug_expression(
-            "lower_limit", self.lower_limit
-        )
-        god_map.debug_expression_manager.add_debug_expression(
-            "upper_limit", self.upper_limit
-        )
+        context.add_debug_expression("lower_limit", self.lower_limit)
+        context.add_debug_expression("upper_limit", self.upper_limit)
 
         self.add_inequality_constraint(
             name=self.name,
@@ -258,10 +300,10 @@ class JustinTorsoLimit(Task):
         )
 
 
-@validated_dataclass
+@dataclass
 class JointVelocityLimit(Task):
-    joints: List[ActiveConnection1DOF]
-    weight: float = WEIGHT_BELOW_CA
+    joints: List[ActiveConnection1DOF] = field(kw_only=True)
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_velocity: float = 1
     hard: bool = False
 
@@ -302,11 +344,11 @@ class JointVelocityLimit(Task):
                 )
 
 
-@validated_dataclass
+@dataclass
 class JointVelocity(Task):
-    connections: List[ActiveConnection1DOF]
-    vel_goal: float
-    weight: float = WEIGHT_BELOW_CA
+    connections: List[ActiveConnection1DOF] = field(kw_only=True)
+    vel_goal: float = field(kw_only=True)
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
     max_velocity: float = 1
     hard: bool = False
 
@@ -320,7 +362,7 @@ class JointVelocity(Task):
         :param hard: turn this into a hard constraint.
         """
         for connection in self.connections:
-            current_joint = connection.dof.symbols.position
+            current_joint = connection.dof.variables.position
             try:
                 limit_expr = connection.dof.upper_limits.velocity
                 max_velocity = cas.min(self.max_velocity, limit_expr)
@@ -335,22 +377,22 @@ class JointVelocity(Task):
             )
 
 
-@validated_dataclass
+@dataclass
 class UnlimitedJointGoal(Task):
-    connection: ActiveConnection1DOF
-    goal_position: float
+    connection: ActiveConnection1DOF = field(kw_only=True)
+    goal_position: float = field(kw_only=True)
 
     def __post_init__(self):
-        connection_symbol = self.connection.dof.symbols.position
+        connection_symbol = self.connection.dof.variables.position
         self.add_position_constraint(
             expr_current=connection_symbol,
             expr_goal=self.goal_position,
             reference_velocity=2,
-            weight=WEIGHT_BELOW_CA,
+            weight=DefaultWeights.WEIGHT_BELOW_CA,
         )
 
 
-@validated_dataclass
+@dataclass
 class AvoidJointLimits(Task):
     """
     Calls AvoidSingleJointLimits for each joint in joint_list
@@ -361,17 +403,17 @@ class AvoidJointLimits(Task):
     connection_list: Optional[List[ActiveConnection1DOF]] = None
     """list of joints for which AvoidSingleJointLimits will be called"""
 
-    weight: float = WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_CA
 
     def __post_init__(self):
         if self.connection_list is None:
-            self.connection_list = god_map.world.controlled_connections
+            self.connection_list = context.world.controlled_connections
         for connection in self.connection_list:
             if isinstance(connection, (RevoluteConnection, PrismaticConnection)):
                 if not connection.dof.has_position_limits():
                     continue
                 weight = self.weight
-                connection_symbol = connection.dof.symbols.position
+                connection_symbol = connection.dof.variables.position
                 percentage = self.percentage / 100.0
                 lower_limit = connection.dof.lower_limits.position
                 upper_limit = connection.dof.upper_limits.position
