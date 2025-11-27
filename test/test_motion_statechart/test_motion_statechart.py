@@ -1220,7 +1220,7 @@ def test_pointing_cone(pr2_world: World):
     kin_sim.compile(motion_statechart=msc)
     kin_sim.tick_until_end()
 
-    # --- compute final vectors in the root frame ---
+    # Check if angle between pointing axis and tip->goal vector is within the cone
     root_V_pointing_axis = pr2_world.transform(target_frame=root, spatial_object=pointing_axis)
     root_V_pointing_axis.scale(1)
     v_pointing = root_V_pointing_axis.to_np()[:3]
