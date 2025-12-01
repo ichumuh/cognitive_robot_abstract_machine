@@ -515,7 +515,7 @@ class CollisionAvoidance(Goal):
                             body_a_original, body_b_original
                         )
                     )
-                    if body_b.name < body_a.name:
+                    if body_b.id < body_a.id:
                         body_a, body_b = body_b, body_a
                     counter[body_a, body_b] = max(
                         [

@@ -125,7 +125,7 @@ class BoxBot(AbstractRobot):
                 root=world.get_body_by_name("bot"),
                 _world=world,
             )
-            world.add_semantic_annotation(boxbot, skip_duplicates=True)
+            world.add_semantic_annotation(boxbot)
 
 
 @pytest.fixture()
