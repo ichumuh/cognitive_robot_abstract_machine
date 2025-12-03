@@ -562,6 +562,7 @@ class Aggregator(ResultProcessor[T], ABC):
         sources = sources or {}
         if self._id_ in sources:
             yield OperationResult(sources, False, self)
+            return
 
         values = self._apply_aggregation_function_(self._child_._evaluate__(sources))
         if values:
