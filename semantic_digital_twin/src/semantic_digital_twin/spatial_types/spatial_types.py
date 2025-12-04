@@ -34,6 +34,13 @@ from typing_extensions import (
 )
 
 from krrood.entity_query_language.predicate import Symbol
+from krrood.entity_query_language.symbolic import (
+    CanBehaveLikeAVariable,
+    Variable,
+    SymbolicExpression,
+    OperationResult,
+)
+from krrood.entity_query_language.utils import generate_combinations
 from ..adapters.world_entity_kwargs_tracker import (
     KinematicStructureEntityKwargsTracker,
 )
@@ -47,6 +54,7 @@ from ..exceptions import (
     DuplicateVariablesError,
     SpatialTypeNotJsonSerializable,
 )
+from krrood.entity_query_language.hashed_data import T, HashedValue
 
 if TYPE_CHECKING:
     from ..world_description.world_entity import KinematicStructureEntity
@@ -518,7 +526,7 @@ class SymbolicType(Symbol):
         )
 
 
-class BasicOperatorMixin:
+class BasicOperatorMixin(CanBehaveLikeAVariable[T]):
     """
     Base class providing arithmetic operations for symbolic types.
     """
@@ -784,6 +792,16 @@ class FloatVariable(SymbolicType, BasicOperatorMixin):
 
 
 @dataclass(eq=False)
+class VariableForAFloatVariable(FloatVariable, Variable):
+    def _evaluate__(
+        self,
+        sources: Optional[Dict[int, HashedValue]] = None,
+        parent: Optional[SymbolicExpression] = None,
+    ) -> Iterable[OperationResult]:
+        self.substitute()
+
+
+@dataclass(eq=False)
 class Expression(
     SymbolicType, BasicOperatorMixin, VectorOperationsMixin, MatrixOperationsMixin
 ):
@@ -837,6 +855,27 @@ class Expression(
             self._from_iterable(data)
         else:
             self.casadi_sx = ca.SX(data)
+
+    def _evaluate__(
+        self,
+        sources: Optional[Dict[int, HashedValue]] = None,
+        parent: Optional[SymbolicExpression] = None,
+    ) -> Iterable[OperationResult]:
+        sources = sources or {}
+        self._eval_parent_ = parent
+        variables: List[VariableForAFloatVariable] = self.free_variables()
+        things = {v: v._evaluate__(sources, parent=self) for v in variables}
+        for matches in generate_combinations(things):
+            yield OperationResult(
+                {
+                    self._id_: HashedValue(
+                        self.substitute(matches.keys(), matches.values())
+                    ),
+                    **sources,
+                },
+                False,
+                self,
+            )
 
     def _from_iterable(
         self, data: Union[NumericalArray, Numerical2dMatrix, Iterable[FloatVariable]]

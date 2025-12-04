@@ -5,9 +5,10 @@ from krrood.entity_query_language.entity import (
 )
 from krrood.entity_query_language.match import match
 from krrood.entity_query_language.quantify_entity import the, a
-from semantic_digital_twin.spatial_types import Expression
+from semantic_digital_twin.spatial_types import Expression, FloatVariable
 
 from semantic_digital_twin.testing import world_setup
+from semantic_digital_twin.world_description.connections import RevoluteConnection
 from semantic_digital_twin.world_description.degree_of_freedom import PositionVariable
 
 
@@ -24,3 +25,12 @@ def test_querying_equations(world_setup):
     ).evaluate()
 
     assert found_expr is expr
+
+
+def test_something(world_setup):
+    found_expr = the(
+        entity(
+            c := let(RevoluteConnection, domain=None),
+            c.multiplier + 1 > 5,
+        )
+    ).evaluate()

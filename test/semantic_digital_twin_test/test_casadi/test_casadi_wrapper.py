@@ -468,6 +468,12 @@ class TestFloatVariable:
 
 
 class TestExpression:
+    def test_substitute(self):
+        v1, v2 = cas.create_float_variables(["v1", "v2"])
+        expr = v1 + v2
+        expr_subst = expr.substitute([v1], [1])
+        assert expr_subst == v2 + 1
+
     def test_kron(self):
         m1 = np.eye(4)
         r1 = cas.Expression(data=m1).kron(cas.Expression(data=m1))

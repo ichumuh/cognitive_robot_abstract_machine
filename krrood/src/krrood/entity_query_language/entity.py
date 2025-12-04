@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from semantic_digital_twin.spatial_types import FloatVariable
+from semantic_digital_twin.spatial_types.spatial_types import (
+    VariableForAFloatVariable,
+    SymbolicType,
+)
 from .hashed_data import T
 from .symbol_graph import SymbolGraph
 from .utils import is_iterable
@@ -142,7 +147,9 @@ def let(
 
     if name is None:
         name = type_.__name__
-
+    if issubclass(type_, SymbolicType):
+        name = name or "float"
+        return VariableForAFloatVariable(name=name)
     result = Variable(
         _type_=type_,
         _domain_source_=domain_source,

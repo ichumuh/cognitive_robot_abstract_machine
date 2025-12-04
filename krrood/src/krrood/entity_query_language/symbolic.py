@@ -430,12 +430,30 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
     def _type__(self):
         return self._var_._type_ if self._var_ else None
 
-    def __getitem__(self, key) -> CanBehaveLikeAVariable[T]:
-        return Index(self, key)
-
     def __call__(self, *args, **kwargs) -> CanBehaveLikeAVariable[T]:
 
         return Call(self, args, kwargs)
+
+
+@dataclass(eq=False, repr=False)
+class CanBehaveLikeAVariableEQL(CanBehaveLikeAVariable[T], ABC):
+    """
+    This class adds the monitoring/tracking behaviour on variables that tracks attribute access, calling,
+    and comparison operations.
+    """
+
+    _path_: List[ClassRelation] = field(init=False, default_factory=list)
+    """
+    The path of the variable in the symbol graph as a sequence of relation instances.
+    """
+
+    _type_: Type[T] = field(init=False, default=None)
+    """
+    The type of the variable.
+    """
+
+    def __getitem__(self, key) -> CanBehaveLikeAVariable[T]:
+        return Index(self, key)
 
     def __eq__(self, other) -> Comparator:
         return Comparator(self, other, operator.eq)
