@@ -15,6 +15,7 @@ from collections import UserDict
 from copy import copy
 from dataclasses import dataclass, field, fields, MISSING, is_dataclass
 from functools import lru_cache, cached_property
+from symtable import Class
 
 from typing_extensions import (
     Iterable,
@@ -150,6 +151,7 @@ class SymbolicExpression(Generic[T], ABC):
     :ivar _is_false_: Internal flag indicating evaluation result for this node.
     """
 
+    entered: ClassVar[bool] = False
     _child_: Optional[SymbolicExpression] = field(init=False)
     _id_: int = field(init=False, repr=False, default=None)
     _node_: RWXNode = field(init=False, default=None, repr=False)
@@ -424,6 +426,13 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
             raise AttributeError(
                 f"{self.__class__.__name__} object has no attribute {name}"
             )
+        a = Attribute(self, name, self._type__)
+        from semantic_digital_twin.spatial_types.spatial_types import (
+            FloatAttributeVariable,
+        )
+
+        if a._type_ and issubclass(a._type_, (int, float)):
+            return FloatAttributeVariable(self, name, self._type__, name=name)
         return Attribute(self, name, self._type__)
 
     @cached_property
@@ -1243,6 +1252,9 @@ class Attribute(DomainMapping):
         """
 
         if not is_dataclass(self._owner_class_):
+            return None
+
+        if self._attr_name_ not in [f.name for f in fields(self._owner_class_)]:
             return None
 
         if self._wrapped_owner_class_:

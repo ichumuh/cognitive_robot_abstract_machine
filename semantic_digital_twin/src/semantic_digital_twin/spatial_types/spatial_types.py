@@ -39,6 +39,7 @@ from krrood.entity_query_language.symbolic import (
     Variable,
     SymbolicExpression,
     OperationResult,
+    Attribute,
 )
 from krrood.entity_query_language.utils import generate_combinations
 from ..adapters.world_entity_kwargs_tracker import (
@@ -526,7 +527,7 @@ class SymbolicType(Symbol):
         )
 
 
-class BasicOperatorMixin(CanBehaveLikeAVariable[T]):
+class BasicOperatorMixin:
     """
     Base class providing arithmetic operations for symbolic types.
     """
@@ -792,18 +793,23 @@ class FloatVariable(SymbolicType, BasicOperatorMixin):
 
 
 @dataclass(eq=False)
-class VariableForAFloatVariable(FloatVariable, Variable):
-    def _evaluate__(
-        self,
-        sources: Optional[Dict[int, HashedValue]] = None,
-        parent: Optional[SymbolicExpression] = None,
-    ) -> Iterable[OperationResult]:
-        self.substitute()
+class VariableForAFloatVariable(FloatVariable, Variable): ...
+
+
+@dataclass(eq=False)
+class FloatAttributeVariable(FloatVariable, Attribute):
+    def __post_init__(self):
+        FloatVariable.__post_init__(self)
+        Attribute.__post_init__(self)
 
 
 @dataclass(eq=False)
 class Expression(
-    SymbolicType, BasicOperatorMixin, VectorOperationsMixin, MatrixOperationsMixin
+    SymbolicType,
+    BasicOperatorMixin,
+    VectorOperationsMixin,
+    MatrixOperationsMixin,
+    CanBehaveLikeAVariable[T],
 ):
     """
     Represents symbolic expressions with rich mathematical capabilities, including matrix
@@ -845,6 +851,7 @@ class Expression(
             ]
         ],
     ):
+        self._child_ = None
         if data is None:
             return
         if isinstance(data, ca.SX):
@@ -855,6 +862,16 @@ class Expression(
             self._from_iterable(data)
         else:
             self.casadi_sx = ca.SX(data)
+        CanBehaveLikeAVariable.__post_init__(self)
+
+    @property
+    def _name_(self) -> str:
+        return str("whatever")
+
+    def _all_variable_instances_(self) -> List[FloatAttributeVariable]:
+        return [
+            v for v in self.free_variables() if isinstance(v, FloatAttributeVariable)
+        ]
 
     def _evaluate__(
         self,
@@ -863,19 +880,36 @@ class Expression(
     ) -> Iterable[OperationResult]:
         sources = sources or {}
         self._eval_parent_ = parent
-        variables: List[VariableForAFloatVariable] = self.free_variables()
+        variables = self._all_variable_instances_()
         things = {v: v._evaluate__(sources, parent=self) for v in variables}
         for matches in generate_combinations(things):
+            values = [thing.value.value for thing in matches.values()]
+            result = self.substitute(matches.keys(), values)
+            is_true = True
+            if result.is_constant():
+                result = result.to_np()
+                if self.is_bool_operation():
+                    is_true = bool(result)
             yield OperationResult(
                 {
-                    self._id_: HashedValue(
-                        self.substitute(matches.keys(), matches.values())
-                    ),
+                    self._id_: HashedValue(result),
                     **sources,
                 },
-                False,
+                not is_true,
                 self,
             )
+
+    def is_bool_operation(self):
+        return self.casadi_sx.op() in [
+            ca.OP_AND,
+            ca.OP_OR,
+            ca.OP_IF_ELSE_ZERO,
+            ca.OP_NOT,
+            ca.OP_EQ,
+            ca.OP_NE,
+            ca.OP_LE,
+            ca.OP_LT,
+        ]
 
     def _from_iterable(
         self, data: Union[NumericalArray, Numerical2dMatrix, Iterable[FloatVariable]]
@@ -1226,7 +1260,10 @@ def to_sx(thing: Union[ca.SX, SymbolicType]) -> ca.SX:
         return thing.casadi_sx
     if isinstance(thing, ca.SX):
         return thing
-    return ca.SX(thing)
+    try:
+        return ca.SX(thing)
+    except Exception as e:
+        pass
 
 
 def dot(e1: Expression, e2: Expression) -> Expression:
@@ -2708,7 +2745,7 @@ class Point3(
                 expected_dimensions="(3, 1) or (4, 1)",
                 actual_dimensions=expression.shape,
             )
-        if hasattr(data, "reference_frame") and reference_frame is None:
+        if reference_frame is None:
             reference_frame = data.reference_frame
         return cls(
             x_init=data[0],

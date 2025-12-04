@@ -147,9 +147,6 @@ def let(
 
     if name is None:
         name = type_.__name__
-    if issubclass(type_, SymbolicType):
-        name = name or "float"
-        return VariableForAFloatVariable(name=name)
     result = Variable(
         _type_=type_,
         _domain_source_=domain_source,
