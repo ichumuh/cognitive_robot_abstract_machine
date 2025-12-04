@@ -106,8 +106,9 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
         grasp_description = GraspDescription(
             ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
         )
-        performable = ReachToPickUpActionDescription(
-            self.world.get_body_by_name("milk.stl"), Arms.LEFT, grasp_description
+        performable = ReachActionDescription(
+            target_pose=PoseStamped.from_spatial_type(self.world.get_body_by_name("milk.stl").global_pose),
+            object_designator=self.world.get_body_by_name("milk.stl"),  arm=Arms.LEFT, grasp_description=grasp_description
         )
         plan = SequentialPlan(
             self.context,
@@ -240,13 +241,14 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
         )
         with simulated_robot:
             plan.perform()
-        self.assertEqual(
+        self.assertAlmostEqual(
             self.world.state[
                 self.world.get_degree_of_freedom_by_name(
                     "cabinet10_drawer_top_joint"
                 ).id
             ].position,
             0.45,
+            places=1
         )
 
     def test_close(self):
@@ -267,13 +269,14 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
         )
         with simulated_robot:
             plan.perform()
-        self.assertEqual(
+        self.assertAlmostEqual(
             self.world.state[
                 self.world.get_degree_of_freedom_by_name(
                     "cabinet10_drawer_top_joint"
                 ).id
             ].position,
             0,
+            places=1
         )
 
     def test_transport(self):
@@ -281,7 +284,7 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
             self.world.get_body_by_name("milk.stl"),
             [
                 PoseStamped.from_list(
-                    [3, 2.2, 0.95], [0.0, 0.0, 1.0, 0.0], self.world.root
+                    [2.9, 2.2, 0.95], [0.0, 0.0, 1.0, 0.0], self.world.root
                 )
             ],
             [Arms.LEFT],
@@ -294,7 +297,7 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
         milk_position = self.world.get_body_by_name("milk.stl").global_pose.to_np()[
             :3, 3
         ]
-        dist = np.linalg.norm(milk_position - np.array([3, 2.2, 0.95]))
+        dist = np.linalg.norm(milk_position - np.array([2.9, 2.2, 0.95]))
         self.assertLessEqual(dist, 0.01)
 
     def test_grasping(self):

@@ -6,7 +6,6 @@ import unittest
 from copy import deepcopy
 
 import pytest
-from rclpy.node import Node
 from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.adapters.procthor.procthor_semantic_annotations import Milk
@@ -202,6 +201,7 @@ class ApartmentWorldTestCase(EmptyWorldTestCase):
 
     @classmethod
     def setUpClass(cls):
+        logger.setLevel(logging.DEBUG)
         super().setUpClass()
 
         cls.apartment_world = setup_world()
