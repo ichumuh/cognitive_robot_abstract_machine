@@ -40,6 +40,7 @@ from krrood.entity_query_language.symbolic import (
     SymbolicExpression,
     OperationResult,
     Attribute,
+    CanAlmostBehaveLikeAVariable,
 )
 from krrood.entity_query_language.utils import generate_combinations
 from ..adapters.world_entity_kwargs_tracker import (
@@ -809,7 +810,7 @@ class Expression(
     BasicOperatorMixin,
     VectorOperationsMixin,
     MatrixOperationsMixin,
-    CanBehaveLikeAVariable[T],
+    CanAlmostBehaveLikeAVariable[T],
 ):
     """
     Represents symbolic expressions with rich mathematical capabilities, including matrix

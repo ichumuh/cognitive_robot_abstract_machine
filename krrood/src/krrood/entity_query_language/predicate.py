@@ -165,7 +165,7 @@ def get_function_argument_names(function: Callable) -> List[str]:
 
 
 def merge_args_and_kwargs(
-    function: Callable, args, kwargs, ignore_first: bool = True
+    function: Callable, args, kwargs, ignore_first: bool = False
 ) -> Dict[str, Any]:
     """
     Merge the arguments and keyword-arguments of a function into a dict of keyword-arguments.
@@ -177,12 +177,14 @@ def merge_args_and_kwargs(
     Use this when `function` contains something like `self`
     :return: The dict of assigned keyword-arguments.
     """
+
     starting_index = 1 if ignore_first else 0
     all_kwargs = {
         name: arg
         for name, arg in zip(
             get_function_argument_names(function)[starting_index:], args
         )
+        if name != "self"
     }
     all_kwargs.update(kwargs)
     return all_kwargs

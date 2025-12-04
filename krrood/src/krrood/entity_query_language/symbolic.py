@@ -404,7 +404,7 @@ class Selectable(SymbolicExpression[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class CanBehaveLikeAVariable(Selectable[T], ABC):
+class CanAlmostBehaveLikeAVariable(Selectable[T], ABC):
     """
     This class adds the monitoring/tracking behaviour on variables that tracks attribute access, calling,
     and comparison operations.
@@ -420,7 +420,7 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
     The type of the variable.
     """
 
-    def __getattr__(self, name: str) -> CanBehaveLikeAVariable[T]:
+    def __getattr__(self, name: str) -> CanAlmostBehaveLikeAVariable[T]:
         # Prevent debugger/private attribute lookups from being interpreted as symbolic attributes
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(
@@ -439,13 +439,13 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
     def _type__(self):
         return self._var_._type_ if self._var_ else None
 
-    def __call__(self, *args, **kwargs) -> CanBehaveLikeAVariable[T]:
+    def __call__(self, *args, **kwargs) -> CanAlmostBehaveLikeAVariable[T]:
 
         return Call(self, args, kwargs)
 
 
 @dataclass(eq=False, repr=False)
-class CanBehaveLikeAVariableEQL(CanBehaveLikeAVariable[T], ABC):
+class CanBehaveLikeAVariable(CanAlmostBehaveLikeAVariable[T], ABC):
     """
     This class adds the monitoring/tracking behaviour on variables that tracks attribute access, calling,
     and comparison operations.
@@ -1869,6 +1869,4 @@ def _any_of_the_kwargs_is_a_variable(bindings: Dict[str, Any]) -> bool:
     :param bindings: A kwarg like dict mapping strings to objects
     :return: Rather any of the objects is a variable or not.
     """
-    return any(
-        isinstance(binding, CanBehaveLikeAVariable) for binding in bindings.values()
-    )
+    return any(isinstance(binding, Selectable) for binding in bindings.values())

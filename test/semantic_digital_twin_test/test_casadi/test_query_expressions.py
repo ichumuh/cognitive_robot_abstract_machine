@@ -4,9 +4,11 @@ from krrood.entity_query_language.entity import (
     let,
     entity,
     contains,
+    flatten,
 )
 from krrood.entity_query_language.failures import NoSolutionFound
 from krrood.entity_query_language.match import match
+from krrood.entity_query_language.predicate import symbolic_function
 from krrood.entity_query_language.quantify_entity import the, a
 from semantic_digital_twin.spatial_types import Expression, FloatVariable
 
@@ -15,18 +17,26 @@ from semantic_digital_twin.world_description.connections import RevoluteConnecti
 from semantic_digital_twin.world_description.degree_of_freedom import PositionVariable
 
 
+@symbolic_function
+def eql_hash(val):
+    return hash(val)
+
+
 def test_querying_equations(world_setup):
     results = list(a(match(PositionVariable)()).evaluate())
     expr = results[0] + results[1]
-    found_expr = a(
+    e = let(Expression, domain=None)
+    free_vars = eql_hash(flatten(e.free_variables()))
+    free_vars2 = eql_hash(flatten(e.free_variables()))
+    query = the(
         entity(
-            e := let(Expression, domain=None),
+            e,
             e.is_scalar(),
-            contains(e.free_variables(), results[0]),
-            contains(e.free_variables(), results[1]),
+            free_vars == eql_hash(results[0]),
+            free_vars2 == eql_hash(results[1]),
         )
-    ).evaluate()
-    result = list(found_expr)
+    )
+    found_expr = query.evaluate()
     assert found_expr is expr
 
 
