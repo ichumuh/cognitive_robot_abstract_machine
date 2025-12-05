@@ -16,6 +16,8 @@ from typing import ClassVar, List, Dict, Any
 import numpy as np
 import trimesh
 import trimesh.boolean
+from trimesh.primitives import Box
+
 from krrood.adapters.json_serializer import (
     SubclassJSONSerializer,
     JSON_TYPE_NAME,
@@ -505,6 +507,11 @@ class Region(KinematicStructureEntity):
 
     def __hash__(self):
         return id(self)
+
+    def something(self):
+        combined_shape = self.area.combined_mesh
+        bb: Box = combined_shape.bounding_box_oriented
+        pass
 
     @property
     def combined_mesh(self) -> Optional[trimesh.Trimesh]:

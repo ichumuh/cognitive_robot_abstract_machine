@@ -1099,7 +1099,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
         :param child_result: The result of the child operation.
         """
-        if not self._child_:
+        if self._child_ is None:
             return
         for conclusion in self._child_._conclusion_:
             child_result.bindings = next(
@@ -1115,7 +1115,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         :param sources: The current bindings.
         :return: The bindings after applying the constraints of the child.
         """
-        if self._child_:
+        if self._child_ is not None:
             # QueryObjectDescriptor does not yield when it's False
             yield from filter(
                 lambda v: v.is_true, self._child_._evaluate__(sources, parent=self)
@@ -1322,7 +1322,7 @@ class Variable(CanBehaveLikeAVariable[T]):
                 or self is self._conditions_root_
             ):
                 self._is_false_ = not bool(sources[self._id_])
-            yield OperationResult(sources, not bool(sources[self._id_]), self)
+            yield OperationResult(sources, self._is_false_, self)
         elif self._domain_:
             for v in self._domain_:
                 yield OperationResult(
@@ -1415,7 +1415,7 @@ class Literal(Variable[T]):
         if not type_:
             original_data_lst = make_list(original_data)
             first_value = original_data_lst[0] if len(original_data_lst) > 0 else None
-            type_ = type(first_value) if first_value else None
+            type_ = type(first_value) if first_value is not None else None
         if name is None:
             if type_:
                 name = type_.__name__

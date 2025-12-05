@@ -17,23 +17,18 @@ from semantic_digital_twin.world_description.connections import RevoluteConnecti
 from semantic_digital_twin.world_description.degree_of_freedom import PositionVariable
 
 
-@symbolic_function
-def eql_hash(val):
-    return hash(val)
-
-
 def test_querying_equations(world_setup):
     results = list(a(match(PositionVariable)()).evaluate())
     expr = results[0] + results[1]
+    expr2 = results[0] + results[3]
     e = let(Expression, domain=None)
-    free_vars = eql_hash(flatten(e.free_variables()))
-    free_vars2 = eql_hash(flatten(e.free_variables()))
+    free_variables = e.free_variables()
     query = the(
         entity(
             e,
             e.is_scalar(),
-            free_vars == eql_hash(results[0]),
-            free_vars2 == eql_hash(results[1]),
+            contains(free_variables, results[0]),
+            contains(free_variables, results[1]),
         )
     )
     found_expr = query.evaluate()
