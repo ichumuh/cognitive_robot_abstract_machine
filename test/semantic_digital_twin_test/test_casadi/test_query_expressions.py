@@ -56,7 +56,7 @@ def test_the_solution(world_setup):
     found_expr = the(
         entity(
             c := let(RevoluteConnection, domain=None),
-            c.dof.variables.position + 1 == 2,
+            c.multiplier + 1 == 2,
         )
     ).evaluate()
     assert found_expr is expected
