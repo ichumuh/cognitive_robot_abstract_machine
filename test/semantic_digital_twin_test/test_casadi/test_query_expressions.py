@@ -1,5 +1,5 @@
 import pytest
-
+import krrood.entity_query_language.entity as eql
 from krrood.entity_query_language.entity import (
     let,
     entity,
@@ -13,8 +13,13 @@ from krrood.entity_query_language.quantify_entity import the, a
 from semantic_digital_twin.spatial_types import Expression, FloatVariable
 
 from semantic_digital_twin.testing import world_setup
-from semantic_digital_twin.world_description.connections import RevoluteConnection
+from semantic_digital_twin.world_description.connections import (
+    RevoluteConnection,
+    ActiveConnection1DOF,
+)
 from semantic_digital_twin.world_description.degree_of_freedom import PositionVariable
+import semantic_digital_twin.spatial_types.spatial_types as cas
+from semantic_digital_twin.world_description.world_entity import Connection
 
 
 def test_querying_equations(world_setup):
@@ -55,3 +60,17 @@ def test_the_solution(world_setup):
         )
     ).evaluate()
     assert found_expr is expected
+
+
+def test_max(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    expected = world.get_connections_by_type(RevoluteConnection)[0]
+    max_val = eql.max(let(ActiveConnection1DOF, domain=None).multiplier).evaluate()
+    found_expr = a(
+        entity(
+            c := let(ActiveConnection1DOF, domain=None),
+            c.multiplier == max_val,
+        )
+    ).evaluate()
+    found_exprs = list(found_expr)
+    assert len(found_exprs) == 2

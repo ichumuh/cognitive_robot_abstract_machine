@@ -904,11 +904,15 @@ class Expression(
         sources: Optional[Dict[int, HashedValue]] = None,
         parent: Optional[SymbolicExpression] = None,
     ) -> Iterable[OperationResult]:
+        # import pdbp
+
+        # pdbp.set_trace()
         sources = sources or {}
         self._eval_parent_ = parent
         variables = self._all_variable_instances_
         things = {v: v._evaluate__(sources, parent=self) for v in variables}
         for matches in generate_combinations(things):
+            # pdbp.set_trace()
             values = [thing.value.value for thing in matches.values()]
             result = self.substitute(matches.keys(), values)
             is_true = True
@@ -916,10 +920,15 @@ class Expression(
                 result = result.to_np()
                 if self.is_bool_operation():
                     is_true = bool(result)
+            combined_dict = {}
+            for d in [res.bindings for res in matches.values()]:
+                combined_dict.update(d)
+
             yield OperationResult(
                 {
                     self._id_: HashedValue(result),
                     **sources,
+                    **combined_dict,
                 },
                 not is_true,
                 self,
