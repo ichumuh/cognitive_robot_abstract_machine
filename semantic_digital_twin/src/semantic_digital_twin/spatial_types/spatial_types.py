@@ -34,6 +34,15 @@ from typing_extensions import (
 )
 
 from krrood.entity_query_language.predicate import Symbol
+from krrood.entity_query_language.symbolic import (
+    CanBehaveLikeAVariable,
+    Variable,
+    SymbolicExpression,
+    OperationResult,
+    Attribute,
+    CanAlmostBehaveLikeAVariable,
+)
+from krrood.entity_query_language.utils import generate_combinations
 from ..adapters.world_entity_kwargs_tracker import (
     KinematicStructureEntityKwargsTracker,
 )
@@ -47,6 +56,7 @@ from ..exceptions import (
     DuplicateVariablesError,
     SpatialTypeNotJsonSerializable,
 )
+from krrood.entity_query_language.hashed_data import T, HashedValue
 
 if TYPE_CHECKING:
     from ..world_description.world_entity import KinematicStructureEntity
@@ -399,6 +409,30 @@ class SymbolicType(Symbol):
                     result = result.replace(index, sub)
                 result_list[x_index][y_index] = result
         return result_list
+
+    def is_bool_operation(self):
+        return self.casadi_sx.op() in [
+            ca.OP_AND,
+            ca.OP_OR,
+            ca.OP_IF_ELSE_ZERO,
+            ca.OP_NOT,
+            ca.OP_EQ,
+            ca.OP_NE,
+            ca.OP_LE,
+            ca.OP_LT,
+        ]
+
+    def __bool__(self) -> bool:
+        # import pdbp
+        #
+        # pdbp.set_trace()
+        if self.is_constant():
+            return bool(self.to_np())
+        elif self.casadi_sx.op() == ca.OP_EQ:
+            left = self.casadi_sx.dep(0)
+            right = self.casadi_sx.dep(1)
+            return ca.is_equal(ca.simplify(left), ca.simplify(right), 5)
+        return NotImplemented
 
     def __repr__(self):
         return repr(self.casadi_sx)
@@ -784,8 +818,23 @@ class FloatVariable(SymbolicType, BasicOperatorMixin):
 
 
 @dataclass(eq=False)
+class VariableForAFloatVariable(FloatVariable, Variable): ...
+
+
+@dataclass(eq=False)
+class FloatAttributeVariable(FloatVariable, Attribute):
+    def __post_init__(self):
+        FloatVariable.__post_init__(self)
+        Attribute.__post_init__(self)
+
+
+@dataclass(eq=False)
 class Expression(
-    SymbolicType, BasicOperatorMixin, VectorOperationsMixin, MatrixOperationsMixin
+    SymbolicType,
+    BasicOperatorMixin,
+    VectorOperationsMixin,
+    MatrixOperationsMixin,
+    CanAlmostBehaveLikeAVariable[T],
 ):
     """
     Represents symbolic expressions with rich mathematical capabilities, including matrix
@@ -827,6 +876,7 @@ class Expression(
             ]
         ],
     ):
+        self._child_ = None
         if data is None:
             return
         if isinstance(data, ca.SX):
@@ -837,6 +887,52 @@ class Expression(
             self._from_iterable(data)
         else:
             self.casadi_sx = ca.SX(data)
+        CanBehaveLikeAVariable.__post_init__(self)
+
+    @property
+    def _name_(self) -> str:
+        return str("whatever")
+
+    @property
+    def _all_variable_instances_(self) -> List[FloatAttributeVariable]:
+        return [
+            v for v in self.free_variables() if isinstance(v, FloatAttributeVariable)
+        ]
+
+    def _evaluate__(
+        self,
+        sources: Optional[Dict[int, HashedValue]] = None,
+        parent: Optional[SymbolicExpression] = None,
+    ) -> Iterable[OperationResult]:
+        # import pdbp
+
+        # pdbp.set_trace()
+        sources = sources or {}
+        self._eval_parent_ = parent
+        variables = self._all_variable_instances_
+        things = {v: v._evaluate__(sources, parent=self) for v in variables}
+        for matches in generate_combinations(things):
+            # pdbp.set_trace()
+            values = [thing.value.value for thing in matches.values()]
+            result = self.substitute(matches.keys(), values)
+            is_true = True
+            if result.is_constant():
+                result = result.to_np()
+                if self.is_bool_operation():
+                    is_true = bool(result)
+            combined_dict = {}
+            for d in [res.bindings for res in matches.values()]:
+                combined_dict.update(d)
+
+            yield OperationResult(
+                {
+                    self._id_: HashedValue(result),
+                    **sources,
+                    **combined_dict,
+                },
+                not is_true,
+                self,
+            )
 
     def _from_iterable(
         self, data: Union[NumericalArray, Numerical2dMatrix, Iterable[FloatVariable]]
@@ -1187,7 +1283,10 @@ def to_sx(thing: Union[ca.SX, SymbolicType]) -> ca.SX:
         return thing.casadi_sx
     if isinstance(thing, ca.SX):
         return thing
-    return ca.SX(thing)
+    try:
+        return ca.SX(thing)
+    except Exception as e:
+        pass
 
 
 def dot(e1: Expression, e2: Expression) -> Expression:
@@ -2152,7 +2251,8 @@ class TransformationMatrix(
         :param child_frame: Child frame entity associated with the object.
         :return: An instance of the class with the specified transformations applied.
         """
-        axis = axis or Vector3(0, 0, 1)
+        if axis is None:
+            axis = Vector3(0, 0, 1)
         rotation_matrix = RotationMatrix.from_axis_angle(axis=axis, angle=angle)
         point = Point3(x_init=x, y_init=y, z_init=z)
         return cls.from_point_rotation_matrix(
@@ -2669,7 +2769,7 @@ class Point3(
                 expected_dimensions="(3, 1) or (4, 1)",
                 actual_dimensions=expression.shape,
             )
-        if hasattr(data, "reference_frame") and reference_frame is None:
+        if reference_frame is None:
             reference_frame = data.reference_frame
         return cls(
             x_init=data[0],

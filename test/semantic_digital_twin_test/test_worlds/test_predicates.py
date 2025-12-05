@@ -255,11 +255,11 @@ def test_body_in_region(two_block_world):
     center, top = two_block_world
     region = Region(name=PrefixedName("test_region"))
     region_box = Box(
-        scale=Scale(1.0, 1.0, 1.0),
+        scale=Scale(1.321, 1.0, 1.0),
         origin=TransformationMatrix.from_xyz_rpy(reference_frame=region),
     )
     region.area = ShapeCollection([region_box])
-
+    region.something()
     with center._world.modify_world():
         connection = FixedConnection(
             parent=center,
