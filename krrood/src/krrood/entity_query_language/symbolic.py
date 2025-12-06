@@ -1190,7 +1190,7 @@ class Variable(CanBehaveLikeAVariable[T]):
         elif self._domain_:
             for v in self._domain_:
                 yield OperationResult(
-                    {**sources, self._id_: v.value}, False, self
+                    {**sources, self._id_: v}, False, self
                 )
         elif self._should_be_instantiated_:
             yield from self._instantiate_using_child_vars_and_yield_results_(sources)
