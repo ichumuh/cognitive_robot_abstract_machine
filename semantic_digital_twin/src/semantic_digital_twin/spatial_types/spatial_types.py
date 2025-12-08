@@ -412,14 +412,19 @@ class SymbolicType(Symbol):
             ca.OP_LT,
         ]
 
+    def is_scalar(self) -> bool:
+        return self.shape == (1, 1)
+
     def __bool__(self) -> bool:
-        if self.is_constant():
-            return bool(self.to_np())
-        elif self.casadi_sx.op() == ca.OP_EQ:
-            left = self.casadi_sx.dep(0)
-            right = self.casadi_sx.dep(1)
-            return ca.is_equal(ca.simplify(left), ca.simplify(right), 5)
-        return NotImplemented
+        if self.is_scalar():
+            if self.is_constant():
+                return bool(self.to_np())
+            elif self.casadi_sx.op() == ca.OP_EQ:
+                left = self.casadi_sx.dep(0)
+                right = self.casadi_sx.dep(1)
+                return ca.is_equal(ca.simplify(left), ca.simplify(right), 5)
+        # its not evaluatable as a bool so we revert to the normal behavior and a not None python thing is true
+        return True
 
     def __repr__(self):
         return repr(self.casadi_sx)
@@ -949,9 +954,6 @@ class Expression(
             Expression(self.casadi_sx.dep(i)) for i in range(self.casadi_sx.n_dep())
         ]
         return parts
-
-    def is_scalar(self) -> bool:
-        return self.shape == (1, 1)
 
     def __copy__(self) -> Expression:
         return Expression(copy(self.casadi_sx))
