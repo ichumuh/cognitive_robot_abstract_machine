@@ -272,6 +272,10 @@ class MJCFParser:
                 else:
                     texture_name = mujoco_material.textures[1]
                     mujoco_texture: mujoco.MjsTexture = self.spec.texture(texture_name)
+                    if mujoco_texture is None:
+                        return FileMesh(
+                            filename=filename, origin=origin_transform, color=color
+                        )
                     texturedir = os.path.join(
                         os.path.dirname(self.file_path), self.spec.texturedir
                     )
