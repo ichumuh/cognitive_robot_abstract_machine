@@ -1,18 +1,15 @@
-import time
 import unittest
 
-import rclpy
 import rustworkx
-from giskardpy.utils.utils_for_tests import compare_axis_angle
-from pycram.motion_executor import MotionExecutor
-from semantic_digital_twin.adapters.procthor.procthor_semantic_annotations import Milk
-from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 
+from giskardpy.utils.utils_for_tests import compare_axis_angle
 from pycram.datastructures.dataclasses import Context
+from pycram.motion_executor import MotionExecutor
 from pycram.process_module import simulated_robot
 from pycram.robot_plans.actions import *
 from pycram.robot_plans.motions import MoveTCPWaypointsMotion
 from pycram.testing import ApartmentWorldTestCase
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 
 
 class TestActionDesignatorGrounding(ApartmentWorldTestCase):
@@ -56,7 +53,7 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
             Arms.LEFT, StaticJointState.Park, self.robot_view
         )
         for joint_name, joint_state in zip(
-            joint_states_right.joint_names, joint_states_right.joint_positions
+                joint_states_right.joint_names, joint_states_right.joint_positions
         ):
             dof = self.world.get_degree_of_freedom_by_name(joint_name)
             compare_axis_angle(
@@ -68,7 +65,7 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
             )
             # self.assertAlmostEqual(self.world.state[dof.id].position, joint_state % (2 * np.pi), places=1)
         for joint_name, joint_state in zip(
-            joint_states_left.joint_names, joint_states_left.joint_positions
+                joint_states_left.joint_names, joint_states_left.joint_positions
         ):
             dof = self.world.get_degree_of_freedom_by_name(joint_name)
             compare_axis_angle(
@@ -299,8 +296,8 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
         with simulated_robot:
             plan.perform()
         milk_position = self.world.get_body_by_name("milk.stl").global_pose.to_np()[
-            :3, 3
-        ]
+                        :3, 3
+                        ]
         dist = np.linalg.norm(milk_position - np.array([2.9, 2.2, 0.95]))
         self.assertLessEqual(dist, 0.01)
 
