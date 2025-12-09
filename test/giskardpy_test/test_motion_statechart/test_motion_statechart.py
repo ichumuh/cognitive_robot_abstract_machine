@@ -60,6 +60,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
     CartesianVelocityLimit,
 )
+from giskardpy.motion_statechart.tasks.feature_functions import AngleGoal
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingCone
 from giskardpy.motion_statechart.test_nodes.test_nodes import (
@@ -1423,6 +1424,57 @@ def test_align_planes(pr2_world: World):
     assert (
         angle <= align_planes.threshold
     ), f"AlignPlanes failed: final angle {angle:.6f} rad > threshold {align_planes.threshold:.6f} rad"
+
+
+def test_angle_goal(pr2_world: World):
+    """
+    Ensure AngleGoal drives the angle between tip_vector and reference_vector
+    into the interval [lower_angle, upper_angle].
+    """
+    tip = pr2_world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
+    root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
+
+    msc = MotionStatechart()
+
+    tip_vector = cas.Vector3.Y(reference_frame=tip)
+    reference_vector = cas.Vector3.X(reference_frame=root)
+
+    lower_angle = radians(30)
+    upper_angle = radians(32)
+
+    angle_goal = AngleGoal(
+        root_link=root,
+        tip_link=tip,
+        tip_vector=tip_vector,
+        reference_vector=reference_vector,
+        lower_angle=lower_angle,
+        upper_angle=upper_angle,
+    )
+    msc.add_node(angle_goal)
+
+    msc.add_node(EndMotion.when_true(angle_goal))
+
+    kin_sim = Executor(world=pr2_world)
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
+    root_V_tip = pr2_world.transform(target_frame=root, spatial_object=tip_vector)
+    root_V_tip.scale(1)
+    root_V_ref = pr2_world.transform(target_frame=root, spatial_object=reference_vector)
+    root_V_ref.scale(1)
+
+    v_tip = root_V_tip.to_np()[:3]
+    v_ref = root_V_ref.to_np()[:3]
+
+    eps = 1e-9
+    assert np.linalg.norm(v_tip) > eps, "tip_vector became zero-length"
+    assert np.linalg.norm(v_ref) > eps, "reference_vector became zero-length"
+
+    angle = angle_between_vector(v_tip, v_ref)
+
+    assert (
+        lower_angle <= angle <= upper_angle
+    ), f"AngleGoal failed: final angle {angle:.6f} rad not in [{lower_angle:.6f}, {upper_angle:.6f}]"
 
 
 class TestVelocityTasks:
