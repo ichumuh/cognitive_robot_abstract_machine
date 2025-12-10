@@ -22,19 +22,11 @@ from .symbol_graph import (
     SymbolGraph,
 )
 from .symbolic import (
-    T,
     SymbolicExpression,
     Variable,
-    From,
     _any_of_the_kwargs_is_a_variable,
 )
-from .utils import is_iterable
-from ..utils import recursive_subclasses
-
-cls_args = {}
-"""
-Cache of class arguments.
-"""
+from .utils import T
 
 
 def symbolic_function(
@@ -103,6 +95,9 @@ class Predicate(Symbol, ABC):
         Evaluate the predicate for the supplied values.
         """
 
+    def __bool__(self):
+        return bool(self.__call__())
+
 
 @dataclass(eq=False)
 class HasType(Predicate):
@@ -165,7 +160,7 @@ def get_function_argument_names(function: Callable) -> List[str]:
 
 
 def merge_args_and_kwargs(
-    function: Callable, args, kwargs, ignore_first: bool = True
+    function: Callable, args, kwargs, ignore_first: bool = False
 ) -> Dict[str, Any]:
     """
     Merge the arguments and keyword-arguments of a function into a dict of keyword-arguments.

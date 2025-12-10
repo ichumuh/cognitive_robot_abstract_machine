@@ -4,6 +4,7 @@ import shutil
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import IntEnum
 from types import NoneType
 from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union, Self
 
@@ -48,9 +49,11 @@ from ..world_description.world_entity import (
     Connection,
     WorldEntity,
     Actuator,
+    SemanticAnnotation,
 )
 from ..world_description.world_modification import (
     AddKinematicStructureEntityModification,
+    AddActuatorModification,
 )
 
 
@@ -66,6 +69,64 @@ def cas_pose_to_list(pose: TransformationMatrix) -> List[float]:
     px, py, pz, _ = pos.evaluate().tolist()
     qx, qy, qz, qw = quat.evaluate().tolist()
     return [px, py, pz, qw, qx, qy, qz]
+
+
+class GeomVisibilityAndCollisionType(IntEnum):
+    """
+    Enumeration of geometric visibility and collision attributes.
+
+    - Use VISIBLE_AND_COLLIDABLE_1 or VISIBLE_AND_COLLIDABLE_2 for geometries that should be both visible and collidable. These two values are equivalent and can be used for grouping.
+    - Use ONLY_VISIBLE for geometries that are visible but not collidable (URDF: <visual>).
+    - Use ONLY_COLLIDABLE for geometries that are collidable but not visible (URDF: <collision>).
+    - UNDEFINED_1 and UNDEFINED_2 are placeholders used only when parsing from MuJoCo, and are treated as invisible by default.
+
+    For more information, see:
+    https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom
+    """
+
+    VISIBLE_AND_COLLIDABLE_1 = 0
+    """
+    Geometry is both visible and collidable (variant 1).
+    """
+
+    VISIBLE_AND_COLLIDABLE_2 = 1
+    """
+    Geometry is both visible and collidable (variant 2).
+    """
+
+    ONLY_VISIBLE = 2
+    """
+    Geometry is only visible, not collidable.
+    """
+
+    ONLY_COLLIDABLE = 3
+    """
+    Geometry is only collidable, not visible.
+    """
+
+    UNDEFINED_1 = 4
+    """
+    Undefined geometry type (variant 1).
+    """
+
+    UNDEFINED_2 = 5
+    """
+    Undefined geometry type (variant 2).
+    """
+
+
+class MultiSimError(Exception):
+    """Base class for all MultiSim-related exceptions."""
+
+
+@dataclass(eq=False)
+class MultiSimCamera(SemanticAnnotation):
+    """Semantic annotation declaring that a Body is a MultiSimCamera."""
+
+    body: Body
+    """
+    The body which is the camera
+    """
 
 
 @dataclass
@@ -147,7 +208,7 @@ class EntityConverter(ABC):
         :param entity: The object to convert.
         :return: A dictionary of properties.
         """
-        for subclass in recursive_subclasses(cls):
+        for subclass in recursive_subclasses(cls) + [cls]:
             if (
                 not inspect.isabstract(subclass)
                 and not inspect.isabstract(subclass.entity_type)
@@ -329,7 +390,7 @@ class ShapeConverter(EntityConverter, ABC):
         :param entity: The Shape object to convert.
         :return: A dictionary of shape properties, by default containing position, quaternion, and RGBA color.
         """
-        geom_props = EntityConverter._convert(self, entity)
+        geom_props = EntityConverter._convert(self, entity, **kwargs)
         px, py, pz, qw, qx, qy, qz = cas_pose_to_list(entity.origin)
         geom_pos = [px, py, pz]
         geom_quat = [qw, qx, qy, qz]
@@ -506,7 +567,7 @@ class ConnectionPrismaticConverter(Connection1DOFConverter, ABC):
     """
 
 
-class Connection6DOFConverter(ConnectionConverter):
+class Connection6DOFConverter(ConnectionConverter, ABC):
     """
     Converts a Connection6DoF object to a dictionary of 6DoF joint properties for Multiverse simulator.
     """
@@ -548,6 +609,42 @@ class ActuatorConverter(EntityConverter, ABC):
         actuator_props = EntityConverter._convert(self, entity)
         actuator_props["dof_names"] = [dof.name.name for dof in entity.dofs]
         return actuator_props
+
+
+class CameraConverter(EntityConverter, ABC):
+    """
+    Converts an Camera object to a dictionary of actuator properties for Multiverse simulator.
+    """
+
+    entity_type: ClassVar[Type[MultiSimCamera]] = MultiSimCamera
+    """
+    The type of the entity to convert.
+    """
+
+    def _convert(self, entity: MultiSimCamera, **kwargs) -> Dict[str, Any]:
+        """
+        Converts a Camera object to a dictionary of camera properties for Multiverse simulator.
+
+        :param entity: The Camera object to convert.
+        :return: A dictionary of camer properties, by default containing list of DOF names.
+        """
+        camera_props = EntityConverter._convert(self, entity)
+        camera_props["body"] = entity.body.name.name
+        return camera_props
+
+
+class MujocoError(MultiSimError):
+    """Base class for all MuJoCo-related exceptions."""
+
+
+class MujocoEntityNotFoundError(MujocoError):
+    """Raised when a MuJoCo entity of a given type and name cannot be found."""
+
+    def __init__(
+        self, entity_name: str, entity_type: mujoco.mjtObj, action: str = "find"
+    ):
+        message = f"Failed to {action}: type={entity_type}, name='{entity_name}'"
+        super().__init__(message)
 
 
 @dataclass(eq=False)
@@ -673,6 +770,24 @@ class MujocoActuator(Actuator):
         return actuator
 
 
+@dataclass(eq=False)
+class MujocoCamera(MultiSimCamera):
+    """Semantic annotation declaring that a Body is a MujocoCamera."""
+
+    mode: mujoco.mjtCamLight = mujoco.mjtCamLight.mjCAMLIGHT_FIXED
+    orthographic: bool = False
+    fovy: float = 45.0
+    resolution: list = field(default_factory=lambda: [1, 1])
+    focal_length: list = field(default_factory=lambda: [0, 0])
+    focal_pixel: list = field(default_factory=lambda: [0, 0])
+    principal_length: list = field(default_factory=lambda: [0, 0])
+    principal_pixel: list = field(default_factory=lambda: [0, 0])
+    sensor_size: list = field(default_factory=lambda: [0, 0])
+    ipd: float = 0.068
+    pos: list = field(default_factory=lambda: [0, 0, 0])
+    quat: list = field(default_factory=lambda: [1, 0, 0, 0])
+
+
 class MujocoConverter(EntityConverter, ABC): ...
 
 
@@ -716,11 +831,18 @@ class MujocoGeomConverter(MujocoConverter, ShapeConverter, ABC):
                 "type": self.type,
             }
         )
-        if not kwargs.get("visible", True):
-            shape_props[self.rgba_str][3] = 0.0
-        if not kwargs.get("collidable", True):
+        is_visible = kwargs.get("visible", True)
+        is_collidable = kwargs.get("collidable", True)
+        if is_visible and is_collidable:
+            shape_props["group"] = (
+                GeomVisibilityAndCollisionType.VISIBLE_AND_COLLIDABLE_1
+            )
+        elif is_visible and not is_collidable:
             shape_props["contype"] = 0
             shape_props["conaffinity"] = 0
+            shape_props["group"] = GeomVisibilityAndCollisionType.ONLY_VISIBLE
+        elif not is_visible and is_collidable:
+            shape_props["group"] = GeomVisibilityAndCollisionType.ONLY_COLLIDABLE
         return shape_props
 
 
@@ -730,7 +852,9 @@ class MujocoBoxConverter(MujocoGeomConverter, BoxConverter):
     def _post_convert(
         self, entity: Box, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update(
             {"size": [entity.scale.x / 2, entity.scale.y / 2, entity.scale.z / 2]}
         )
@@ -743,7 +867,9 @@ class MujocoSphereConverter(MujocoGeomConverter, SphereConverter):
     def _post_convert(
         self, entity: Sphere, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update({"size": [entity.radius, entity.radius, entity.radius]})
         return shape_props
 
@@ -754,7 +880,9 @@ class MujocoCylinderConverter(MujocoGeomConverter, CylinderConverter):
     def _post_convert(
         self, entity: Cylinder, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update({"size": [entity.width / 2, entity.height, 0.0]})
         return shape_props
 
@@ -765,7 +893,9 @@ class MujocoMeshConverter(MujocoGeomConverter, MeshConverter):
     def _post_convert(
         self, entity: Mesh, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update({"mesh": entity})
         if isinstance(entity.mesh.visual, TextureVisuals) and isinstance(
             entity.mesh.visual.material.name, str
@@ -862,6 +992,28 @@ class MujocoGeneralActuatorConverter(MujocoActuatorConverter, ActuatorConverter)
         return actuator_props
 
 
+class MujocoCameraConverter(CameraConverter, ABC):
+
+    entity_type: ClassVar[Type[MujocoCamera]] = MujocoCamera
+
+    def _post_convert(
+        self, entity: MujocoCamera, camera_props: Dict[str, Any], **kwargs
+    ) -> Dict[str, Any]:
+        camera_props["mode"] = entity.mode
+        camera_props["orthographic"] = entity.orthographic
+        camera_props["fovy"] = entity.fovy
+        camera_props["resolution"] = entity.resolution
+        camera_props["focal_length"] = entity.focal_length
+        camera_props["focal_pixel"] = entity.focal_pixel
+        camera_props["principal_length"] = entity.principal_length
+        camera_props["principal_pixel"] = entity.principal_pixel
+        camera_props["sensor_size"] = entity.sensor_size
+        camera_props["ipd"] = entity.ipd
+        camera_props["pos"] = entity.pos
+        camera_props["quat"] = entity.quat
+        return camera_props
+
+
 @dataclass
 class MultiSimBuilder(ABC):
     """
@@ -922,9 +1074,11 @@ class MultiSimBuilder(ABC):
             self._build_shape(
                 parent=body,
                 shape=shape,
-                visible=shape in body.visual or not body.visual,
-                collidable=shape in body.collision,
+                is_visible=shape in body.visual,
+                is_collidable=shape in body.collision,
             )
+        for camera in body.get_semantic_annotations_by_type(MultiSimCamera):
+            self._build_camera(camera=camera)
 
     def build_region(self, region: Region):
         """
@@ -935,7 +1089,7 @@ class MultiSimBuilder(ABC):
         self._build_region(region=region)
         for shape in region.area:
             self._build_shape(
-                parent=region, shape=shape, visible=True, collidable=False
+                parent=region, shape=shape, is_visible=True, is_collidable=False
             )
 
     @abstractmethod
@@ -976,15 +1130,19 @@ class MultiSimBuilder(ABC):
 
     @abstractmethod
     def _build_shape(
-        self, parent: Union[Body, Region], shape: Shape, visible: bool, collidable: bool
+        self,
+        parent: Union[Body, Region],
+        shape: Shape,
+        is_visible: bool,
+        is_collidable: bool,
     ):
         """
         Builds a shape in the simulator and attaches it to its parent body or region.
 
         :param parent: The parent body or region to attach the shape to.
         :param shape: The shape to build.
-        :param visible: Whether the shape is visible.
-        :param collidable: Whether the shape is collidable.
+        :param is_visible: Whether the shape is visible.
+        :param is_collidable: Whether the shape is collidable.
         """
         raise NotImplementedError
 
@@ -998,11 +1156,20 @@ class MultiSimBuilder(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _build_actuator(self, actuator):
+    def _build_actuator(self, actuator: Actuator):
         """
         Builds an actuator in the simulator.
 
         :param actuator: The actuator to build.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def _build_camera(self, camera: MultiSimCamera):
+        """
+        Builds a camera in the simulator.
+
+        :param camera: The camera to build.
         """
         raise NotImplementedError
 
@@ -1025,6 +1192,7 @@ class MujocoBuilder(MultiSimBuilder):
     def _start_build(self, file_path: str):
         self.spec = mujoco.MjSpec()
         self.spec.modelname = "scene"
+        self.spec.compiler.degree = 0
 
     def _end_build(self, file_path: str):
         self.spec.compile()
@@ -1058,19 +1226,23 @@ class MujocoBuilder(MultiSimBuilder):
         self._build_mujoco_body(body=region)
 
     def _build_shape(
-        self, parent: Union[Body, Region], shape: Shape, visible: bool, collidable: bool
+        self,
+        parent: Union[Body, Region],
+        shape: Shape,
+        is_visible: bool,
+        is_collidable: bool,
     ):
         geom_props = MujocoGeomConverter.convert(
-            shape, visible=visible, collidable=collidable
+            shape, visible=is_visible, collidable=is_collidable
         )
-        assert geom_props is not None, f"Failed to convert shape {id(shape)}."
         parent_body_name = parent.name.name
         parent_body_spec = self._find_entity(
             entity_type=mujoco.mjtObj.mjOBJ_BODY, entity_name=parent_body_name
         )
-        assert (
-            parent_body_spec is not None
-        ), f"Parent body {parent_body_name} not found."
+        if parent_body_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=parent_body_name, entity_type=mujoco.mjtObj.mjOBJ_BODY
+            )
         if geom_props["type"] == mujoco.mjtGeom.mjGEOM_MESH and not self._parse_geom(
             geom_props=geom_props
         ):
@@ -1079,9 +1251,12 @@ class MujocoBuilder(MultiSimBuilder):
         if geom_spec.type == mujoco.mjtGeom.mjGEOM_BOX and geom_spec.size[2] == 0:
             geom_spec.type = mujoco.mjtGeom.mjGEOM_PLANE
             geom_spec.size = [0, 0, 0.05]
-        assert (
-            geom_spec is not None
-        ), f"Failed to add geom {id(shape)} to body {parent_body_name}."
+        if geom_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=geom_props["name"],
+                entity_type=mujoco.mjtObj.mjOBJ_GEOM,
+                action="add",
+            )
 
     def _parse_geom(self, geom_props: Dict[str, Any]) -> bool:
         """
@@ -1146,25 +1321,26 @@ class MujocoBuilder(MultiSimBuilder):
         if isinstance(connection, FixedConnection):
             return
         joint_props = MujocoJointConverter.convert(connection)
-        assert (
-            joint_props is not None
-        ), f"Failed to convert connection {connection.name.name}."
         child_body_name = connection.child.name.name
         child_body_spec = self._find_entity(
             entity_type=mujoco.mjtObj.mjOBJ_BODY, entity_name=child_body_name
         )
-        assert child_body_spec is not None, f"Child body {child_body_name} not found."
+        if child_body_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=child_body_name,
+                entity_type=mujoco.mjtObj.mjOBJ_BODY,
+            )
         joint_name = connection.name.name
         joint_spec = child_body_spec.add_joint(**joint_props)
-        assert (
-            joint_spec is not None
-        ), f"Failed to add joint {joint_name} to body {child_body_name}."
+        if joint_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=joint_name,
+                entity_type=mujoco.mjtObj.mjOBJ_JOINT,
+                action="add",
+            )
 
     def _build_actuator(self, actuator: Actuator):
         actuator_props = MujocoActuatorConverter.convert(actuator)
-        assert (
-            actuator_props is not None
-        ), f"Failed to convert actuator {actuator.name.name}."
         dof_names = actuator_props.pop("dof_names")
         assert len(dof_names) == 1, "Actuator must be associated with exactly one DOF."
         dof_name = dof_names[0]
@@ -1176,17 +1352,48 @@ class MujocoBuilder(MultiSimBuilder):
             ),
             None,
         )
-        assert connection is not None, f"Connection for DOF {dof_name} not found."
+        if connection is None:
+            raise MultiSimError(
+                f"Connection for DOF {dof_name} not found, it need to be added first."
+            )
         connection_name = connection.name.name
         joint_spec = self._find_entity(
             entity_type=mujoco.mjtObj.mjOBJ_JOINT, entity_name=connection_name
         )
-        assert joint_spec is not None, f"Joint {connection_name} not found."
+        if joint_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=connection_name,
+                entity_type=mujoco.mjtObj.mjOBJ_JOINT,
+            )
         actuator_props["target"] = joint_spec.name
         actuator_props["trntype"] = mujoco.mjtTrn.mjTRN_JOINT
         actuator_name = actuator.name.name
         actuator_spec = self.spec.add_actuator(**actuator_props)
-        assert actuator_spec is not None, f"Failed to add actuator {actuator_name}."
+        if actuator_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=actuator_name,
+                entity_type=mujoco.mjtObj.mjOBJ_ACTUATOR,
+                action="add",
+            )
+
+    def _build_camera(self, camera: MultiSimCamera):
+        camera_name = camera.name.name
+        camera_props = MujocoCameraConverter.convert(camera)
+        body_name = camera_props.pop("body")
+        body_spec = self._find_entity(
+            entity_type=mujoco.mjtObj.mjOBJ_BODY, entity_name=body_name
+        )
+        if body_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=body_name, entity_type=mujoco.mjtObj.mjOBJ_BODY
+            )
+        camera_spec = body_spec.add_camera(**camera_props)
+        if camera_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=camera_name,
+                entity_type=mujoco.mjtObj.mjOBJ_CAMERA,
+                action="add",
+            )
 
     def _build_mujoco_body(self, body: Union[Region, Body]):
         """
@@ -1197,18 +1404,22 @@ class MujocoBuilder(MultiSimBuilder):
         if body.name.name == "world":
             return
         body_props = MujocoKinematicStructureEntityConverter.convert(body)
-        assert body_props is not None, f"Failed to convert body {body.name.name}."
         parent_body_name = body.parent_connection.parent.name.name
         parent_body_spec = self._find_entity(
             entity_type=mujoco.mjtObj.mjOBJ_BODY, entity_name=parent_body_name
         )
-        assert (
-            parent_body_spec is not None
-        ), f"Parent body {parent_body_name} not found."
+        if parent_body_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=parent_body_name,
+                entity_type=mujoco.mjtObj.mjOBJ_BODY,
+            )
         body_spec = parent_body_spec.add_body(**body_props)
-        assert (
-            body_spec is not None
-        ), f"Failed to add body {body.name.name} to parent {parent_body_name}."
+        if body_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=parent_body_name,
+                entity_type=mujoco.mjtObj.mjOBJ_BODY,
+                action="add",
+            )
 
     def _find_entity(
         self,
@@ -1233,7 +1444,7 @@ class MujocoBuilder(MultiSimBuilder):
 
 class EntitySpawner(ABC):
     """
-    A spawner to spawn an entity object (WorldEntity, Shape, Connection) in the Multiverse simulator.
+    A spawner to spawn a WorldEntity object in the Multiverse simulator.
     """
 
     entity_type: ClassVar[Type[Any]] = Any
@@ -1273,6 +1484,10 @@ class EntitySpawner(ABC):
 
 
 class KinematicStructureEntitySpawner(EntitySpawner):
+    """
+    A spawner to spawn a KinematicStructureEntity object in the Multiverse simulator.
+    """
+
     entity_type: ClassVar[Type[KinematicStructureEntity]] = KinematicStructureEntity
     """
     The type of the entity to spawn.
@@ -1345,6 +1560,10 @@ class KinematicStructureEntitySpawner(EntitySpawner):
 
 
 class BodySpawner(KinematicStructureEntitySpawner, ABC):
+    """
+    A spawner to spawn a Body object in the Multiverse simulator.
+    """
+
     entity_type: ClassVar[Type[Body]] = Body
     """
     The type of the entity to spawn.
@@ -1366,6 +1585,10 @@ class BodySpawner(KinematicStructureEntitySpawner, ABC):
 
 
 class RegionSpawner(KinematicStructureEntitySpawner, ABC):
+    """
+    A spawner to spawn a Region object in the Multiverse simulator.
+    """
+
     entity_type: ClassVar[Type[Region]] = Region
     """
     The type of the entity to spawn.
@@ -1384,21 +1607,55 @@ class RegionSpawner(KinematicStructureEntitySpawner, ABC):
         )
 
 
-class MujocoEntitySpawner(EntitySpawner, ABC): ...
+class ActuatorSpawner(EntitySpawner):
+    """
+    A spawner to spawn an Actuator object in the Multiverse simulator.
+    """
+
+    entity_type: ClassVar[Type[Actuator]] = Actuator
+    """
+    The type of the entity to spawn.
+    """
+
+    def _spawn(self, simulator: MultiverseSimulator, entity: Actuator) -> bool:
+        """
+        Spawns a Actuator object in the Multiverse simulator including its dofs.
+
+        :param simulator: The Multiverse simulator to spawn the entity in.
+        :param entity: The Actuator object to spawn.
+
+        :return: True if the entity is spawned successfully, False otherwise.
+        """
+        return self._spawn_actuator(simulator, entity)
+
+    @abstractmethod
+    def _spawn_actuator(
+        self, simulator: MultiverseSimulator, actuator: Actuator
+    ) -> bool:
+        raise NotImplementedError
+
+
+class MujocoEntitySpawner(EntitySpawner, ABC):
+    """
+    A spawner to spawn a WorldEntity object in the Mujoco simulator.
+    """
+
+    ...
 
 
 class MujocoKinematicStructureEntitySpawner(
     MujocoEntitySpawner, KinematicStructureEntitySpawner, ABC
 ):
+    """
+    A spawner to spawn a KinematicStructureEntity object in the Mujoco simulator.
+    """
+
     def _spawn_kinematic_structure_entity(
         self, simulator: MultiverseMujocoConnector, entity: KinematicStructureEntity
     ) -> bool:
         kinematic_structure_entity_props = (
             MujocoKinematicStructureEntityConverter.convert(entity)
         )
-        assert (
-            kinematic_structure_entity_props is not None
-        ), f"Failed to convert entity {entity.name.name}."
         entity_name = kinematic_structure_entity_props["name"]
         del kinematic_structure_entity_props["name"]
         result = simulator.add_entity(
@@ -1423,9 +1680,7 @@ class MujocoKinematicStructureEntitySpawner(
         shape_props = MujocoGeomConverter.convert(
             shape, visible=visible, collidable=collidable
         )
-        assert shape_props is not None, f"Failed to convert shape {id(shape)}."
-        shape_name = shape_props["name"]
-        del shape_props["name"]
+        shape_name = shape_props.pop("name")
         result = simulator.add_entity(
             entity_name=shape_name,
             entity_type="geom",
@@ -1438,10 +1693,64 @@ class MujocoKinematicStructureEntitySpawner(
         )
 
 
-class MujocoBodySpawner(MujocoKinematicStructureEntitySpawner, BodySpawner): ...
+class MujocoBodySpawner(MujocoKinematicStructureEntitySpawner, BodySpawner):
+    """
+    A spawner to spawn a Body object in the Mujoco simulator.
+    """
+
+    ...
 
 
-class MujocoRegionSpawner(MujocoKinematicStructureEntitySpawner, RegionSpawner): ...
+class MujocoRegionSpawner(MujocoKinematicStructureEntitySpawner, RegionSpawner):
+    """
+    A spawner to spawn a Region object in the Mujoco simulator.
+    """
+
+    ...
+
+
+class MujocoActuatorSpawner(MujocoEntitySpawner, ActuatorSpawner):
+    """
+    A spawner to spawn a MujocoActuator object in the MuJoCo simulator.
+    """
+
+    entity_type: ClassVar[Type[MujocoActuator]] = MujocoActuator
+
+    def _spawn_actuator(
+        self, simulator: MultiverseMujocoConnector, actuator: MujocoActuator
+    ) -> bool:
+        actuator_props = MujocoActuatorConverter.convert(actuator)
+        actuator_name = actuator_props.pop("name")
+        dof_names = actuator_props.pop("dof_names")
+        assert len(dof_names) == 1, "Actuator must be associated with exactly one DOF."
+        dof_name = dof_names[0]
+        connection = next(
+            (
+                conn
+                for conn in actuator._world.connections
+                if dof_name in [dof.name.name for dof in conn.dofs]
+            ),
+            None,
+        )
+        assert connection is not None, f"Connection for DOF {dof_name} not found."
+        connection_name = connection.name.name
+        joint_spec = simulator.get_joint(joint_name=connection_name).result
+        if joint_spec is None:
+            raise MujocoEntityNotFoundError(
+                entity_name=connection_name,
+                entity_type=mujoco.mjtObj.mjOBJ_JOINT,
+            )
+        actuator_props["target"] = joint_spec.name
+        actuator_props["trntype"] = mujoco.mjtTrn.mjTRN_JOINT
+        result = simulator.add_entity(
+            entity_name=actuator_name,
+            entity_type="actuator",
+            entity_properties=actuator_props,
+        )
+        return (
+            result.type
+            == MultiverseCallbackResult.ResultType.SUCCESS_AFTER_EXECUTION_ON_MODEL
+        )
 
 
 @dataclass
@@ -1475,6 +1784,9 @@ class MultiSimSynchronizer(ModelChangeCallback, ABC):
         for modification in self.world._model_manager.model_modification_blocks[-1]:
             if isinstance(modification, AddKinematicStructureEntityModification):
                 entity = modification.kinematic_structure_entity
+                self.entity_spawner.spawn(simulator=self.simulator, entity=entity)
+            elif isinstance(modification, AddActuatorModification):
+                entity = modification.actuator
                 self.entity_spawner.spawn(simulator=self.simulator, entity=entity)
 
     def stop(self):
@@ -1530,6 +1842,7 @@ class MultiSim(ABC):
         headless: bool = False,
         step_size: float = 1e-3,
         real_time_factor: float = 1.0,
+        **kwargs,
     ):
         """
         Initializes the MultiSim class.
@@ -1547,6 +1860,7 @@ class MultiSim(ABC):
             headless=headless,
             step_size=step_size,
             real_time_factor=real_time_factor,
+            **kwargs,
         )
         self.synchronizer = self.synchronizer_class(
             world=world,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .hashed_data import T
+from .failures import LiteralConditionError
 from .symbol_graph import SymbolGraph
-from .utils import is_iterable
+from .utils import is_iterable, T
 
 """
 User interface (grammar & vocabulary) for entity query language.
@@ -29,13 +29,12 @@ from .symbolic import (
     Comparator,
     chained_logic,
     CanBehaveLikeAVariable,
-    From,
     Variable,
     optimize_or,
     Flatten,
     ForAll,
     Exists,
-    Literal,
+    Literal, Selectable, Max, Min, Sum, Count, Average, DomainType,
 )
 
 from .predicate import (
@@ -70,7 +69,7 @@ def entity(
     selected_variables, expression = _extract_variables_and_expression(
         [selected_variable], *properties
     )
-    return Entity(selected_variables=selected_variables, _child_=expression)
+    return Entity(_selected_variables=selected_variables, _child_=expression)
 
 
 def set_of(
@@ -90,7 +89,7 @@ def set_of(
     selected_variables, expression = _extract_variables_and_expression(
         selected_variables, *properties
     )
-    return SetOf(selected_variables=selected_variables, _child_=expression)
+    return SetOf(_selected_variables=selected_variables, _child_=expression)
 
 
 def _extract_variables_and_expression(
@@ -107,20 +106,20 @@ def _extract_variables_and_expression(
     selected_variables = list(selected_variables)
     expression = None
     if len(expression_list) > 0:
+        literal_expressions = [exp for exp in expression_list if not isinstance(exp, SymbolicExpression)]
+        if literal_expressions:
+            raise LiteralConditionError(literal_expressions)
         expression = (
             and_(*expression_list) if len(expression_list) > 1 else expression_list[0]
         )
     return selected_variables, expression
 
 
-DomainType = Union[Iterable, None]
-
-
 def let(
     type_: Type[T],
     domain: DomainType,
     name: Optional[str] = None,
-) -> Union[T, CanBehaveLikeAVariable[T], Variable[T]]:
+) -> Union[T, Selectable[T]]:
     """
     Declare a symbolic variable that can be used inside queries.
 
@@ -154,7 +153,7 @@ def let(
 
 def _get_domain_source_from_domain_and_type_values(
     domain: DomainType, type_: Type
-) -> Optional[From]:
+) -> Optional[DomainType]:
     """
     Get the domain source from the domain and the type values.
 
@@ -166,7 +165,7 @@ def _get_domain_source_from_domain_and_type_values(
         domain = filter(lambda x: isinstance(x, type_), domain)
     elif domain is None and issubclass(type_, Symbol):
         domain = SymbolGraph().get_instances_of_type(type_)
-    return From(domain)
+    return domain
 
 
 def and_(*conditions: ConditionType):
@@ -282,3 +281,61 @@ def inference(
     return lambda **kwargs: Variable(
         _type_=type_, _name__=type_.__name__, _kwargs_=kwargs, _is_inferred_=True
     )
+
+
+def max(variable: Selectable[T], key: Optional[Callable] = None, default: Optional[T] = None) -> Union[T, Max[T]]:
+    """
+    Maps the variable values to their maximum value.
+
+    :param variable: The variable for which the maximum value is to be found.
+    :param key: A function that extracts a comparison key from each variable value.
+    :param default: The value returned when the iterable is empty.
+    :return: A Max object that can be evaluated to find the maximum value.
+    """
+    return Max(variable, _key_func_=key, _default_value_=default)
+
+
+def min(variable: Selectable[T], key: Optional[Callable] = None, default: Optional[T] = None) -> Union[T, Min[T]]:
+    """
+    Maps the variable values to their minimum value.
+
+    :param variable: The variable for which the minimum value is to be found.
+    :param key: A function that extracts a comparison key from each variable value.
+    :param default: The value returned when the iterable is empty.
+    :return: A Min object that can be evaluated to find the minimum value.
+    """
+    return Min(variable, _key_func_=key, _default_value_=default)
+
+
+def sum(variable: Selectable[T], key: Optional[Callable] = None, default: Optional[T] = None) -> Union[T, Sum[T]]:
+    """
+    Computes the sum of values produced by the given variable.
+
+    :param variable: The variable for which the sum is calculated.
+    :param key: A function that extracts a comparison key from each variable value.
+    :param default: The value returned when the iterable is empty.
+    :return: A Sum object that can be evaluated to find the sum of values.
+    """
+    return Sum(variable, _key_func_=key, _default_value_=default)
+
+
+def average(variable: Selectable[T], key: Optional[Callable] = None, default: Optional[T] = None) -> Union[T, Average[T]]:
+    """
+    Computes the sum of values produced by the given variable.
+
+    :param variable: The variable for which the sum is calculated.
+    :param key: A function that extracts a comparison key from each variable value.
+    :param default: The value returned when the iterable is empty.
+    :return: A Sum object that can be evaluated to find the sum of values.
+    """
+    return Average(variable, _key_func_=key, _default_value_=default)
+
+
+def count(variable: Selectable[T]) -> Union[T, Count[T]]:
+    """
+    Count the number of values produced by the given variable.
+
+    :param variable: The variable for which the count is calculated.
+    :return: A Count object that can be evaluated to count the number of values.
+    """
+    return Count(variable)
