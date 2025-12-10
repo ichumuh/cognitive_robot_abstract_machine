@@ -15,7 +15,7 @@ def an(
         quantification: Optional[ResultQuantificationConstraint] = None,
 ) -> Union[An[T], T]:
     """
-    Select a single element satisfying the given entity description.
+    Select all values satisfying the given entity description.
 
     :param entity_: An entity or a set expression to quantify over.
     :param quantification: Optional quantification constraint.
@@ -35,7 +35,7 @@ def the(
         entity_: Union[SetOf[T], Entity[T], T, Iterable[T], Type[T], Match[T]],
 ) -> Union[The[T], T]:
     """
-    Select the unique element satisfying the given entity description.
+    Select the unique value satisfying the given entity description.
 
     :param entity_: An entity or a set expression to quantify over.
     :return: A quantifier representing "an" element.
