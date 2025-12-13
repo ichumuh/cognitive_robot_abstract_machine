@@ -123,9 +123,7 @@ class SpatialType(SymbolicType):
 
 
 @dataclass(eq=False)
-class HomogeneousTransformationMatrix(
-    SpatialType, MatrixOperationsMixin, SubclassJSONSerializer
-):
+class HomogeneousTransformationMatrix(SpatialType, SubclassJSONSerializer):
     """
     Represents a 4x4 transformation matrix used in kinematics and transformations.
 
@@ -442,7 +440,7 @@ class HomogeneousTransformationMatrix(
 
 
 @dataclass(eq=False)
-class RotationMatrix(SpatialType, MatrixOperationsMixin, SubclassJSONSerializer):
+class RotationMatrix(SpatialType, SubclassJSONSerializer):
     """
     Class to represent a 4x4 symbolic rotation matrix tied to kinematic references.
 
@@ -769,7 +767,7 @@ class RotationMatrix(SpatialType, MatrixOperationsMixin, SubclassJSONSerializer)
 
 
 @dataclass(eq=False)
-class Point3(SpatialType, VectorOperationsMixin, SubclassJSONSerializer):
+class Point3(SpatialType, SubclassJSONSerializer):
     """
     Represents a 3D point with reference frame handling.
 
@@ -987,7 +985,7 @@ class Point3(SpatialType, VectorOperationsMixin, SubclassJSONSerializer):
 
 
 @dataclass(eq=False)
-class Vector3(SpatialType, VectorOperationsMixin, SubclassJSONSerializer):
+class Vector3(SpatialType, SubclassJSONSerializer):
     """
     Representation of a 3D vector with reference frame support for homogenous transformations.
 

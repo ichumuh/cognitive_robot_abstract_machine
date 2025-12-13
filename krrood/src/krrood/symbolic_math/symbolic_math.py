@@ -381,37 +381,8 @@ class SymbolicType(Symbol):
     def is_scalar(self) -> bool:
         return self.shape == (1, 1)
 
-    def __bool__(self) -> bool:
-        """
-        Evaluates the object as a boolean value, implementing the `__bool__` special method.
-        If the expression is scalar and constant, it is evaluated as a python bool.
-            This allows comparisons to work as expected, e.g. `if x > 0:`
-        If the expression is scaler, non-constant and an ==, we use casadi's equivalent.
-            This allows `2*FloatVariable("a") == FloatVariable("a")*2` to work as expected.
-        In any other case, we return True, because the expression is not None.
-            This is the default behavior for non bool python objects.
-        """
-        if self.is_scalar():
-            if self.is_constant():
-                return bool(self.to_np())
-            elif self.casadi_sx.op() == _ca.OP_EQ:
-                # not evaluating bool would cause all expressions containing == to be evaluated to True, because they are not None
-                # this can cause a lot of unintended bugs, therefore we try to evaluate it
-                left = self.casadi_sx.dep(0)
-                right = self.casadi_sx.dep(1)
-                return _ca.is_equal(_ca.simplify(left), _ca.simplify(right), 5)
-        # it's not evaluatable as a bool, so we revert to the normal behavior, and a not None python thing is true
-        return True
-
     def __array__(self):
         return self.to_np()
-
-    def __float__(self):
-        if not self.is_scalar():
-            raise NotScalerError(actual_dimensions=self.shape)
-        if not self.is_constant():
-            raise HasFreeVariablesError(self.free_variables())
-        return float(self.to_np())
 
     def __repr__(self):
         return repr(self.casadi_sx)
@@ -701,7 +672,7 @@ class VectorOperationsMixin:
 
 
 @_dataclasses.dataclass(eq=False)
-class FloatVariable(SymbolicType, BasicOperatorMixin):
+class FloatVariable(SymbolicType):
     """
     A symbolic expression representing a single float variable.
     No matrix and no numbers.
@@ -741,9 +712,7 @@ class FloatVariable(SymbolicType, BasicOperatorMixin):
 
 
 @_dataclasses.dataclass(eq=False)
-class Expression(
-    SymbolicType, BasicOperatorMixin, VectorOperationsMixin, MatrixOperationsMixin
-):
+class Expression(SymbolicType):
     """
     Represents symbolic expressions with rich mathematical capabilities, including matrix
     operations, derivatives, and manipulation of symbolic representations.
@@ -1026,9 +995,57 @@ class Expression(
         return Expression(_ca.kron(m1, m2))
 
 
-@_dataclasses.dataclass(eq=False)
+@_dataclasses.dataclass(eq=False, init=False)
 class Scalar(Expression):
-    pass
+    def __init__(self, data: bool | int | _IntEnum | float = 0):
+        self.casadi_sx = _ca.SX(data)
+
+    def __bool__(self) -> bool:
+        """
+        Evaluates the object as a boolean value, implementing the `__bool__` special method.
+        If the expression is scalar and constant, it is evaluated as a python bool.
+            This allows comparisons to work as expected, e.g. `if x > 0:`
+        If the expression is scaler, non-constant and an ==, we use casadi's equivalent.
+            This allows `2*FloatVariable("a") == FloatVariable("a")*2` to work as expected.
+        In any other case, we return True, because the expression is not None.
+            This is the default behavior for non bool python objects.
+        """
+        if self.is_constant():
+            return bool(self.to_np())
+        raise HasFreeVariablesError(self.free_variables())
+
+    def __float__(self):
+        if not self.is_constant():
+            raise HasFreeVariablesError(self.free_variables())
+        return float(self.to_np())
+
+    def __eq__(self, other) -> Scalar:
+        if isinstance(other, Scalar):
+            return self.casadi_sx.__eq__(other.casadi_sx)
+        if self.is_constant():
+            return float(self) == other
+        return NotImplemented
+
+    def __add__(self, other: Scalar) -> Scalar:
+        return Scalar.from_casadi_sx(self.casadi_sx + other.casadi_sx)
+
+    def __sub__(self, other: Scalar) -> Scalar:
+        return Scalar.from_casadi_sx(self.casadi_sx - other.casadi_sx)
+
+    def __mul__(self, other: Scalar) -> Scalar:
+        return Scalar.from_casadi_sx(self.casadi_sx * other.casadi_sx)
+
+    def __truediv__(self, other: Scalar) -> Scalar:
+        return Scalar.from_casadi_sx(self.casadi_sx / other.casadi_sx)
+
+    def __pow__(self, other: Scalar) -> Scalar:
+        return Scalar.from_casadi_sx(self.casadi_sx**other.casadi_sx)
+
+    def __floordiv__(self, other: Scalar) -> Scalar:
+        return Scalar.from_casadi_sx(_ca.floor(self.casadi_sx / other.casadi_sx))
+
+    def __mod__(self, other: Scalar) -> Scalar:
+        return fmod(self, other)
 
 
 @_dataclasses.dataclass(eq=False)
@@ -1233,24 +1250,20 @@ def dot(e1: Expression, e2: Expression) -> Expression:
     return e1.dot(e2)
 
 
-def fmod(a: ScalarData, b: ScalarData) -> Expression:
-    a = to_sx(a)
-    b = to_sx(b)
-    return Expression(_ca.fmod(a, b))
+def fmod(a: GenericSymbolicType, b: Scalar) -> GenericSymbolicType:
+    return type(a).from_casadi_sx(_ca.fmod(to_sx(a), to_sx(b)))
 
 
 def sum(*expressions: ScalarData) -> Expression:
     return Expression(_ca.sum(to_sx(Expression(expressions))))
 
 
-def floor(x: ScalarData) -> Expression:
-    x = to_sx(x)
-    return Expression(_ca.floor(x))
+def floor(x: GenericSymbolicType) -> GenericSymbolicType:
+    return type(x).from_casadi_sx(_ca.floor(to_sx(x)))
 
 
-def ceil(x: ScalarData) -> Expression:
-    x = to_sx(x)
-    return Expression(_ca.ceil(x))
+def ceil(x: GenericSymbolicType) -> GenericSymbolicType:
+    return type(x).from_casadi_sx(_ca.ceil(to_sx(x)))
 
 
 def sign(x: ScalarData) -> Expression:

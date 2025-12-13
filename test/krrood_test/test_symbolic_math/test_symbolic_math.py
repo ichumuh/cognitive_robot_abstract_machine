@@ -1,3 +1,5 @@
+import operator
+
 import numpy as np
 import pytest
 import scipy
@@ -104,36 +106,6 @@ class TestLogic3:
         )
         expression_str = cas.trinary_logic_to_str(expression)
         assert expression_str == '("a" and ("b" or not "c"))'
-
-
-class TestBinaryLogic:
-    def test_bool_casting(self):
-        v = cas.FloatVariable(name="v")
-        v2 = cas.FloatVariable(name="v2")
-        v3 = cas.FloatVariable(name="v3")
-
-        # simple casting cases of constants
-        assert cas.BinaryTrue
-        assert not cas.BinaryFalse
-
-        # "and" and "or" are smart and will simply const True/False away.
-        assert not (v and cas.BinaryFalse)
-        assert v or cas.BinaryTrue
-
-        # the == calls __eq__ which returns an expression.
-        assert v == v
-        assert v != v2
-
-        # "in" is calling __eq__ which creates, e.g., v == v, bool casting of eq works and will return False for first eq and True for second
-        assert v2 in [v, v2, v3]
-        assert v not in [v2, v3]
-
-        # const logical expressions can be evaluated
-        assert cas.Expression(10) > cas.Expression(5)
-
-        # here bool is called on v and returns it if it is True, otherwise it would return v2
-        # this is the "normal" behavior for python objects
-        assert (v or v2) == v
 
 
 class TestIfElse:
@@ -328,6 +300,34 @@ class TestIfElse:
 
 
 class TestFloatVariable:
+    def test_bool_casting(self):
+        v = cas.FloatVariable(name="v")
+        v2 = cas.FloatVariable(name="v2")
+        v3 = cas.FloatVariable(name="v3")
+
+        # simple casting cases of constants
+        assert cas.BinaryTrue
+        assert not cas.BinaryFalse
+
+        # "and" and "or" are smart and will simply const True/False away.
+        assert not (v and cas.BinaryFalse)
+        assert v or cas.BinaryTrue
+
+        # the == calls __eq__ which returns an expression.
+        assert v == v
+        assert v != v2
+
+        # "in" is calling __eq__ which creates, e.g., v == v, bool casting of eq works and will return False for first eq and True for second
+        assert v2 in [v, v2, v3]
+        assert v not in [v2, v3]
+
+        # const logical expressions can be evaluated
+        assert cas.Expression(10) > cas.Expression(5)
+
+        # here bool is called on v and returns it if it is True, otherwise it would return v2
+        # this is the "normal" behavior for python objects
+        assert (v or v2) == v
+
     def test_back_reference(self):
         v = cas.FloatVariable(name="asdf")
         v2 = v.free_variables()[0]
@@ -1166,3 +1166,49 @@ class TestCompiledFunction:
         e = cas.sqrt(cas.cos(s1) + cas.sin(s2))
         with pytest.raises(HasFreeVariablesError):
             e.compile(parameters=[[s1]])
+
+
+class TestScalar:
+    def test_bool_casting(self):
+        s1 = cas.Scalar(1)
+        s2 = cas.Scalar(2)
+
+        # simple casting cases of constants
+        assert cas.BinaryTrue
+        assert not cas.BinaryFalse
+
+        # "and" and "or" are smart and will simply const True/False away.
+        assert not (v and cas.BinaryFalse)
+        assert v or cas.BinaryTrue
+
+        # the == calls __eq__ which returns an expression.
+        assert v == v
+        assert v != v2
+
+        # "in" is calling __eq__ which creates, e.g., v == v, bool casting of eq works and will return False for first eq and True for second
+        assert v2 in [v, v2, v3]
+        assert v not in [v2, v3]
+
+        # const logical expressions can be evaluated
+        assert cas.Expression(10) > cas.Expression(5)
+
+        # here bool is called on v and returns it if it is True, otherwise it would return v2
+        # this is the "normal" behavior for python objects
+        assert (v or v2) == v
+
+    def test_arithmetic_operations(self):
+        operators = [
+            operator.add,
+            operator.sub,
+            operator.mul,
+            operator.truediv,
+            operator.pow,
+            operator.floordiv,
+            operator.mod,
+        ]
+        s1 = cas.Scalar(1)
+        s2 = cas.Scalar(2)
+        for op in operators:
+            result = op(s1, s2)
+            assert isinstance(result, cas.Scalar), f"{op.__name__} result is not Scalar"
+            assert result == op(1, 2), f"{op.__name__} result is wrong"
