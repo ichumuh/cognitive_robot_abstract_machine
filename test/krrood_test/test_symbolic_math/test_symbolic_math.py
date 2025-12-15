@@ -642,9 +642,7 @@ class TestExpression:
                     6 * ad_s * a_s * b_s**3 + 9 * a_s**2 * bd_s * b_s**2,
                     9 * ad_s * a_s**2 * b_s**2 + 6 * a_s**3 * bd_s * b,
                 ],
-                # [0, 2 * bd_s],
                 [bd_s * cas.sin(b_s), ad_s * cas.sin(b_s) + a_s * bd_s * cas.cos(b_s)],
-                # [4 * bd * b ** 3, 4 * ad * b ** 3 + 12 * a * bd * b ** 2]
             ]
         )
         actual = jac.compile().call_with_kwargs(**kwargs)
@@ -1133,6 +1131,13 @@ class TestVector:
             assert (
                 result.shape == expected.shape
             ), f"{op.__name__} result shape is wrong"
+
+    def test_get_item(self):
+        v = cas.Vector(np.array([1, 2, 3]))
+        assert v[0] == 1
+        assert isinstance(v[0], cas.Scalar)
+        assert np.allclose(v[0:2], cas.Vector(np.array([1, 2])))
+        assert isinstance(v[0:2], cas.Vector)
 
 
 class TestMatrix:
