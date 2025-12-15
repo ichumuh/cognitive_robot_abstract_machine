@@ -52,17 +52,17 @@ class Base(DeclarativeBase):
 
 
 # Association tables for many-to-many relationships
-hasdoorsdao_doors_association = Table(
-    "hasdoorsdao_doors_association",
-    Base.metadata,
-    Column("hasdoorsdao_id", ForeignKey("HasDoorsDAO.database_id")),
-    Column("doordao_id", ForeignKey("DoorDAO.database_id")),
-)
 hasdrawersdao_drawers_association = Table(
     "hasdrawersdao_drawers_association",
     Base.metadata,
     Column("hasdrawersdao_id", ForeignKey("HasDrawersDAO.database_id")),
     Column("drawerdao_id", ForeignKey("DrawerDAO.database_id")),
+)
+hasdoorsdao_doors_association = Table(
+    "hasdoorsdao_doors_association",
+    Base.metadata,
+    Column("hasdoorsdao_id", ForeignKey("HasDoorsDAO.database_id")),
+    Column("doordao_id", ForeignKey("DoorDAO.database_id")),
 )
 shapecollectiondao_shapes_association = Table(
     "shapecollectiondao_shapes_association",
@@ -99,6 +99,12 @@ worldmappingdao_degrees_of_freedom_association = Table(
         "degreeoffreedommappingdao_id",
         ForeignKey("DegreeOfFreedomMappingDAO.database_id"),
     ),
+)
+doubledoordao_doors_association = Table(
+    "doubledoordao_doors_association",
+    Base.metadata,
+    Column("doubledoordao_id", ForeignKey("DoubleDoorDAO.database_id")),
+    Column("doordao_id", ForeignKey("DoorDAO.database_id")),
 )
 cabinetdao_doors_association = Table(
     "cabinetdao_doors_association",
@@ -385,68 +391,6 @@ class HasActiveConnectionDAO(
     }
 
 
-class HasDoorsDAO(
-    HasActiveConnectionDAO,
-    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasDoors],
-):
-
-    __tablename__ = "HasDoorsDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasActiveConnectionDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    doors: Mapped[typing.List[DoorDAO]] = relationship(
-        "DoorDAO",
-        secondary="hasdoorsdao_doors_association",
-        cascade="save-update, merge",
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "HasDoorsDAO",
-        "inherit_condition": database_id == HasActiveConnectionDAO.database_id,
-    }
-
-
-class DoubleDoorDAO(
-    HasDoorsDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.DoubleDoor
-    ],
-):
-
-    __tablename__ = "DoubleDoorDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasDoorsDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    left_door_id: Mapped[int] = mapped_column(
-        ForeignKey("DoorDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    right_door_id: Mapped[int] = mapped_column(
-        ForeignKey("DoorDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    left_door: Mapped[DoorDAO] = relationship(
-        "DoorDAO", uselist=False, foreign_keys=[left_door_id], post_update=True
-    )
-    right_door: Mapped[DoorDAO] = relationship(
-        "DoorDAO", uselist=False, foreign_keys=[right_door_id], post_update=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "DoubleDoorDAO",
-        "inherit_condition": database_id == HasDoorsDAO.database_id,
-    }
-
-
 class HasDrawersDAO(
     HasActiveConnectionDAO,
     DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasDrawers],
@@ -469,25 +413,6 @@ class HasDrawersDAO(
     __mapper_args__ = {
         "polymorphic_identity": "HasDrawersDAO",
         "inherit_condition": database_id == HasActiveConnectionDAO.database_id,
-    }
-
-
-class HasLeftRightDoorDAO(
-    HasDoorsDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.mixins.HasLeftRightDoor
-    ],
-):
-
-    __tablename__ = "HasLeftRightDoorDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasDoorsDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "HasLeftRightDoorDAO",
-        "inherit_condition": database_id == HasDoorsDAO.database_id,
     }
 
 
@@ -770,6 +695,68 @@ class SemanticAssociationDAO(
     __mapper_args__ = {
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "SemanticAssociationDAO",
+    }
+
+
+class HasDoorsDAO(
+    SemanticAssociationDAO,
+    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasDoors],
+):
+
+    __tablename__ = "HasDoorsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SemanticAssociationDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    doors: Mapped[typing.List[DoorDAO]] = relationship(
+        "DoorDAO",
+        secondary="hasdoorsdao_doors_association",
+        cascade="save-update, merge",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "HasDoorsDAO",
+        "inherit_condition": database_id == SemanticAssociationDAO.database_id,
+    }
+
+
+class HasLeftRightDoorDAO(
+    HasDoorsDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.mixins.HasLeftRightDoor
+    ],
+):
+
+    __tablename__ = "HasLeftRightDoorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasDoorsDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    left_door_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("DoorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    right_door_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("DoorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    left_door: Mapped[DoorDAO] = relationship(
+        "DoorDAO", uselist=False, foreign_keys=[left_door_id], post_update=True
+    )
+    right_door: Mapped[DoorDAO] = relationship(
+        "DoorDAO", uselist=False, foreign_keys=[right_door_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "HasLeftRightDoorDAO",
+        "inherit_condition": database_id == HasDoorsDAO.database_id,
     }
 
 
@@ -1833,6 +1820,50 @@ class SemanticAnnotationDAO(
     __mapper_args__ = {
         "polymorphic_identity": "SemanticAnnotationDAO",
         "inherit_condition": database_id == WorldEntityDAO.database_id,
+    }
+
+
+class DoubleDoorDAO(
+    SemanticAnnotationDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.DoubleDoor
+    ],
+):
+
+    __tablename__ = "DoubleDoorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SemanticAnnotationDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    left_door_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("DoorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    right_door_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("DoorDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    doors: Mapped[typing.List[DoorDAO]] = relationship(
+        "DoorDAO",
+        secondary="doubledoordao_doors_association",
+        cascade="save-update, merge",
+    )
+    left_door: Mapped[DoorDAO] = relationship(
+        "DoorDAO", uselist=False, foreign_keys=[left_door_id], post_update=True
+    )
+    right_door: Mapped[DoorDAO] = relationship(
+        "DoorDAO", uselist=False, foreign_keys=[right_door_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "DoubleDoorDAO",
+        "inherit_condition": database_id == SemanticAnnotationDAO.database_id,
     }
 
 

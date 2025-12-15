@@ -23,6 +23,7 @@ from .mixins import (
     HasHinge,
     HasActiveConnection,
     HasRevoluteConnection,
+    HasLeftRightDoor,
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
@@ -192,9 +193,30 @@ class Door(HasBody, HasHandle, HasHinge):
 
 
 @dataclass(eq=False)
-class DoubleDoor(HasDoors):
-    left_door: Door
-    right_door: Door
+class DoubleDoor(SemanticAnnotation, HasLeftRightDoor):
+    """
+    A semantic annotation that represents a double door with left and right doors.
+    """
+
+    @classmethod
+    def create_with_left_right_door_in_world(
+        cls, left_door: Door, right_door: Door
+    ) -> Self:
+        """
+        Create a DoubleDoor semantic annotation with the given left and right doors.
+
+        :param left_door: The left door of the double door.
+        :param right_door: The right door of the double door.
+        :returns: A DoubleDoor semantic annotation.
+        """
+        if left_door._world != right_door._world:
+            raise ValueError("Left and right door must be part of the same world.")
+        double_door = cls(left_door=left_door, right_door=right_door)
+        world = left_door._world
+        with world.modify_world():
+            world.add_semantic_annotation(double_door)
+
+        return double_door
 
 
 @dataclass(eq=False)
@@ -206,8 +228,6 @@ class Drawer(HasCorpus, HasHandle):
 
 
 ############################### subclasses to Furniture
-
-
 @dataclass(eq=False)
 class Furniture(SemanticAnnotation, ABC): ...
 

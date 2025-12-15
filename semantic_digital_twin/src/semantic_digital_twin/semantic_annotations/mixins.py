@@ -499,19 +499,17 @@ class HasDrawers(HasActiveConnection):
 
 
 @dataclass(eq=False)
-class HasDoors(HasActiveConnection):
+class HasDoors(SemanticAssociation, ABC):
     """
     A mixin class for semantic annotations that have doors.
     """
 
     doors: List[Door] = field(default_factory=list, hash=False, kw_only=True)
 
-    def add_door_to_world(
+    def add_door(
         self,
-        door_factory: Door,
-        hinge_T_door: TransformationMatrix,
-        opening_axis: Vector3,
-        parent_world: World,
+        door: Door,
+        parent: KinematicStructureEntity,
     ):
         """
         Adds a door to the parent world using a new door hinge body with a revolute connection.
@@ -522,14 +520,13 @@ class HasDoors(HasActiveConnection):
         :param parent_world: The world to which the door will be added.
         """
 
-        self._add_door_to_world(door_factory, hinge_T_door, opening_axis, parent_world)
+        self._add_door(door, parent)
+        self.doors.append(door)
 
-    def _add_door_to_world(
-        self,
-        door_factory: Door,
-        hinge_T_door: TransformationMatrix,
-        opening_axis: Vector3,
-        parent_world: World,
+    def _add_door(
+        self: SemanticAnnotation | Self,
+        door: Door,
+        parent: KinematicStructureEntity,
     ):
         """
         Adds a hinge to the door. The hinge's pivot point is on the opposite side of the handle.
@@ -537,32 +534,23 @@ class HasDoors(HasActiveConnection):
         :param parent_T_door: The transformation matrix defining the door's position and orientation relative
         :param opening_axis: The axis around which the door opens.
         """
-        door_world = door_factory.create()
-        root = door_world.root
-        semantic_door_annotation: Door = door_world.get_semantic_annotations_by_type(
-            Door
-        )[0]
+        if door._world != self._world:
+            raise ValueError("Hinge must be part of the same world as the door.")
 
-        door_hinge = Body(
-            name=PrefixedName(f"{root.name.name}_door_hinge", root.name.prefix)
-        )
-        parent_T_hinge = self._calculate_door_pivot_point(
-            semantic_door_annotation,
-            hinge_T_door,
-            door_factory.scale,
-            opening_axis,
-        )
-        hinge_T_door = parent_T_hinge.inverse() @ hinge_T_door
+        world = self._world
+        door_body = door.body
+        self_T_door = self.get_self_T_new_child(door)
 
-        hinge_door_connection = FixedConnection(
-            parent=door_hinge,
-            child=root,
-            parent_T_connection_expression=hinge_T_door,
-        )
-        with door_world.modify_world():
-            door_world.add_connection(hinge_door_connection)
+        with world.modify_world():
+            parent_C_handle = door.body.parent_connection
+            world.remove_connection(parent_C_handle)
 
-        return door_world, parent_T_hinge
+            self_C_door = FixedConnection(
+                parent=parent,
+                child=door_body,
+                parent_T_connection_expression=self_T_door,
+            )
+            world.add_connection(self_C_door)
 
     def _calculate_door_pivot_point(
         self,
@@ -609,6 +597,9 @@ class HasDoors(HasActiveConnection):
 @dataclass(eq=False)
 class HasLeftRightDoor(HasDoors):
 
+    left_door: Optional[Door] = None
+    right_door: Optional[Door] = None
+
     def add_door_to_world(
         self,
         door_factory: Door,
@@ -620,14 +611,21 @@ class HasLeftRightDoor(HasDoors):
             "To add a door to a annotation inheriting from HasLeftRightDoor, please use add_right_door_to_world or add_left_door_to_world respectively"
         )
 
-    def add_right_door_to_world(
+    def add_right_door(
         self,
-        door_factory: Door,
-        parent_T_door: TransformationMatrix,
-        opening_axis: Vector3,
-        parent_world: World,
+        door: Door,
+        parent: KinematicStructureEntity,
     ):
-        self._add_door_to_world(door_factory, parent_T_door, opening_axis, parent_world)
+        self._add_door(door, parent)
+        self.right_door = door
+
+    def add_left_door(
+        self,
+        door: Door,
+        parent: KinematicStructureEntity,
+    ):
+        self._add_door(door, parent)
+        self.left_door = door
 
 
 HandlePosition = Union[SemanticPositionDescription, TransformationMatrix]

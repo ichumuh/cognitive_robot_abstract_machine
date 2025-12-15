@@ -14,6 +14,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Dresser,
     Wall,
     Hinge,
+    DoubleDoor,
 )
 from semantic_digital_twin.spatial_types.spatial_types import (
     TransformationMatrix,
@@ -171,61 +172,26 @@ class TestFactories(unittest.TestCase):
 
         assert door.body == handle.body.parent_kinematic_structure_entity
 
-    # def test_double_door_factory(self):
-    #     handle_factory = HandleFactory(name=PrefixedName("handle"))
-    #     handle_factory_config = handle_factory.get_config_for_parent_factory(
-    #         semantic_handle_position=SemanticPositionDescription(
-    #             horizontal_direction_chain=[
-    #                 HorizontalSemanticDirection.RIGHT,
-    #                 HorizontalSemanticDirection.FULLY_CENTER,
-    #             ],
-    #             vertical_direction_chain=[VerticalSemanticDirection.FULLY_CENTER],
-    #         ),
-    #     )
-    #     door_factory = DoorFactory(
-    #         name=PrefixedName("door"), handle_factory_config=handle_factory_config
-    #     )
-    #     door_factory_config = door_factory.get_config_for_parent_factory(
-    #         parent_T_child=TransformationMatrix.from_xyz_rpy(y=-0.5),
-    #         hinge_axis=Vector3.Z(),
-    #     )
-    #
-    #     handle_factory2 = HandleFactory(name=PrefixedName("handle2"))
-    #     handle_factory_config2 = handle_factory.get_config_for_parent_factory(
-    #         semantic_handle_position=SemanticPositionDescription(
-    #             horizontal_direction_chain=[
-    #                 HorizontalSemanticDirection.LEFT,
-    #                 HorizontalSemanticDirection.FULLY_CENTER,
-    #             ],
-    #             vertical_direction_chain=[VerticalSemanticDirection.FULLY_CENTER],
-    #         ),
-    #     )
-    #     door_factory2 = DoorFactory(
-    #         name=PrefixedName("door2"), handle_factory_config=handle_factory_config2
-    #     )
-    #     door_factory_config2 = door_factory2.get_config_for_parent_factory(
-    #         parent_T_child=TransformationMatrix.from_xyz_rpy(y=0.5),
-    #         hinge_axis=Vector3.Z(),
-    #     )
-    #
-    #     factory = DoubleDoorFactory(
-    #         name=PrefixedName("double_door"),
-    #         door_like_factory_configs=[door_factory_config, door_factory_config2],
-    #     )
-    #     world = factory.create()
-    #     doors = world.get_semantic_annotations_by_type(Door)
-    #     self.assertEqual(len(doors), 2)
-    #     self.assertEqual(
-    #         set(world.root.child_kinematic_structure_entities),
-    #         {
-    #             doors[0].body.parent_kinematic_structure_entity,
-    #             doors[1].body.parent_kinematic_structure_entity,
-    #         },
-    #     )
-    #     self.assertIsInstance(doors[0].handle, Handle)
-    #     self.assertIsInstance(doors[1].handle, Handle)
-    #     self.assertNotEqual(doors[0].handle, doors[1].handle)
-    #
+    def test_double_door_factory(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        left_door = Door.create_with_new_body_in_world(
+            name=PrefixedName("left_door"), world=world, parent=root
+        )
+        right_door = Door.create_with_new_body_in_world(
+            name=PrefixedName("right_door"), world=world, parent=root
+        )
+        double_door = DoubleDoor.create_with_left_right_door_in_world(
+            left_door, right_door
+        )
+        semantic_double_door_annotations = world.get_semantic_annotations_by_type(
+            DoubleDoor
+        )
+
+        self.assertEqual(len(semantic_double_door_annotations), 1)
+
     # def test_container_factory(self):
     #     factory = ContainerFactory(name=PrefixedName("container"))
     #     world = factory.create()
