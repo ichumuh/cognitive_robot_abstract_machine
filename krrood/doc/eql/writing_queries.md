@@ -15,8 +15,9 @@ kernelspec:
 
 EQL can be well-used to answer symbolic questions through querying.
 
-Whenever you write a query you have to wrap free variables in `var` statements.
-`var` wraps your classes such that attribute access is intercepted and replaced by a symbolic expression.
+Whenever you write a query you have to wrap free variables in `variable` (also known as `var` if you are like me and
+like doing `import variable as var`) statements.
+`variable` wraps your classes such that attribute access is intercepted and replaced by a symbolic expression.
 
 This is different from plain python in the sense that it doesn't evaluate what you write directly but
 treats your statements as something that will be evaluated later (lazily).
@@ -41,7 +42,7 @@ from dataclasses import dataclass
 
 from typing_extensions import List
 
-from krrood.entity_query_language.entity import entity, var, Symbol
+from krrood.entity_query_language.entity import entity, variable as var, Symbol
 from krrood.entity_query_language.entity_result_processors import an
 
 

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from typing_extensions import List
 
-from krrood.entity_query_language.entity import entity, or_, Symbol, var, not_, and_
+from krrood.entity_query_language.entity import entity, or_, Symbol, variable as var, not_, and_
 from krrood.entity_query_language.entity_result_processors import an
 
 

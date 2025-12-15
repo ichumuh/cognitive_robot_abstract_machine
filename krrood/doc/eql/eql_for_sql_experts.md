@@ -25,7 +25,7 @@ This guide maps familiar SQL ideas (SELECT, WHERE, JOIN, EXISTS/IN, boolean logi
 ## TL;DR: SQL → EQL Mental Model
 
 - **FROM aliasing**
-  `var(type, domain)` — Define placeholders (similar to table aliases) and their data source.
+  `variable(type, domain)` — Define placeholders (similar to table aliases) and their data source.
 
 - **SELECT one column/entity**
   `entity(selected_variable).where(...conditions)` — Choose which variable to return.
@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 
 from typing_extensions import List
 
-from krrood.entity_query_language.entity import var, Symbol, entity, and_, in_, contains, set_of
+from krrood.entity_query_language.entity import variable as var, Symbol, entity, and_, in_, contains, set_of
 from krrood.entity_query_language.entity_result_processors import an
 
 

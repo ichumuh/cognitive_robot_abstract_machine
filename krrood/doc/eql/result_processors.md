@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing_extensions import List
 
 import krrood.entity_query_language.entity_result_processors as eql
-from krrood.entity_query_language.entity import entity, var, contains
+from krrood.entity_query_language.entity import entity, variable as var, contains
 
 
 @dataclass

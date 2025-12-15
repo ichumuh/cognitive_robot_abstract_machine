@@ -2,7 +2,7 @@ import pytest
 
 from krrood.entity_query_language.entity import (
     entity,
-    var,
+    variable as var,
     set_of,
 )
 from krrood.entity_query_language.entity_result_processors import the

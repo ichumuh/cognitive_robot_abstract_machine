@@ -22,7 +22,7 @@ from .entity import (
     contains,
     in_,
     flatten,
-    var,
+    variable as var,
     set_of,
     entity,
     exists,

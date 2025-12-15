@@ -24,7 +24,7 @@ Lets define our domain model and build a small world. We will then build a rule 
 instances to the world.
 
 ```{code-cell} ipython3
-from krrood.entity_query_language.entity import entity, var, and_, Symbol, inference
+from krrood.entity_query_language.entity import entity, variable as var, and_, Symbol, inference
 from krrood.entity_query_language.entity_result_processors import an
 
 from krrood.entity_query_language.rule import refinement, alternative

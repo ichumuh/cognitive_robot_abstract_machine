@@ -7,7 +7,7 @@ from functools import reduce
 from operator import or_
 
 from krrood.entity_query_language.entity import (
-    var,
+    variable as var,
     entity,
     not_,
     in_,

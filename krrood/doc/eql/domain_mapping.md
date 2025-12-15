@@ -29,7 +29,7 @@ from typing_extensions import List, Dict
 from krrood.entity_query_language.entity import (
     entity,
     set_of,
-    var,
+    variable as var,
     flatten,
     Symbol,
 )

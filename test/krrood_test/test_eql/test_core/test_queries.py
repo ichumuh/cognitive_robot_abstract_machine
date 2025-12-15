@@ -11,7 +11,7 @@ from krrood.entity_query_language.entity import (
     in_,
     entity,
     set_of,
-    var,
+    variable as var,
     or_,
     exists,
     flatten,

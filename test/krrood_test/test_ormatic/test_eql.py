@@ -21,7 +21,7 @@ from ..dataset.ormatic_interface import (
     BodyDAO,
 )
 from krrood.entity_query_language.entity import (
-    var,
+    variable as var,
     entity,
     contains,
     and_,

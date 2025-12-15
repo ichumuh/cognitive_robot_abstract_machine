@@ -6,7 +6,7 @@ from typing import Optional, List
 
 import trimesh.sample
 from krrood.entity_query_language.entity import (
-    var,
+    variable as var,
     entity,
     and_,
     not_,

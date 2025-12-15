@@ -21,7 +21,7 @@ from ..dataset.semantic_world_like_classes import (
 )
 from krrood.entity_query_language.entity import (
     entity,
-    var,
+    variable as var,
     inference,
     and_,
 )

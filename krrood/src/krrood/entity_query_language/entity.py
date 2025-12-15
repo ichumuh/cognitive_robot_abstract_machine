@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from .failures import LiteralConditionError
 from .symbol_graph import SymbolGraph
 from .utils import is_iterable, T
 
@@ -15,8 +14,6 @@ from typing_extensions import (
     Union,
     Iterable,
     Type,
-    Tuple,
-    List,
     Callable,
     TYPE_CHECKING,
 )
@@ -76,7 +73,7 @@ def set_of(
     return SetOf(_selected_variables=list(selected_variables))
 
 
-def var(
+def variable(
     type_: Type[T],
     domain: DomainType,
     name: Optional[str] = None,

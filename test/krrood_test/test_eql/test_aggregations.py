@@ -4,7 +4,7 @@ from krrood.entity_query_language.entity import (
     not_,
     in_,
     for_all,
-    var,
+    variable as var,
     exists,
 )
 from krrood.entity_query_language.entity_result_processors import an, the

@@ -44,7 +44,7 @@ For a more detailed documentation check out their website (https://github.com/co
 To query for a body for example the milk bottle we need to create a query.
 
 ```python
-from krrood.entity_query_language.entity import entity, contains, var
+from krrood.entity_query_language.entity import entity, contains, variable as var
 from krrood.entity_query_language.entity_result_processors import an
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -70,7 +70,7 @@ contains the sub-string "cabinet" would yield multiple results.
 We first need a query with multiple results.
 
 ```python
-from krrood.entity_query_language.entity import entity, contains, var
+from krrood.entity_query_language.entity import entity, contains, variable as var
 from krrood.entity_query_language.entity_result_processors import an
 from semantic_digital_twin.world_description.world_entity import Body
 

@@ -1,5 +1,5 @@
 from krrood.entity_query_language.entity import (
-    var,
+    variable as var,
     entity,
     contains,
 )
