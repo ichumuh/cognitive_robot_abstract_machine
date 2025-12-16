@@ -1197,7 +1197,7 @@ class Vector(Expression):
 
     def __init__(
         self,
-        data: _te.Optional[Iterable[bool | int | _IntEnum | float | Scalar]] = None,
+        data: _te.Optional[VectorData] = None,
     ):
         if data is None:
             data = []
@@ -1279,9 +1279,7 @@ class Matrix(Expression):
 
     def __init__(
         self,
-        data: _te.Optional[
-            Iterable[Iterable[bool | int | _IntEnum | float | Scalar]]
-        ] = None,
+        data: _te.Optional[VectorData | MatrixData] = None,
     ):
         if data is None:
             data = []
