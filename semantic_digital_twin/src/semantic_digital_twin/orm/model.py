@@ -18,7 +18,7 @@ from ..spatial_types import (
     HomogeneousTransformationMatrix,
 )
 from ..spatial_types.derivatives import DerivativeMap
-from ..spatial_types.spatial_types import Quaternion
+from ..spatial_types.spatial_types import Quaternion, Pose
 from ..world import World
 from ..world_description.connections import Connection
 from ..world_description.degree_of_freedom import DegreeOfFreedom
@@ -209,6 +209,30 @@ class HomogeneousTransformationMatrixMapping(
             rotation_matrix=RotationMatrix.from_quaternion(self.rotation),
             reference_frame=None,
             child_frame=self.child_frame,
+        )
+
+
+@dataclass
+class PoseMapping(AlternativeMapping[Pose]):
+    position: Point3
+    rotation: Quaternion
+    reference_frame: Optional[KinematicStructureEntity] = field(
+        init=False, default=None
+    )
+
+    @classmethod
+    def create_instance(cls, obj: Pose):
+        position = obj.to_position()
+        rotation = obj.to_quaternion()
+        result = cls(position=position, rotation=rotation)
+        result.reference_frame = obj.reference_frame
+        return result
+
+    def create_from_dao(self) -> Pose:
+        return Pose(
+            position=self.position,
+            orientation=self.rotation,
+            reference_frame=None,
         )
 
 
