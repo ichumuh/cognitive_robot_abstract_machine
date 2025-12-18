@@ -647,3 +647,10 @@ class MultipleForwardRefContainer(Symbol):
 
     ref_a: Optional[ForwardRefTypeA] = None
     ref_b: Optional[ForwardRefTypeB] = None
+
+
+@dataclass
+class Person:
+    name: str
+
+    knows: List[Person] = field(default_factory=list)
