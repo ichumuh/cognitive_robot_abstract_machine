@@ -255,28 +255,40 @@ class HasRevoluteConnection(HasActiveConnection):
 class SemanticAssociation(ABC):
 
     def get_new_parent_T_self(
-        self: HasRootBody | Self, parent: HasRootBody
+        self: HasRootBody | Self,
+        parent_kinematic_structure_entity: KinematicStructureEntity,
     ) -> TransformationMatrix:
-        return parent.body.global_pose.inverse() @ self.body.global_pose
+        return (
+            parent_kinematic_structure_entity.global_pose.inverse()
+            @ self.body.global_pose
+        )
 
-    def resolve_grandparent(self: HasRootBody | Self, parent: HasRootBody):
-        hinge_body = parent.body
-        hinge_parent = hinge_body.parent_connection.parent
+    def resolve_grandparent(
+        self: HasRootBody | Self,
+        parent_kinematic_structure_entity: KinematicStructureEntity,
+    ):
+        grandparent_kinematic_structure_entity = (
+            parent_kinematic_structure_entity.parent_connection.parent
+        )
         new_hinge_parent = (
-            hinge_parent
-            if hinge_parent != self.body
+            grandparent_kinematic_structure_entity
+            if grandparent_kinematic_structure_entity != self.body
             else self.body.parent_kinematic_structure_entity
         )
         return new_hinge_parent
 
     def get_self_T_new_child(
-        self: HasRootBody | Self, child: HasRootBody
-    ) -> TransformationMatrix:
-        return self.body.global_pose.inverse() @ child.body.global_pose
-
-    def _add_parent_semantic_annotation(
         self: HasRootBody | Self,
-        semantic_annotation: HasRootBody,
+        child_kinematic_structure_entity: KinematicStructureEntity,
+    ) -> TransformationMatrix:
+        return (
+            self.body.global_pose.inverse()
+            @ child_kinematic_structure_entity.global_pose
+        )
+
+    def _attach_parent_entity_in_kinematic_structure(
+        self: HasRootBody | Self,
+        parent_kinematic_structure_entity: KinematicStructureEntity,
         connection_type: Type[ActiveConnection1DOF],
         connection_limits: Optional[
             Tuple[DerivativeMap[float], DerivativeMap[float]]
@@ -285,15 +297,18 @@ class SemanticAssociation(ABC):
         connection_multiplier: float = 1.0,
         connection_offset: float = 0.0,
     ):
-        if semantic_annotation._world != self._world:
+        if parent_kinematic_structure_entity._world != self._world:
             raise ValueError(
                 "Semantic annotation must be part of the same world as the parent."
             )
 
         world = self._world
-        semantic_annotation_body = semantic_annotation.body
-        semantic_annotation_T_self = self.get_new_parent_T_self(semantic_annotation)
-        new_semantic_annotation_parent = self.resolve_grandparent(semantic_annotation)
+        semantic_annotation_T_self = self.get_new_parent_T_self(
+            parent_kinematic_structure_entity
+        )
+        new_semantic_annotation_parent = self.resolve_grandparent(
+            parent_kinematic_structure_entity
+        )
 
         if connection_limits is not None:
             if connection_limits[0].position <= connection_limits[1].position:
@@ -316,16 +331,18 @@ class SemanticAssociation(ABC):
             world.remove_connection(parent_C_self)
 
             semantic_annotation_C_self = FixedConnection(
-                parent=semantic_annotation_body,
+                parent=parent_kinematic_structure_entity,
                 child=self.body,
                 parent_T_connection_expression=semantic_annotation_T_self,
             )
             world.add_connection(semantic_annotation_C_self)
             new_parent_T_semantic_annotation = world._forward_kinematic_manager.compute(
-                new_semantic_annotation_parent, semantic_annotation_body
+                new_semantic_annotation_parent, parent_kinematic_structure_entity
             )
 
-            parent_C_semantic_annotation = semantic_annotation.body.parent_connection
+            parent_C_semantic_annotation = (
+                parent_kinematic_structure_entity.parent_connection
+            )
             if not isinstance(parent_C_semantic_annotation, connection_type):
                 world.remove_connection(parent_C_semantic_annotation)
 
@@ -338,7 +355,7 @@ class SemanticAssociation(ABC):
 
                 parent_C_semantic_annotation = connection_type(
                     parent=new_semantic_annotation_parent,
-                    child=semantic_annotation.body,
+                    child=parent_kinematic_structure_entity,
                     parent_T_connection_expression=new_parent_T_semantic_annotation,
                     multiplier=connection_multiplier,
                     offset=connection_offset,
@@ -347,23 +364,27 @@ class SemanticAssociation(ABC):
                 )
                 world.add_connection(parent_C_semantic_annotation)
 
-    def _add_child_semantic_annotation(
-        self: HasRootBody | Self, semantic_annotation: HasRootBody
+    def _attach_child_entity_in_kinematic_structure(
+        self: HasRootBody | Self,
+        child_kinematic_structure_entity: KinematicStructureEntity,
     ):
-        if semantic_annotation._world != self._world:
+        if child_kinematic_structure_entity._world != self._world:
             raise ValueError("Hinge must be part of the same world as the door.")
 
         world = self._world
-        semantic_annotation_body = semantic_annotation.body
-        self_T_semantic_annotation = self.get_self_T_new_child(semantic_annotation)
+        self_T_semantic_annotation = self.get_self_T_new_child(
+            child_kinematic_structure_entity
+        )
 
         with world.modify_world():
-            parent_C_semantic_annotation = semantic_annotation_body.parent_connection
+            parent_C_semantic_annotation = (
+                child_kinematic_structure_entity.parent_connection
+            )
             world.remove_connection(parent_C_semantic_annotation)
 
             self_C_semantic_annotation = FixedConnection(
                 parent=self.body,
-                child=semantic_annotation_body,
+                child=child_kinematic_structure_entity,
                 parent_T_connection_expression=self_T_semantic_annotation,
             )
             world.add_connection(self_C_semantic_annotation)
@@ -380,21 +401,25 @@ class HasApertures(SemanticAssociation, ABC):
 
         :param body_annotation: The body annotation to cut a hole for.
         """
+        self._remove_aperture_geometry_from_parent(aperture)
+        self._attach_child_entity_in_kinematic_structure(aperture.region)
+        self.apertures.append(aperture)
+
+    def _remove_aperture_geometry_from_parent(
+        self: HasRootBody | Self, aperture: Aperture
+    ):
         hole_event = aperture.region.area.as_bounding_box_collection_in_frame(
             self.body
         ).event
-
         wall_event = self.body.collision.as_bounding_box_collection_in_frame(
             self.body
         ).event
-
         new_wall_event = wall_event - hole_event
         new_bounding_box_collection = BoundingBoxCollection.from_event(
             self.body, new_wall_event
         ).as_shapes()
         self.body.collision = new_bounding_box_collection
         self.body.visual = new_bounding_box_collection
-        self.apertures.append(aperture)
 
 
 @dataclass(eq=False)
@@ -423,8 +448,8 @@ class HasHinge(HasRevoluteConnection, SemanticAssociation, ABC):
         to the parent world.
         :param parent_world: The world to which the door will be added.
         """
-        self._add_parent_semantic_annotation(
-            hinge,
+        self._attach_parent_entity_in_kinematic_structure(
+            hinge.body,
             RevoluteConnection,
             connection_limits,
             rotation_axis,
@@ -460,8 +485,8 @@ class HasSlider(HasPrismaticConnection, SemanticAssociation, ABC):
         to the parent world.
         :param parent_world: The world to which the door will be added.
         """
-        self._add_parent_semantic_annotation(
-            slider,
+        self._attach_parent_entity_in_kinematic_structure(
+            slider.body,
             PrismaticConnection,
             connection_limits,
             translation_axis,
@@ -492,7 +517,7 @@ class HasDrawers(SemanticAssociation, ABC):
         :param parent_world: The world to which the door will be added.
         """
 
-        self._add_child_semantic_annotation(drawer)
+        self._attach_child_entity_in_kinematic_structure(drawer.body)
         self.drawers.append(drawer)
 
 
@@ -517,7 +542,7 @@ class HasDoors(SemanticAssociation, ABC):
         :param parent_world: The world to which the door will be added.
         """
 
-        self._add_child_semantic_annotation(door)
+        self._attach_child_entity_in_kinematic_structure(door.body)
         self.doors.append(door)
 
 
@@ -541,18 +566,14 @@ class HasLeftRightDoor(HasDoors):
     def add_right_door(
         self,
         door: Door,
-        parent: KinematicStructureEntity,
     ):
-        self._add_child_semantic_annotation(door, parent)
-        self.right_door = door
+        raise NotImplementedError()
 
     def add_left_door(
         self,
         door: Door,
-        parent: KinematicStructureEntity,
     ):
-        self._add_child_semantic_annotation(door, parent)
-        self.left_door = door
+        raise NotImplementedError()
 
     @classmethod
     def create_with_left_right_door_in_world(
@@ -594,7 +615,7 @@ class HasHandle(SemanticAssociation, ABC):
         to the parent world.
         :param parent_world: The world to which the handle will be added.
         """
-        self._add_child_semantic_annotation(handle)
+        self._attach_child_entity_in_kinematic_structure(handle.body)
         self.handle = handle
 
 

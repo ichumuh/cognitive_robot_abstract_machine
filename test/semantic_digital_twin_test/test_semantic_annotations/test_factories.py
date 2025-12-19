@@ -408,6 +408,7 @@ class TestFactories(unittest.TestCase):
         wall.add_aperture(aperture)
 
         assert wall.apertures[0] == aperture
+        assert aperture.region.parent_kinematic_structure_entity == wall.body
 
 
 if __name__ == "__main__":
