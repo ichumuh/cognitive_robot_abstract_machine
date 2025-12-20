@@ -1326,6 +1326,11 @@ class MujocoBuilder(MultiSimBuilder):
             )
 
     def _parse_geom(self, geom_props: Dict[str, Any]) -> bool:
+        """
+        Parses the geometry properties for a mesh geom. Adds the mesh to the spec if it doesn't exist.
+        :param geom_props: The geometry properties to parse.
+        :return: True if the mesh was parsed successfully, False otherwise.
+        """
         mesh_entity = geom_props.pop("mesh")
         if isinstance(mesh_entity, TriangleMesh):
             mesh_name = os.path.basename(mesh_entity.file.name)
