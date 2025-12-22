@@ -14,6 +14,7 @@ from typing_extensions import (
     TYPE_CHECKING,
     List,
     TypeVar,
+    Tuple,
 )
 
 import krrood.symbolic_math.symbolic_math as sm
@@ -470,6 +471,184 @@ class MotionStatechartNode(SubclassJSONSerializer):
             case _:
                 raise ValueError(f"Unknown transition kind: {transition.kind}")
 
+    def create_lifecycle_transitions(
+        self,
+    ) -> Tuple[
+        sm.Scalar,
+        sm.Scalar,
+        sm.Scalar,
+        sm.Scalar,
+    ]:
+        """
+        Create the life cycle transitions for this node.
+        :return: A tuple of (not_started_transitions, running_transitions, pause_transitions, ended_transitions)
+        """
+        any_end_condition_true = self._create_any_ancestor_condition_true(
+            TransitionKind.END
+        )
+        any_reset_condition_true = self._create_any_ancestor_condition_true(
+            TransitionKind.RESET
+        )
+
+        not_started_transitions = self._create_not_started_transitions()
+        running_transitions = self._create_running_transitions(
+            any_end_condition_true=any_end_condition_true,
+            any_reset_condition_true=any_reset_condition_true,
+        )
+        pause_transitions = self._create_pause_transitions(
+            any_end_condition_true=any_end_condition_true,
+            any_reset_condition_true=any_reset_condition_true,
+        )
+        ended_transitions = self._create_ended_transitions(
+            any_reset_condition_true=any_reset_condition_true
+        )
+
+        return (
+            not_started_transitions,
+            running_transitions,
+            pause_transitions,
+            ended_transitions,
+        )
+
+    def _create_any_ancestor_condition_true(
+        self,
+        transition_kind: TransitionKind,
+    ) -> sm.Scalar:
+        """
+        Builds a combined condition by OR-ing the 'true' conditions of this node and its ancestors.
+        Traverses from the current node up to the root, combining conditions using trinary OR logic.
+
+        :param transition_kind: Transition type to check (e.g., RESET for reset_condition)
+        :return: Combined condition where True = any ancestor condition is Scalar.const_true()
+        """
+        current_node = self
+        condition = sm.Scalar(
+            current_node.get_condition(transition_kind) == sm.Scalar.const_true()
+        )
+        while current_node.parent_node is not None:
+            current_node = current_node.parent_node
+            cond_expr = sm.Scalar(
+                current_node.get_condition(transition_kind) == sm.Scalar.const_true()
+            )
+            condition = sm.trinary_logic_or(condition, cond_expr)
+        return condition
+
+    def get_condition(self, transition_kind: TransitionKind) -> Scalar:
+        """
+        Get the condition for the given transition kind.
+        :param transition_kind: The kind of transition whose condition to get.
+        :return: The condition for the given transition kind.
+        """
+        match transition_kind:
+            case TransitionKind.START:
+                return self.start_condition
+            case TransitionKind.PAUSE:
+                return self.pause_condition
+            case TransitionKind.END:
+                return self.end_condition
+            case TransitionKind.RESET:
+                return self.reset_condition
+            case _:
+                raise ValueError(f"Unknown transition kind: {transition_kind}")
+
+    def _create_ended_transitions(
+        self, any_reset_condition_true: sm.Scalar
+    ) -> sm.Scalar:
+        """
+        Create the ended transitions of the LifeCycleState for this node.
+        :param any_reset_condition_true: The combined reset condition for this node and its parents. Combined using trinary_logic_or.
+        :return: The LifeCycleState transitions for the DONE state.
+        """
+        return sm.if_else(
+            condition=any_reset_condition_true,
+            if_result=sm.Scalar(LifeCycleValues.NOT_STARTED),
+            else_result=sm.Scalar(LifeCycleValues.DONE),
+        )
+
+    def _create_pause_transitions(
+        self,
+        any_end_condition_true: sm.Scalar,
+        any_reset_condition_true: sm.Scalar,
+    ) -> sm.Scalar:
+        """
+        Create the pause transitions of the LifeCycleState for this node.
+        :param any_end_condition_true: The combined end condition for this node and its parents. Combined using trinary_logic_or.
+        :param any_reset_condition_true: The combined reset condition for this node and its parents. Combined using trinary_logic_or.
+        :return: The LifeCycleState transitions for the PAUSED state.
+        """
+        unpause_condition = sm.Scalar(self.pause_condition != sm.Scalar.const_true())
+        current = self
+        while current.parent_node is not None:
+            parent = current.parent_node
+            unpause_condition = sm.trinary_logic_and(
+                unpause_condition,
+                sm.Scalar(parent.pause_condition != sm.Scalar.const_true()),
+            )
+            current = parent
+
+        return sm.if_cases(
+            cases=[
+                (
+                    any_reset_condition_true,
+                    sm.Scalar(LifeCycleValues.NOT_STARTED),
+                ),
+                (any_end_condition_true, sm.Scalar(LifeCycleValues.DONE)),
+                (
+                    unpause_condition,
+                    sm.Scalar(LifeCycleValues.RUNNING),
+                ),
+            ],
+            else_result=sm.Scalar(LifeCycleValues.PAUSED),
+        )
+
+    def _create_running_transitions(
+        self,
+        any_end_condition_true: sm.Scalar,
+        any_reset_condition_true: sm.Scalar,
+    ) -> sm.Scalar:
+        """
+        Create the running transitions of the LifeCycleState for this node.
+        :param any_end_condition_true: The combined end condition for this node and its parents. Combined using trinary_logic_or.
+        :param any_reset_condition_true: The combined reset condition for this node and its parents. Combined using trinary_logic_or.
+        :return: The LifeCycleState transitions for the RUNNING state.
+        """
+        any_pause_condition = self._create_any_ancestor_condition_true(
+            TransitionKind.PAUSE
+        )
+        return sm.if_cases(
+            cases=[
+                (
+                    any_reset_condition_true,
+                    sm.Scalar(LifeCycleValues.NOT_STARTED),
+                ),
+                (any_end_condition_true, sm.Scalar(LifeCycleValues.DONE)),
+                (any_pause_condition, sm.Scalar(LifeCycleValues.PAUSED)),
+            ],
+            else_result=sm.Scalar(LifeCycleValues.RUNNING),
+        )
+
+    def _create_not_started_transitions(self) -> sm.Scalar:
+        """
+        Create the not started transitions of the LifeCycleState for this node.
+        :return: The LifeCycleState transitions for the NOT_STARTED state.
+        """
+        start_condition = sm.Scalar(self.start_condition == sm.Scalar.const_true())
+        current = self
+        while current.parent_node is not None:
+            parent = current.parent_node
+            start_condition = sm.trinary_logic_and(
+                start_condition,
+                sm.trinary_logic_not(parent.end_condition),
+                sm.Scalar(parent.start_condition == sm.Scalar.const_true()),
+            )
+            current = parent
+
+        return sm.if_else(
+            condition=start_condition,
+            if_result=sm.Scalar(LifeCycleValues.RUNNING),
+            else_result=sm.Scalar(LifeCycleValues.NOT_STARTED),
+        )
+
     @property
     def life_cycle_variable(self) -> LifeCycleVariable:
         """
@@ -722,66 +901,6 @@ class Goal(MotionStatechartNode):
     def add_nodes(self, nodes: List[MotionStatechartNode]) -> None:
         for node in nodes:
             self.add_node(node)
-
-    def _apply_goal_conditions_to_children(self) -> None:
-        """
-        This method is called after expand() to link the conditions of this goal to its children.
-        """
-        for node in self.nodes:
-            self._apply_start_condition_to_node(node)
-            self._apply_pause_condition_to_node(node)
-            self._apply_end_condition_to_node(node)
-            self._apply_reset_condition_to_node(node)
-            if isinstance(node, Goal):
-                node._apply_goal_conditions_to_children()
-
-    def _apply_start_condition_to_node(self, node: MotionStatechartNode) -> None:
-        """
-        Links the start condition of this goal to the start condition of the node.
-        Ensures that the node can only be started when this goal is started.
-        """
-        if node.start_condition.is_const_true():
-            node.start_condition = self.start_condition
-            return
-        node.start_condition = sm.trinary_logic_and(
-            node.start_condition, self.start_condition
-        )
-
-    def _apply_pause_condition_to_node(self, node: MotionStatechartNode) -> None:
-        """
-        Links the pause condition of this goal to the pause condition of the node.
-        Ensures that the node is always paused when the goal is paused.
-        """
-        if node.pause_condition.is_const_false():
-            node.pause_condition = self.pause_condition
-        elif not node.pause_condition.is_const_false():
-            node.pause_condition = sm.trinary_logic_or(
-                node.pause_condition, self.pause_condition
-            )
-
-    def _apply_end_condition_to_node(self, node: MotionStatechartNode) -> None:
-        """
-        Links the end condition of this goal to the end condition of the node.
-        Ensures that the node is automatically ended when the goal is ended.
-        """
-        if node.end_condition.is_const_false():
-            node.end_condition = self.end_condition
-        elif not self.end_condition.is_const_false():
-            node.end_condition = sm.trinary_logic_or(
-                node.end_condition, self.end_condition
-            )
-
-    def _apply_reset_condition_to_node(self, node: MotionStatechartNode):
-        """
-        Links the reset condition of this goal to the reset condition of the node.
-        Ensures that the node is reset, when the goal is reset.
-        """
-        if node.reset_condition.is_const_false():
-            node.reset_condition = self.reset_condition
-        elif not node.pause_condition.is_const_false():
-            node.reset_condition = sm.trinary_logic_or(
-                node.reset_condition, self.reset_condition
-            )
 
 
 @dataclass(eq=False, repr=False)

@@ -71,6 +71,10 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
     TestGoal,
     TestNestedGoal,
     ConstFalseNode,
+    TestRunAfterStop,
+    TestRunAfterStopFromPause,
+    TestEndBeforeStart,
+    TestUnpauseUnknownFromParentPause,
 )
 from giskardpy.qp.constraint import EqualityConstraint
 from giskardpy.qp.constraint_collection import ConstraintCollection
@@ -2398,3 +2402,387 @@ def test_constraint_collection(pr2_world: World):
 
     with pytest.raises(DuplicateNameException):
         col2.merge("", col3)
+
+
+class TestLifeCycleTransitions:
+    """
+    Tests the LifeCycle transitions of nodes in various edge cases and intended behavior.
+    """
+
+    def test_run_after_stop(self):
+        """
+        Test for node to run after the parent node already stopped.
+        """
+        msc = MotionStatechart()
+
+        msc.add_node(
+            sequence := Sequence(
+                [
+                    ConstTrueNode(),
+                    TestRunAfterStop(),
+                    CountTicks(name="delay endmotion", ticks=5),
+                ]
+            )
+        )
+        msc.add_node(EndMotion.when_true(sequence))
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        assert sequence.nodes[1].cancel.life_cycle_state == LifeCycleValues.NOT_STARTED
+        assert sequence.nodes[1].ticking1.life_cycle_state == LifeCycleValues.DONE
+        assert sequence.nodes[1].ticking2.life_cycle_state == LifeCycleValues.DONE
+        assert sequence.nodes[1].life_cycle_state == LifeCycleValues.DONE
+
+    def test_run_after_stop_from_pause(self):
+        """
+        Test for node to run from paused while the parent node already stopped.
+        """
+        msc = MotionStatechart()
+
+        msc.add_node(
+            sequence := Sequence(
+                [
+                    ConstTrueNode(),
+                    TestRunAfterStopFromPause(),
+                    CountTicks(name="delay endmotion", ticks=5),
+                ]
+            )
+        )
+        msc.add_node(EndMotion.when_true(sequence))
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        assert sequence.nodes[1].cancel.life_cycle_state == LifeCycleValues.NOT_STARTED
+        assert sequence.nodes[1].ticking1.life_cycle_state == LifeCycleValues.DONE
+        assert sequence.nodes[1].ticking2.life_cycle_state == LifeCycleValues.DONE
+        assert sequence.nodes[1].ticking3.life_cycle_state == LifeCycleValues.DONE
+        assert sequence.nodes[1].pulse.life_cycle_state == LifeCycleValues.DONE
+        assert sequence.nodes[1].life_cycle_state == LifeCycleValues.DONE
+
+    def test_end_before_start(self):
+        """
+        Test for node to start even if it's end condition is met before start condition.
+        Node3 should start and run for 1 tick before ending, instead of never starting.
+        """
+        msc = MotionStatechart()
+
+        node1 = CountTicks(ticks=1)
+        node2 = ConstTrueNode()
+        node3 = ConstTrueNode()
+
+        msc.add_nodes(nodes=[node1, node2, node3])
+        msc.add_node(EndMotion.when_true(node3))
+
+        node3.start_condition = node1.observation_variable
+        node3.end_condition = node2.observation_variable
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick()
+        kin_sim.tick()
+
+        assert node3.life_cycle_state == LifeCycleValues.RUNNING
+        assert node3.observation_state == ObservationStateValues.UNKNOWN
+
+        kin_sim.tick()
+
+        assert node3.life_cycle_state == LifeCycleValues.DONE
+        assert node3.observation_state == ObservationStateValues.TRUE
+
+    def test_end_before_start_in_template(self):
+        """
+        Test for node to start even if it's end condition is met before start condition,
+        when the nodes are inside a template.
+        """
+        msc = MotionStatechart()
+
+        node = TestEndBeforeStart()
+        msc.add_node(node)
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick()
+        kin_sim.tick()
+
+        assert node.node3.life_cycle_state == LifeCycleValues.RUNNING
+        assert node.node3.observation_state == ObservationStateValues.UNKNOWN
+
+        kin_sim.tick()
+
+        assert node.node3.life_cycle_state == LifeCycleValues.DONE
+        assert node.node3.observation_state == ObservationStateValues.TRUE
+
+    def test_intended_transitions(self):
+        """
+        Test for intended LifeCycle transitions of nodes.
+        """
+        msc = MotionStatechart()
+
+        count_node1 = CountTicks(ticks=1, name="node1")
+        count_node2 = CountTicks(ticks=2, name="node2")
+        end_count_node1 = CountTicks(ticks=11, name="end_node1")
+        pulse_node1 = Pulse(name="pulse1")
+        pulse_node2 = Pulse(name="pulse2")
+
+        msc.add_nodes(
+            nodes=[
+                count_node1,
+                count_node2,
+                end_count_node1,
+                pulse_node1,
+                pulse_node2,
+            ]
+        )
+        msc.add_node(end_node := EndMotion.when_true(end_count_node1))
+
+        pulse_node1.start_condition = count_node1.observation_variable
+        pulse_node2.start_condition = count_node2.observation_variable
+        count_node2.start_condition = pulse_node1.observation_variable
+
+        count_node1.pause_condition = pulse_node1.observation_variable
+
+        count_node1.end_condition = count_node2.observation_variable
+        pulse_node1.end_condition = count_node2.observation_variable
+
+        count_node1.reset_condition = pulse_node2.observation_variable
+        count_node2.reset_condition = pulse_node2.observation_variable
+        pulse_node1.reset_condition = pulse_node2.observation_variable
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        assert len(msc.history) == 14
+        # %% count_node1 history
+        assert msc.history.get_life_cycle_history_of_node(count_node1) == [
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.PAUSED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.DONE,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.PAUSED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.DONE,
+            LifeCycleValues.DONE,
+            LifeCycleValues.DONE,
+        ]
+        assert msc.history.get_observation_history_of_node(count_node1) == [
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+        ]
+
+        # %% count_node2 history
+        assert msc.history.get_life_cycle_history_of_node(count_node2) == [
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+        ]
+        assert msc.history.get_observation_history_of_node(count_node2) == [
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+        ]
+
+        # %% end_count_node1 history
+        assert msc.history.get_life_cycle_history_of_node(end_count_node1) == [
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+        ]
+        assert msc.history.get_observation_history_of_node(end_count_node1) == [
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.TRUE,
+        ]
+
+        # %% end_node history
+        assert msc.history.get_life_cycle_history_of_node(end_node) == [
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+        ]
+        assert msc.history.get_observation_history_of_node(end_node) == [
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.TRUE,
+        ]
+
+        # %% pulse_node1 history
+        assert msc.history.get_life_cycle_history_of_node(pulse_node1) == [
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.DONE,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.DONE,
+            LifeCycleValues.DONE,
+            LifeCycleValues.DONE,
+        ]
+        assert msc.history.get_observation_history_of_node(pulse_node1) == [
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+        ]
+
+        # %% pulse_node2 history
+        assert msc.history.get_life_cycle_history_of_node(pulse_node2) == [
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.NOT_STARTED,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+            LifeCycleValues.RUNNING,
+        ]
+        assert msc.history.get_observation_history_of_node(pulse_node2) == [
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.UNKNOWN,
+            ObservationStateValues.TRUE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+            ObservationStateValues.FALSE,
+        ]
+
+    def test_unpause_unknown_from_parent_pause(self):
+        """
+        Test for child node to unpause when parent node unpauses.
+        Child node pause condition is unknown.
+        """
+
+        msc = MotionStatechart()
+
+        pulse = Pulse()
+        unpause = TestUnpauseUnknownFromParentPause()
+
+        msc.add_nodes(nodes=[pulse, unpause])
+        msc.add_node(EndMotion.when_true(unpause))
+
+        unpause.pause_condition = pulse.observation_variable
+
+        kin_sim = Executor(world=World())
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
+        assert unpause.count_ticks1.life_cycle_state == LifeCycleValues.DONE
+        assert unpause.cancel.life_cycle_state == LifeCycleValues.NOT_STARTED
+
+        assert unpause.count_ticks1.observation_state == ObservationStateValues.TRUE
+        assert unpause.observation_state == ObservationStateValues.TRUE

@@ -114,54 +114,23 @@ class LifeCycleState(State):
     _compiled_updater: sm.CompiledFunction = field(init=False)
 
     def compile(self):
+        """
+        Compiles updater for life cycle states.
+        1. Define state transitions based on current life cycle state and conditions.
+        2. Combine all node state transitions into a single expression and compile it.
+        3. Bind compiled function arguments to memory views of observation and life cycle state data.
+        4. Store the compiled updater for later use in updating life cycle states.
+        """
         state_updater = []
         for node in self.motion_statechart.nodes:
             state_symbol = node.life_cycle_variable
 
-            not_started_transitions = sm.if_else(
-                condition=node.start_condition == sm.Scalar.const_true(),
-                if_result=sm.Scalar(LifeCycleValues.RUNNING),
-                else_result=sm.Scalar(LifeCycleValues.NOT_STARTED),
-            )
-            running_transitions = sm.if_cases(
-                cases=[
-                    (
-                        node.reset_condition == sm.Scalar.const_true(),
-                        sm.Scalar(LifeCycleValues.NOT_STARTED),
-                    ),
-                    (
-                        node.end_condition == sm.Scalar.const_true(),
-                        sm.Scalar(LifeCycleValues.DONE),
-                    ),
-                    (
-                        node.pause_condition == sm.Scalar.const_true(),
-                        sm.Scalar(LifeCycleValues.PAUSED),
-                    ),
-                ],
-                else_result=sm.Scalar(LifeCycleValues.RUNNING),
-            )
-            pause_transitions = sm.if_cases(
-                cases=[
-                    (
-                        node.reset_condition == sm.Scalar.const_true(),
-                        sm.Scalar(LifeCycleValues.NOT_STARTED),
-                    ),
-                    (
-                        node.end_condition == sm.Scalar.const_true(),
-                        sm.Scalar(LifeCycleValues.DONE),
-                    ),
-                    (
-                        node.pause_condition == sm.Scalar.const_false(),
-                        sm.Scalar(LifeCycleValues.RUNNING),
-                    ),
-                ],
-                else_result=sm.Scalar(LifeCycleValues.PAUSED),
-            )
-            ended_transitions = sm.if_else(
-                condition=node.reset_condition == sm.Scalar.const_true(),
-                if_result=sm.Scalar(LifeCycleValues.NOT_STARTED),
-                else_result=sm.Scalar(LifeCycleValues.DONE),
-            )
+            (
+                not_started_transitions,
+                running_transitions,
+                pause_transitions,
+                ended_transitions,
+            ) = node.create_lifecycle_transitions()
 
             state_machine = sm.if_eq_cases(
                 a=state_symbol,
@@ -490,10 +459,6 @@ class MotionStatechart(SubclassJSONSerializer):
             node._observation_expression = artifacts.observation
         node._debug_expressions = artifacts.debug_expressions
 
-    def _apply_goal_conditions_to_their_children(self):
-        for goal in self.get_nodes_by_type(Goal):
-            goal._apply_goal_conditions_to_children()
-
     def compile(self, context: BuildContext):
         """
         Compiles all components of the motion statechart given the provided context.
@@ -503,7 +468,6 @@ class MotionStatechart(SubclassJSONSerializer):
         """
         self.sanity_check()
         self._expand_goals(context=context)
-        self._apply_goal_conditions_to_their_children()
         self._build_nodes(context=context)
         self._add_transitions()
         self.observation_state.compile(context=context)
