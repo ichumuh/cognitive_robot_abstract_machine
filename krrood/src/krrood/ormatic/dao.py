@@ -945,7 +945,7 @@ class DataAccessObject(HasGeneric[T]):
         :param state: The conversion state.
         :return: The final domain object.
         """
-        final_result = domain_object.create_from_dao()
+        final_result = domain_object.to_domain_object()
         # Update memo if AlternativeMapping changed the instance
         state.register(self, final_result)
         return final_result
@@ -1350,14 +1350,14 @@ class AlternativeMapping(HasGeneric[T], abc.ABC):
         elif isinstance(source_object, cls):
             return source_object
         else:
-            result = cls.create_instance(source_object)
+            result = cls.from_domain_object(source_object)
             return result
 
     @classmethod
     @abc.abstractmethod
-    def create_instance(cls, obj: T) -> Self:
+    def from_domain_object(cls, obj: T) -> Self:
         """
-        Create a DAO from the source object.
+        Create this from a domain object.
         Do not create any DAOs here but the target DAO of `T`.
         The rest of the `to_dao` algorithm will process the fields of the created instance.
 
@@ -1367,9 +1367,9 @@ class AlternativeMapping(HasGeneric[T], abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def create_from_dao(self) -> T:
+    def to_domain_object(self) -> T:
         """
-        Create a domain object from the DAO.
+        Create a domain object from this instance.
 
         :return: The constructed domain object.
         """

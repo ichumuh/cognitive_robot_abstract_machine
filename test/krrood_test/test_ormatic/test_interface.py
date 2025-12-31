@@ -496,40 +496,40 @@ def test_to_dao_alternatively_mapped_parent(session, database):
 
 
 def test_callable_alternative_mapping():
-    callable_mapping = FunctionMapping.create_instance(module_level_function)
-    reconstructed = callable_mapping.create_from_dao()
+    callable_mapping = FunctionMapping.from_domain_object(module_level_function)
+    reconstructed = callable_mapping.to_domain_object()
     assert reconstructed() == 1
 
 
 def test_callable_alternative_mapping_instance_method():
-    callable_mapping = FunctionMapping.create_instance(
+    callable_mapping = FunctionMapping.from_domain_object(
         CallableWrapper.custom_instance_method
     )
-    reconstructed = callable_mapping.create_from_dao()
+    reconstructed = callable_mapping.to_domain_object()
     assert reconstructed is CallableWrapper.custom_instance_method
 
 
 def test_callable_alternative_mapping_class_method():
-    callable_mapping = FunctionMapping.create_instance(
+    callable_mapping = FunctionMapping.from_domain_object(
         CallableWrapper.custom_class_method
     )
-    reconstructed = callable_mapping.create_from_dao()
+    reconstructed = callable_mapping.to_domain_object()
     assert reconstructed == CallableWrapper.custom_class_method
 
 
 def test_callable_alternative_mapping_static_method():
-    callable_mapping = FunctionMapping.create_instance(
+    callable_mapping = FunctionMapping.from_domain_object(
         CallableWrapper.custom_static_method
     )
-    reconstructed = callable_mapping.create_from_dao()
+    reconstructed = callable_mapping.to_domain_object()
     assert reconstructed is CallableWrapper.custom_static_method
     assert reconstructed() == 4
 
 
 def test_anonymous_function_mapping():
     func = lambda: 0
-    callable_mapping = FunctionMapping.create_instance(func)
-    reconstructed = callable_mapping.create_from_dao()
+    callable_mapping = FunctionMapping.from_domain_object(func)
+    reconstructed = callable_mapping.to_domain_object()
     with pytest.raises(UncallableFunction):
         reconstructed()
 
