@@ -123,8 +123,8 @@ class MJCFParser:
             self.world.add_semantic_annotation(
                 MujocoGeom(
                     shape=shape,
-                    solimp=mujoco_geom.solimp.tolist(),
-                    solref=mujoco_geom.solref.tolist(),
+                    solver_impedance=mujoco_geom.solimp.tolist(),
+                    solver_reference=mujoco_geom.solref.tolist(),
                 )
             )
             if mujoco_geom.contype != 0 or mujoco_geom.conaffinity != 0:
@@ -141,7 +141,9 @@ class MJCFParser:
         self.world.add_kinematic_structure_entity(body)
         self.world.add_semantic_annotation(
             MujocoBody(
-                body=body, gravcomp=mujoco_body.gravcomp, mocap=mujoco_body.mocap
+                body=body,
+                gravitation_compensation_factor=mujoco_body.gravcomp,
+                motion_capture=mujoco_body.mocap,
             )
         )
         for mujoco_child_body in mujoco_body.bodies:

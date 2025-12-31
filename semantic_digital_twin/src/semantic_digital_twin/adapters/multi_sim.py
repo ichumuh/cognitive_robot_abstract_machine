@@ -843,14 +843,16 @@ class MujocoGeom(SemanticAnnotation):
     The shape which is a MujocoGeom.
     """
 
-    solimp: List[float] = field(default_factory=lambda: [0.9, 0.95, 0.001, 0.5, 2])
+    solver_impedance: List[float] = field(
+        default_factory=lambda: [0.9, 0.95, 0.001, 0.5, 2]
+    )
     """
-    The solimp parameters for the geom. See https://mujoco.readthedocs.io/en/stable/modeling.html#solver-parameters for more details.
+    The solver impedance parameters for the geom. See https://mujoco.readthedocs.io/en/stable/modeling.html#solver-parameters for more details.
     """
 
-    solref: List[float] = field(default_factory=lambda: [0.02, 1.0])
+    solver_reference: List[float] = field(default_factory=lambda: [0.02, 1.0])
     """
-    The solref parameters for the geom. See https://mujoco.readthedocs.io/en/stable/modeling.html#solver-parameters for more details.
+    The solver reference parameters for the geom. See https://mujoco.readthedocs.io/en/stable/modeling.html#solver-parameters for more details.
     """
 
     friction: List[float] = field(default_factory=lambda: [1, 0.005, 0.0001])
@@ -890,7 +892,7 @@ class MujocoBody(SemanticAnnotation):
     The body which is a MujocoBody.
     """
 
-    gravcomp: float = 0.0
+    gravitation_compensation_factor: float = 0.0
     """
     Gravity compensation force, specified as fraction of body weight. 
     This attribute creates an upwards force applied to the body’s center of mass, countering the force of gravity. 
@@ -898,7 +900,7 @@ class MujocoBody(SemanticAnnotation):
     Values greater than 1 will create a net upwards force or buoyancy effect.
     """
 
-    mocap: bool = False
+    motion_capture: bool = False
     """
     If True, the body is treated as a motion capture body.
     """
@@ -1388,8 +1390,8 @@ class MujocoBuilder(MultiSimBuilder):
             assert (
                 len(geom_semantic_annotations) == 1
             ), f"Expected exactly one MujocoGeom for shape {shape}, found {len(geom_semantic_annotations)}."
-            geom_props["solimp"] = geom_semantic_annotations[0].solimp
-            geom_props["solref"] = geom_semantic_annotations[0].solref
+            geom_props["solimp"] = geom_semantic_annotations[0].solver_impedance
+            geom_props["solref"] = geom_semantic_annotations[0].solver_reference
             geom_props["friction"] = geom_semantic_annotations[0].friction
         geom_spec = parent_body_spec.add_geom(**geom_props)
         if geom_spec.type == mujoco.mjtGeom.mjGEOM_BOX and geom_spec.size[2] == 0:
@@ -1581,8 +1583,10 @@ class MujocoBuilder(MultiSimBuilder):
             assert (
                 len(body_semantic_annotations) == 1
             ), f"Expected exactly one MujocoBody for body {body.name.name}, found {len(body_semantic_annotations)}."
-            body_props["gravcomp"] = body_semantic_annotations[0].gravcomp
-            body_props["mocap"] = body_semantic_annotations[0].mocap
+            body_props["gravcomp"] = body_semantic_annotations[
+                0
+            ].gravitation_compensation_factor
+            body_props["mocap"] = body_semantic_annotations[0].motion_capture
         parent_body_name = body.parent_connection.parent.name.name
         parent_body_spec = self._find_entity(
             entity_type=mujoco.mjtObj.mjOBJ_BODY, entity_name=parent_body_name
