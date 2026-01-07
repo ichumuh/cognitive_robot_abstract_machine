@@ -133,7 +133,7 @@ def test_x_axis_units_control_cycles_vs_seconds(monkeypatch):
     assert tuple(ax_main_cycles.get_xlim())[0] == 0.0
 
     # Seconds (with context)
-    context = kin.execution_context
+    context = kin.build_context
     plotter_seconds = HistoryGanttChartPlotter(
         msc, context=context, second_width_in_cm=2.0
     )
@@ -142,7 +142,7 @@ def test_x_axis_units_control_cycles_vs_seconds(monkeypatch):
     assert ax_main_seconds.get_xlabel() == "Time [s]"
     # Upper xlim should equal total_cycles * dt
     total_cycles = msc.history.history[-1].control_cycle
-    expected_span = total_cycles * context.dt
+    expected_span = total_cycles * context.qp_controller_config.control_dt
     assert ax_main_seconds.get_xlim()[1] == pytest.approx(
         expected_span, rel=1e-6, abs=1e-6
     )
