@@ -29,6 +29,9 @@ arm_park = {
     "r_wrist_roll_joint": 0.051,
 }
 
+logger = logging.getLogger("pycram")
+logger.setLevel(logging.DEBUG)
+
 
 def test_reachability_costmap_location(immutable_simple_pr2_world):
     world, robot, context = immutable_simple_pr2_world
@@ -56,7 +59,7 @@ def test_reachability_pose_costmap_location(immutable_simple_pr2_world):
         world.state[world.get_degree_of_freedom_by_name(name).id].position = state
     world.notify_state_change()
     location_desig = CostmapLocation(
-        PoseStamped.from_list([2.2, 3, 1], [0, 0, 0, 1], world.root),
+        PoseStamped.from_list([-2.2, 0, 1], [0, 0, 0, 1], world.root),
         reachable_for=robot_view,
     )
     plan = SequentialPlan(context, NavigateActionDescription(location_desig))
