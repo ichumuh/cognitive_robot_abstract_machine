@@ -1,19 +1,16 @@
-from time import sleep
+import json
 
 from geometry_msgs.msg import WrenchStamped
 
-from giskardpy.executor import Executor
-from giskardpy.motion_statechart.data_types import (
-    LifeCycleValues,
-    ObservationStateValues,
-)
-from giskardpy.motion_statechart.goals.templates import Sequence
+from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
-from giskardpy.motion_statechart.ros2_monitors.force_torque_monitor import (
+from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
 )
+from giskardpy.motion_statechart.ros2_nodes.topic_monitor import PublishOnStart
 from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
+from giskardpy.ros_executor import Ros2Executor
 from semantic_digital_twin.world import World
 
 
@@ -28,40 +25,32 @@ def test_force_impact_node(rclpy_node):
 
     msc = MotionStatechart()
     msc.add_node(
-        node := Sequence(
-            nodes=[
-                ConstTrueNode(),
-                ft_node := ForceImpactMonitor(
-                    _ros2_node=rclpy_node, topic_name=topic_name, threshold=10
+        parallel := Parallel(
+            [
+                ForceImpactMonitor(topic_name=topic_name, threshold=10),
+                Sequence(
+                    nodes=[
+                        ConstTrueNode(),
+                        PublishOnStart(topic_name=topic_name, msg=msg_below),
+                        PublishOnStart(topic_name=topic_name, msg=msg_above),
+                    ]
                 ),
-                ConstTrueNode(),
-                ConstTrueNode(),
             ]
         )
     )
-    msc.add_node(EndMotion.when_true(node))
+    msc.add_node(EndMotion.when_true(parallel))
 
-    kin_sim = Executor(world=World())
-    kin_sim.compile(motion_statechart=msc)
-    kin_sim.tick()
-    assert ft_node.observation_state == ObservationStateValues.UNKNOWN
-    kin_sim.tick()
-    assert ft_node.life_cycle_state == LifeCycleValues.RUNNING
-    # unknown because no message received
-    assert ft_node.observation_state == ObservationStateValues.UNKNOWN
+    json_data = msc.to_json()
+    json_str = json.dumps(json_data)
+    new_json_data = json.loads(json_str)
+    msc_copy = MotionStatechart.from_json(new_json_data)
 
-    publisher.publish(msg_below)
-    for i in range(100):
-        if ft_node.has_msg():
-            break
-        sleep(0.1)
-    else:
-        assert False, "No message received"
-    kin_sim.tick()
-    # false because force is below threshold
-    assert ft_node.observation_state == ObservationStateValues.FALSE
+    kin_sim = Ros2Executor(world=World(), ros_node=rclpy_node)
+    kin_sim.compile(motion_statechart=msc_copy)
 
-    ft_node.clear_msg()
     publisher.publish(msg_above)
+
+    # this should now finish
     kin_sim.tick_until_end()
-    msc.draw("muh.pdf")
+
+    msc_copy.draw("muh.pdf")

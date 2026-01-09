@@ -64,7 +64,7 @@ class JSONSerializableTypeRegistry(metaclass=SingletonMeta):
         distances = {}  # mapping of subclasses to the distance to the clazz
 
         for subclass in recursive_subclasses(ExternalClassJSONSerializer):
-            if subclass.original_class() == clazz:
+            if subclass.matches_generic_type(clazz):
                 return subclass
             else:
                 distance = inheritance_path_length(clazz, subclass.original_class())
@@ -211,6 +211,17 @@ class ExternalClassJSONSerializer(HasGeneric[T], ABC):
         :param kwargs: Additional keyword arguments for instantiation.
         :return: The instantiated class object.
         """
+
+    @classmethod
+    def matches_generic_type(cls, clazz: Type) -> bool:
+        """
+        Determines if the provided class type matches the original class type.
+
+        :param clazz: The class type to compare against the original class type.
+        :return: A boolean value indicating whether the provided class type matches
+                 the original class type.
+        """
+        return cls.original_class() == clazz
 
 
 @dataclass
