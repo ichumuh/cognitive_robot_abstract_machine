@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import itertools
 import os
 import tempfile
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from functools import cached_property, lru_cache
 
@@ -24,6 +26,9 @@ from ..utils import IDGenerator, Direction
 
 if TYPE_CHECKING:
     from .world_entity import KinematicStructureEntity
+
+if TYPE_CHECKING:
+    from ..world import World
 
 id_generator = IDGenerator()
 
@@ -232,6 +237,26 @@ class Shape(ABC, SubclassJSONSerializer):
             return False
 
         return True
+
+    def copy_for_world(self, world: World) -> Self:
+        """
+        Copies this shape with references to the given world.
+        :param world: The world to copy to.
+        :return: A copy of this shape with references to the given world.
+        """
+        new_origin = HomogeneousTransformationMatrix(
+            self.origin.to_np(),
+            reference_frame=world.get_kinematic_structure_entity_by_name(
+                self.origin.reference_frame.name
+            ),
+        )
+        shape_props = fields(self)
+        new_props = {
+            f.name: deepcopy(getattr(self, f.name))
+            for f in shape_props
+            if f.name not in ["origin"]
+        }
+        return self.__class__(origin=new_origin, **new_props)
 
 
 @dataclass(eq=False)

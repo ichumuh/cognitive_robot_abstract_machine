@@ -56,10 +56,17 @@ class MotionExecutor:
         # If there are no motions to construct an msc, return
         if len(self.motions) == 0:
             return
-        if ProcessModuleManager.execution_type == ExecutionType.SIMULATED:
-            self._execute_for_simulation()
-        elif ProcessModuleManager.execution_type == ExecutionType.REAL:
-            self._execute_for_real()
+        match ProcessModuleManager.execution_type:
+            case ExecutionType.SIMULATED:
+                self._execute_for_simulation()
+            case ExecutionType.REAL:
+                self._execute_for_real()
+            case ExecutionType.NO_EXECUTION:
+                return
+            case _:
+                logger.error(
+                    f"Unknown execution type: {ProcessModuleManager.execution_type}"
+                )
 
     def _execute_for_simulation(self):
         """
@@ -77,9 +84,15 @@ class MotionExecutor:
             executor.tick_until_end(timeout=2000)
         except TimeoutError as e:
             failed_nodes = [
-                node if node.life_cycle_state != LifeCycleValues.DONE else None
+                (
+                    node
+                    if node.life_cycle_state
+                    not in [LifeCycleValues.DONE, LifeCycleValues.NOT_STARTED]
+                    else None
+                )
                 for node in self.motion_state_chart.nodes
             ]
+            failed_nodes = list(filter(None, failed_nodes))
             logger.error(f"Failed Nodes: {failed_nodes}")
             raise e
 

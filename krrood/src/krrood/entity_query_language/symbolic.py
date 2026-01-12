@@ -64,6 +64,7 @@ from .utils import (
     make_list,
     make_set,
     T,
+    chain_stages,
 )
 from ..class_diagrams import ClassRelation
 from ..class_diagrams.class_diagram import Association, WrappedClass
@@ -964,6 +965,11 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
             results_gen: Iterable[Dict[int, Any]],
         ) -> Iterable[Dict[int, Any]]:
             for res in results_gen:
+                for i, id_ in enumerate(on_ids):
+                    if id_ in res:
+                        continue
+                    var_value = on[i]._evaluate__(copy(res), parent=self)
+                    res[id_] = next(var_value).value
                 bindings = (
                     res if not on else {k: v for k, v in res.items() if k in on_ids}
                 )
@@ -1078,12 +1084,16 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         :param sources: The current bindings.
         :return: An Iterable of OperationResults for each combination of values.
         """
-        var_val_gen = {
-            var: var._evaluate__(copy(sources), parent=self)
+        var_val_gen = [
+            (
+                lambda bindings, var=var: (
+                    v.bindings for v in var._evaluate__(copy(bindings), parent=self)
+                )
+            )
             for var in self._selected_variables
-        }
-        for sol in generate_combinations(var_val_gen):
-            yield {var._id_: sol[var][var._id_] for var in self._selected_variables}
+        ]
+
+        yield from chain_stages(var_val_gen, sources)
 
     def _apply_results_mapping(
         self, results: Iterable[Dict[int, Any]]
@@ -1390,10 +1400,14 @@ class Literal(Variable[T]):
     """
 
     def __init__(
-        self, data: Any, name: Optional[str] = None, type_: Optional[Type] = None
+        self,
+        data: Any,
+        name: Optional[str] = None,
+        type_: Optional[Type] = None,
+        wrap_in_iterator: bool = True,
     ):
         original_data = data
-        if not isinstance(data, CanBehaveLikeAVariable):
+        if wrap_in_iterator:
             data = [data]
         if not type_:
             original_data_lst = make_list(original_data)
