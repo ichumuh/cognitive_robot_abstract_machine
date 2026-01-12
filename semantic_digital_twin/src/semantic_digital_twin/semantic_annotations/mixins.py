@@ -16,6 +16,7 @@ from typing_extensions import (
     Self,
     Iterable,
     Type,
+    assert_never,
 )
 
 from krrood.ormatic.utils import classproperty
@@ -33,7 +34,7 @@ from ..world_description.connections import (
 )
 from ..world_description.degree_of_freedom import DegreeOfFreedomLimits, DegreeOfFreedom
 from ..world_description.geometry import Scale
-from ..world_description.shape_collection import BoundingBoxCollection
+from ..world_description.shape_collection import BoundingBoxCollection, ShapeCollection
 from ..world_description.world_entity import (
     SemanticAnnotation,
     Body,
@@ -137,7 +138,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
                     parent_T_connection_expression=world_root_T_self,
                 )
             else:
-                raise ValueError(f"Invalid connection type: {connection_type}")
+                assert_never(connection_type)
             world.add_connection(world_root_C_self)
 
         return self_instance
@@ -156,9 +157,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
             lower_limits.position = -2 * np.pi
             upper_limits.position = 2 * np.pi
         else:
-            raise ValueError(
-                f"Invalid active connection type: {active_connection_type}"
-            )
+            assert_never(active_connection_type)
 
         return DegreeOfFreedomLimits(lower_limit=lower_limits, upper_limit=upper_limits)
 
@@ -367,7 +366,7 @@ class HasApertures(HasRootBody, ABC):
 
 
 @dataclass(eq=False)
-class HasHinge(HasRootKinematicStructureEntity, ABC):
+class HasHinge(HasRootBody, ABC):
     """
     A mixin class for semantic annotations that have hinge joints.
     """
@@ -485,7 +484,7 @@ class HasLeftRightDoor(HasDoors):
 
 
 @dataclass(eq=False)
-class HasHandle(HasRootKinematicStructureEntity, ABC):
+class HasHandle(HasRootBody, ABC):
 
     handle: Optional[Handle] = None
     """

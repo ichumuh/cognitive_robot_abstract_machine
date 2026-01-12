@@ -19,7 +19,6 @@ from .mixins import (
     HasHandle,
     HasCaseAsRootBody,
     HasHinge,
-    HasLeftRightDoor,
     HasSlider,
     HasApertures,
     IsPerceivable,
@@ -49,7 +48,7 @@ from ..world_description.world_entity import (
 
 
 @dataclass(eq=False)
-class Furniture(HasCaseAsRootBody, ABC): ...
+class Furniture(ABC): ...
 
 
 @dataclass(eq=False)
@@ -206,7 +205,7 @@ class Slider(HasRootBody):
 
 
 @dataclass(eq=False)
-class Door(HasRootBody, HasHandle, HasHinge):
+class Door(HasHandle, HasHinge):
     """
     A door is a physical entity that has covers an opening, has a movable body and a handle.
     """
@@ -251,7 +250,7 @@ class DoubleDoor(SemanticAnnotation):
 
 
 @dataclass(eq=False)
-class Drawer(Furniture, HasHandle, HasSlider):
+class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider):
 
     @property
     def opening_direction(self) -> Direction:
@@ -269,31 +268,22 @@ class Table(Furniture, HasSupportingSurface):
 
 
 @dataclass(eq=False)
-class Cabinet(Furniture, HasDrawers, HasDoors):
+class Cabinet(Furniture, HasCaseAsRootBody):
     @property
     def opening_direction(self) -> Direction:
         return Direction.NEGATIVE_X
 
 
 @dataclass(eq=False)
-class Dresser(Furniture, HasDrawers, HasDoors):
-    @property
-    def opening_direction(self) -> Direction:
-        return Direction.NEGATIVE_X
+class Dresser(Cabinet, HasDrawers, HasDoors): ...
 
 
 @dataclass(eq=False)
-class Cupboard(Furniture, HasDoors):
-    @property
-    def opening_direction(self) -> Direction:
-        return Direction.NEGATIVE_X
+class Cupboard(Cabinet, HasDoors): ...
 
 
 @dataclass(eq=False)
-class Wardrobe(Furniture, HasDrawers, HasDoors):
-    @property
-    def opening_direction(self) -> Direction:
-        return Direction.NEGATIVE_X
+class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
 
 
 @dataclass(eq=False)
@@ -319,17 +309,20 @@ class Floor(HasSupportingSurface):
         :param scale: The scale defining the floor polytope.
         """
         polytope = scale.to_bounding_box().get_points()
-        self = cls.create_with_new_body_from_polytope(
-            name=name, floor_polytope=polytope
+        return cls.create_with_new_body_from_polytope_in_world(
+            name=name,
+            floor_polytope=polytope,
+            world=world,
+            world_root_T_self=world_root_T_self,
         )
-        self._create_with_connection_in_world(
-            cls._parent_connection_type, name, world, self.root, world_root_T_self
-        )
-        return self
 
     @classmethod
-    def create_with_new_body_from_polytope(
-        cls, name: PrefixedName, floor_polytope: List[Point3]
+    def create_with_new_body_from_polytope_in_world(
+        cls,
+        name: PrefixedName,
+        world: World,
+        floor_polytope: List[Point3],
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Self:
         """
         Create a Floor semantic annotation with a new body defined by the given list of Point3.
@@ -338,7 +331,11 @@ class Floor(HasSupportingSurface):
         :param floor_polytope: A list of 3D points defining the floor poly
         """
         room_body = Body.from_3d_points(name=name, points_3d=floor_polytope)
-        return cls(root=room_body)
+        self = cls(root=room_body)
+        self._create_with_connection_in_world(
+            cls._parent_connection_type, name, world, self.root, world_root_T_self
+        )
+        return self
 
 
 @dataclass(eq=False)
