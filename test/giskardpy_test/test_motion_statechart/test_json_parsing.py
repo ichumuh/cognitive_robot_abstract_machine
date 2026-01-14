@@ -389,3 +389,31 @@ def test_unreachable_cart_goal(pr2_world_setup):
     kin_sim.compile(motion_statechart=msc_copy)
 
     kin_sim.tick_until_end()
+
+
+def test_duplicate_condition():
+    """
+    Tests if two condition with the same name and type will be preserved.
+    """
+    msc = MotionStatechart()
+    msc.add_nodes(
+        [
+            node1 := ConstTrueNode(),
+            node2 := ConstTrueNode(),
+            node3 := ConstTrueNode(),
+            end := EndMotion(),
+        ]
+    )
+    node2.start_condition = node1.observation_variable
+    node3.start_condition = node1.observation_variable
+    end.start_condition = trinary_logic_and(
+        node2.observation_variable, node3.observation_variable
+    )
+
+    json_data = msc.to_json()
+    json_str = json.dumps(json_data)
+    new_json_data = json.loads(json_str)
+
+    msc_copy = MotionStatechart.from_json(new_json_data)
+    msc_copy._add_transitions()
+    assert len(msc_copy.unique_edges) == 3
