@@ -2,17 +2,29 @@ import time
 from dataclasses import field, dataclass
 from typing import Optional, Callable
 
-from giskardpy.motion_statechart.context import ExecutionContext
-from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from ..context import ExecutionContext, BuildContext
+from ..data_types import ObservationStateValues
+from ..graph_node import MotionStatechartNode, NodeArtifacts
 
 
 @dataclass
 class CheckMaxTrajectoryLength(MotionStatechartNode):
-    length: float
+    length: int
 
-    def __post_init__(self):
-        self.observation_expression = context.time_symbol > self.length
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        artifacts.observation = context.control_cycle_variable > self.length
+        return artifacts
+
+
+@dataclass(eq=False, repr=False)
+class CheckControlCycleCount(MotionStatechartNode):
+    threshold: int = field(kw_only=True)
+
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        artifacts.observation = context.control_cycle_variable > self.threshold
+        return artifacts
 
 
 @dataclass(eq=False, repr=False)
@@ -85,13 +97,16 @@ class Pulse(MotionStatechartNode):
     Will stay True for a single tick, then turn False.
     """
 
-    _triggered: bool = field(default=False, init=False)
+    _counter: int = field(default=0, init=False)
+    length: int = field(default=1, kw_only=True)
+    """Number of ticks to stay True. Default: 1."""
+
+    def on_start(self, context: ExecutionContext):
+        self._counter = 0
 
     def on_tick(self, context: ExecutionContext) -> Optional[ObservationStateValues]:
-        if not self._triggered:
+        if self._counter < self.length:
             self._triggered = True
+            self._counter += 1
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
-
-    def on_reset(self, context: ExecutionContext):
-        self._triggered = False

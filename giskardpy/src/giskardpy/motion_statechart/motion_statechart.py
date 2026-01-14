@@ -595,7 +595,7 @@ class MotionStatechart(SubclassJSONSerializer):
     def plot_gantt_chart(
         self,
         path: str = "./ganttchart.pdf",
-        context: ExecutionContext = None,
+        context: BuildContext = None,
         second_length_in_cm: float = 2.0,
     ):
         HistoryGanttChartPlotter(
