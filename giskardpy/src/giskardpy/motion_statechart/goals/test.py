@@ -3,8 +3,11 @@ from __future__ import division
 from dataclasses import dataclass, field
 
 import krrood.symbolic_math.symbolic_math as sm
+from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
+from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.graph_node import Goal, CancelMotion
+from giskardpy.motion_statechart.goals.templates import Sequence
+from giskardpy.motion_statechart.graph_node import Goal, CancelMotion, NodeArtifacts
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
@@ -70,7 +73,7 @@ class GraspSequence(Goal):
         self.observation_expression = lift.observation_state_symbol
 
 
-@dataclass
+@dataclass(eq=True, repr=False)
 class Cutting(Goal):
     tip_link: Body = field(kw_only=True)
     root_link: Body = field(kw_only=True)
@@ -79,7 +82,8 @@ class Cutting(Goal):
     max_velocity: float = 100
     weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
-    def __post_init__(self):
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
         schnibble_down_pose = context.world.compute_forward_kinematics(
             root=self.tip_link, tip=self.tip_link
         )
@@ -89,19 +93,19 @@ class Cutting(Goal):
             name=f"{self.name}/Down",
             goal_pose=schnibble_down_pose,
             tip_link=self.tip_link,
-            absolute=False,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
         )
-        self.add_task(cut_down)
+        self.add_node(cut_down)
 
         made_contact = ConstTrueNode(name=f"{self.name}/Made Contact?")
-        self.add_monitor(made_contact)
+        self.add_node(made_contact)
         made_contact.start_condition = cut_down
         made_contact.end_condition = made_contact
 
         cancel = CancelMotion(
             name=f"{self.name}/CancelMotion", exception=Exception("no contact")
         )
-        self.add_monitor(cancel)
+        self.add_node(cancel)
         cancel.start_condition = f"not {made_contact.name}"
 
         schnibble_up_pose = context.world.compute_forward_kinematics(
@@ -113,9 +117,9 @@ class Cutting(Goal):
             name=f"{self.name}/Up",
             goal_pose=schnibble_up_pose,
             tip_link=self.tip_link,
-            absolute=False,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
         )
-        self.add_task(cut_up)
+        self.add_node(cut_up)
 
         schnibble_right_pose = context.world.compute_forward_kinematics(
             root=self.tip_link, tip=self.tip_link
@@ -126,13 +130,14 @@ class Cutting(Goal):
             name=f"{self.name}/Move Right",
             goal_pose=schnibble_right_pose,
             tip_link=self.tip_link,
-            absolute=False,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
         )
-        self.add_task(move_right)
+        self.add_node(move_right)
 
-        self.arrange_in_sequence([cut_down, cut_up, move_right])
-        self.observation_expression = sm.if_else(
-            move_right.observation_state_symbol == sm.TrinaryTrue,
-            sm.TrinaryTrue,
-            sm.TrinaryFalse,
+        self.add_node(Sequence([cut_down, cut_up, move_right]))
+        artifacts.observation = sm.if_else(
+            move_right.observation_variable == sm.Scalar.const_true(),
+            sm.Scalar.const_true(),
+            sm.Scalar.const_false(),
         )
+        return artifacts
