@@ -451,11 +451,11 @@ class Wall(HasApertures):
 
     @property
     def doors(self) -> Iterable[Door]:
-        door = variable(Door, self._world.semantic_annotations)
-        query = an(
-            entity(door).where(InsideOf(self.root, door.entry_way.region)() > 0.1)
-        )
-        return query.evaluate()
+        return [
+            door
+            for door in self._world.get_semantic_annotations_by_type(Door)
+            if door.entry_way and InsideOf(door.entry_way.root, self.root)() > 0.1
+        ]
 
     @classmethod
     def _create_wall_event(cls, scale: Scale) -> SimpleEvent:

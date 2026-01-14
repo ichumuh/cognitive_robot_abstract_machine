@@ -1,12 +1,20 @@
 import unittest
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import InvalidPlaneDimensions, InvalidAxisError
-from semantic_digital_twin.semantic_annotations.mixins import HasCaseAsRootBody
-
+from semantic_digital_twin.exceptions import (
+    InvalidPlaneDimensions,
+    InvalidAxisError,
+    InvalidConnectionLimits,
+    MissingSemanticAnnotationError,
+)
+from semantic_digital_twin.semantic_annotations.mixins import (
+    HasCaseAsRootBody,
+    HasLeftRightDoor,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Door,
@@ -17,8 +25,15 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Slider,
     Floor,
     Aperture,
+    Table,
+    Cup,
 )
-from semantic_digital_twin.spatial_types import Vector3, HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import (
+    Vector3,
+    HomogeneousTransformationMatrix,
+    Point3,
+)
+from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
@@ -26,8 +41,14 @@ from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
 from semantic_digital_twin.world_description.geometry import Scale, Box
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.shape_collection import (
+    ShapeCollection,
+    BoundingBoxCollection,
+)
+from semantic_digital_twin.world_description.world_entity import Body, Region
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedomLimits,
+)
 
 
 class TestFactories(unittest.TestCase):
@@ -368,9 +389,8 @@ class TestFactories(unittest.TestCase):
 
     def test_calculate_world_T_hinge_no_handle(self):
         world, door = self._setup_door()
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(MissingSemanticAnnotationError):
             door.calculate_world_T_hinge_based_on_handle(Vector3.Z())
-        self.assertEqual(str(cm.exception), "Door has no handle.")
 
     def test_calculate_world_T_hinge_vertical(self):
         world, door = self._setup_door()
@@ -440,17 +460,239 @@ class TestFactories(unittest.TestCase):
         with self.assertRaises(InvalidAxisError):
             door.calculate_world_T_hinge_based_on_handle(Vector3.X())
 
-    def test_calculate_world_T_hinge_multiple_collisions(self):
-        world, door = self._setup_door()
-        handle = Handle.create_with_new_body_in_world(
-            name=PrefixedName("handle"),
-            world=world,
+    def test_calculate_supporting_surface(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        table = Table.create_with_new_body_in_world(
+            name=PrefixedName("table"), world=world
         )
-        door.add_handle(handle)
-        door.root.collision = ShapeCollection([Box(), Box()], reference_frame=door.root)
-        with self.assertRaises(ValueError) as cm:
-            door.calculate_world_T_hinge_based_on_handle(Vector3.Z())
-        self.assertEqual(str(cm.exception), "Door has more than one collision shape.")
+        table_scale = Scale(1.0, 1.0, 0.1)
+        table.root.collision = BoundingBoxCollection.from_event(
+            table.root, table_scale.to_simple_event().as_composite_set()
+        ).as_shapes()
+        table.root.visual = table.root.collision
+
+        surface = table.calculate_supporting_surface()
+
+        self.assertIsNotNone(surface)
+        self.assertEqual(len(world.regions), 1)
+        self.assertEqual(table.supporting_surface, surface)
+        self.assertTrue(len(surface.area.combined_mesh.vertices) > 0)
+
+    def test_points_on_surface(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        table = Table.create_with_new_body_in_world(
+            name=PrefixedName("table"), world=world
+        )
+        table_scale = Scale(1.0, 1.0, 0.1)
+        table.root.collision = BoundingBoxCollection.from_event(
+            table.root, table_scale.to_simple_event().as_composite_set()
+        ).as_shapes()
+
+        points = table.points_on_surface(amount=10)
+        self.assertEqual(len(points), 10)
+        for p in points:
+            self.assertEqual(p.reference_frame, table.root)
+            self.assertAlmostEqual(float(p.z), 0.05 + 0.01)
+
+    def test_has_left_right_door(self):
+        @dataclass(eq=False)
+        class DummyDoubleDoor(HasLeftRightDoor):
+            pass
+
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        double_door = DummyDoubleDoor(
+            name=PrefixedName("double_door"),
+            root=Body(name=PrefixedName("double_door_body")),
+        )
+        with world.modify_world():
+            world.add_body(double_door.root)
+            world.add_semantic_annotation(double_door)
+            world.add_connection(FixedConnection(root, double_door.root))
+
+        left_door = Door.create_with_new_body_in_world(
+            name=PrefixedName("left"), world=world
+        )
+        right_door = Door.create_with_new_body_in_world(
+            name=PrefixedName("right"), world=world
+        )
+
+        double_door.add_left_door(left_door)
+        double_door.add_right_door(right_door)
+
+        self.assertEqual(double_door.left_door, left_door)
+        self.assertEqual(double_door.right_door, right_door)
+        self.assertIn(left_door, double_door.doors)
+        self.assertIn(right_door, double_door.doors)
+
+    def test_floor_polytope(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+
+        points = [
+            Point3(0, 0, 0, reference_frame=root),
+            Point3(1, 0, 0, reference_frame=root),
+            Point3(1, 1, 0, reference_frame=root),
+            Point3(0, 1, 0, reference_frame=root),
+        ]
+        floor = Floor.create_with_new_body_from_polytope_in_world(
+            name=PrefixedName("floor"), world=world, floor_polytope=points
+        )
+        self.assertEqual(len(world.get_semantic_annotations_by_type(Floor)), 1)
+        self.assertTrue(len(floor.root.collision) > 0)
+
+    def test_wall_doors(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+
+        wall = Wall.create_with_new_body_in_world(
+            name=PrefixedName("wall"), scale=Scale(0.1, 4, 2), world=world
+        )
+
+        door_scale = Scale(0.01, 1, 1)
+        door = Door.create_with_new_body_in_world(
+            name=PrefixedName("door"), scale=door_scale, world=world
+        )
+
+        door2 = Door.create_with_new_body_in_world(
+            name=PrefixedName("door2"),
+            scale=door_scale,
+            world=world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=2),
+        )
+
+        doors = list(wall.doors)
+        self.assertIn(door, doors)
+        self.assertNotIn(door2, doors)
+
+    def test_kinematic_helpers(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+
+        mid = Body(name=PrefixedName("mid"))
+        with world.modify_world():
+            world.add_body(mid)
+            world.add_connection(
+                FixedConnection(
+                    root,
+                    mid,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=1
+                    ),
+                )
+            )
+
+        child = Body(name=PrefixedName("child"))
+        with world.modify_world():
+            world.add_body(child)
+            world.add_connection(
+                FixedConnection(
+                    mid,
+                    child,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=1
+                    ),
+                )
+            )
+
+        slider = Slider(name=PrefixedName("slider"), root=child)
+        with world.modify_world():
+            world.add_semantic_annotation(slider)
+
+        parent_T_self = slider.get_new_parent_T_self(root)
+        self.assertAlmostEqual(parent_T_self[0, 3], 2.0)
+
+        self_T_child = slider.get_self_T_new_child(root)
+        self.assertAlmostEqual(self_T_child[0, 3], -2.0)
+
+        self.assertEqual(slider.get_new_grandparent(mid), root)
+
+    def test_handle_with_thickness(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        handle = Handle.create_with_new_body_in_world(
+            name=PrefixedName("handle"), world=world, thickness=0.005
+        )
+        self.assertTrue(len(handle.root.collision) > 1)
+
+    def test_add_aperture_geometry(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        wall = Wall.create_with_new_body_in_world(
+            name=PrefixedName("wall"), scale=Scale(0.01, 4, 2), world=world
+        )
+        initial_shapes_count = len(wall.root.collision)
+
+        aperture = Aperture.create_with_new_region_in_world(
+            name=PrefixedName("aperture"), scale=Scale(0.1, 1, 1), world=world
+        )
+
+        wall.add_aperture(aperture)
+        self.assertIn(aperture, wall.apertures)
+        self.assertTrue(len(wall.root.collision) > initial_shapes_count)
+
+    def test_create_with_connection_limits(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        lower = DerivativeMap[float]()
+        lower.position = -0.5
+        upper = DerivativeMap[float]()
+        upper.position = 0.5
+        limits = DegreeOfFreedomLimits(lower_limit=lower, upper_limit=upper)
+
+        Hinge.create_with_new_body_in_world(
+            name=PrefixedName("hinge"), world=world, connection_limits=limits
+        )
+
+        dof = world.degrees_of_freedom[0]
+        self.assertEqual(dof.lower_limits.position, -0.5)
+        self.assertEqual(dof.upper_limits.position, 0.5)
+
+
+    def test_create_with_invalid_connection_limits(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        lower = DerivativeMap[float]()
+        lower.position = 0.5
+        upper = DerivativeMap[float]()
+        upper.position = -0.5
+        limits = DegreeOfFreedomLimits(lower_limit=lower, upper_limit=upper)
+
+        with self.assertRaises(InvalidConnectionLimits):
+            Hinge.create_with_new_body_in_world(
+                name=PrefixedName("hinge"), world=world, connection_limits=limits
+            )
+
+    def test_perceivable_cup(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        cup = Cup.create_with_new_body_in_world(name=PrefixedName("cup"), world=world)
+        cup.class_label = "plastic_cup"
+        self.assertEqual(cup.class_label, "plastic_cup")
 
 
 if __name__ == "__main__":
