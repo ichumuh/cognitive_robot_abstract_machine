@@ -20,6 +20,7 @@ from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
+from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.utils import rclpy_installed, tracy_installed
@@ -171,21 +172,10 @@ def tracy_world():
         "urdf",
     )
     tracy = os.path.join(urdf_dir, "tracy.urdf")
-    world = World()
-    with world.modify_world():
-        localization_body = Body(name=PrefixedName("odom_combined"))
-        world.add_kinematic_structure_entity(localization_body)
-
-        tracy_parser = URDFParser.from_file(file_path=tracy)
-        world_with_tracy = tracy_parser.parse()
-        # world_with_tracy.plot_kinematic_structure()
-        tracy_root = world_with_tracy.root
-        c_root_bf = Connection6DoF.create_with_dofs(
-            parent=localization_body, child=tracy_root, world=world
-        )
-        world.merge_world(world_with_tracy, c_root_bf)
-
-    return world
+    tracy_parser = URDFParser.from_file(file_path=tracy)
+    world_with_tracy = tracy_parser.parse()
+    Tracy.from_world(world_with_tracy)
+    return world_with_tracy
 
 
 @pytest.fixture(scope="session")

@@ -5,130 +5,192 @@ from typing import Optional
 
 import numpy as np
 
-import krrood.symbolic_math.symbolic_math as sm
-from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.graph_node import Goal
-from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import Body
+from test.krrood_test.test_eql.factories.world import last_world_id
+from .templates import Sequence, Parallel
+from ..context import BuildContext
+from ..data_types import DefaultWeights
+from ..graph_node import Goal, NodeArtifacts
+from ..graph_node import Task
+from ..tasks.align_planes import AlignPlanes
+from ..tasks.cartesian_tasks import CartesianPosition
+from ..tasks.feature_functions import AngleGoal
+from ..test_nodes.test_nodes import ConstTrueNode
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class InsertCylinder(Goal):
-    cylinder_name: Body = field(kw_only=True)
+    cylinder: Body = field(kw_only=True)
     hole_point: Point3 = field(kw_only=True)
     cylinder_height: Optional[float] = None
     up: Optional[Vector3] = None
     pre_grasp_height: float = 0.1
     tilt: float = np.pi / 10
     get_straight_after: float = 0.02
+    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
 
-    def __post_init__(self):
-        self.root = context.world.root
-        self.tip = self.cylinder_name
-        if self.cylinder_height is None:
-            self.cylinder_height = context.world.links[self.tip].collisions[0].height
-        else:
-            self.cylinder_height = self.cylinder_height
-        self.root_P_hole = context.world.transform(
-            target_frame=self.root, spatial_object=self.hole_point
-        )
+    def expand(self, context: BuildContext) -> None:
+        root = context.world.root
+        self.cylinder_height = self.cylinder.collision[0].height
         if self.up is None:
-            self.up = Vector3.Z()
-            self.up.reference_frame = self.root
-        self.root_V_up = context.world.transform(
-            target_frame=self.root, spatial_object=self.up
+            self.up = Vector3.Z(reference_frame=root)
+
+        root_P_hole = context.world.transform(
+            target_frame=root, spatial_object=self.hole_point
         )
-
-        self.weight = DefaultWeights.WEIGHT_ABOVE_CA
-
-        root_P_hole = self.root_P_hole
-        root_V_up = self.root_V_up
-        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
-            self.root, self.tip
-        )
-        root_P_tip = root_T_tip.to_position()
-        tip_P_cylinder_bottom = Vector3.Z() * self.cylinder_height / 2
-        root_P_cylinder_bottom = root_T_tip @ tip_P_cylinder_bottom
-        root_P_tip = root_P_tip + root_P_cylinder_bottom
-        root_V_cylinder_z = root_T_tip @ -Vector3.Z()
-
-        # %% straight line goal
+        root_V_up = context.world.transform(target_frame=root, spatial_object=self.up)
         root_P_top = root_P_hole + root_V_up * self.pre_grasp_height
-        distance_to_top = root_P_tip.euclidean_distance(root_P_top)
 
-        distance_to_line, root_P_on_line = root_P_tip.distance_to_line_segment(
-            root_P_hole, root_P_top
+        root_T_tip = context.world._forward_kinematic_manager.compose_expression(
+            root, self.cylinder
         )
-        distance_to_hole = (root_P_hole - root_P_tip).norm()
+        # root_P_tip = root_T_tip.to_position()
+        # tip_P_cylinder_bottom = Vector3.Z() * self.cylinder_height / 2
+        # root_P_cylinder_bottom = root_T_tip @ tip_P_cylinder_bottom
+        # root_P_tip = root_P_tip + root_P_cylinder_bottom
+        tip_V_cylinder_z = -Vector3.Z(reference_frame=self.cylinder)
+        root_P_cylinder_bottom = Point3(
+            0, 0, -self.cylinder_height / 2, reference_frame=self.cylinder
+        )
 
-        reach_top = Task(name="Reach Top")
-        self.add_task(reach_top)
-        reach_top.add_point_goal_constraints(
-            frame_P_current=root_P_tip,
-            frame_P_goal=root_P_top,
+        self.add_node(
+            main_node := Parallel(
+                [
+                    Sequence(
+                        [
+                            Parallel(
+                                [
+                                    Sequence(
+                                        [
+                                            MovePointToPoint(
+                                                name="Reach Top",
+                                                root_link=root,
+                                                tip_link=self.cylinder,
+                                                target_point=root_P_top,
+                                                controlled_point=root_P_cylinder_bottom,
+                                            ),
+                                            MovePointToPoint(
+                                                name="Reach Bottom",
+                                                root_link=root,
+                                                tip_link=self.cylinder,
+                                                target_point=root_P_hole,
+                                                controlled_point=root_P_cylinder_bottom,
+                                            ),
+                                        ]
+                                    ),
+                                    AngleGoal(
+                                        name="Slightly Tilted",
+                                        root_link=root,
+                                        tip_link=self.cylinder,
+                                        reference_vector=root_V_up,
+                                        tip_vector=tip_V_cylinder_z,
+                                        lower_angle=self.tilt - 0.01,
+                                        upper_angle=self.tilt + 0.01,
+                                        weight=self.weight,
+                                    ),
+                                ]
+                            ),
+                            AlignPlanes(
+                                name="Tilt Straight",
+                                root_link=root,
+                                tip_link=self.cylinder,
+                                goal_normal=root_V_up,
+                                tip_normal=tip_V_cylinder_z,
+                                weight=self.weight,
+                            ),
+                        ]
+                    ),
+                    MinimizeDistanceToLine(
+                        name="Stay on Straight Line",
+                        root=root,
+                        tip=self.cylinder,
+                        controlled_point=root_P_cylinder_bottom,
+                        line_start=root_P_hole,
+                        line_end=root_P_top,
+                        weight=self.weight,
+                    ),
+                ]
+            )
+        )
+
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        artifacts.observation = self.nodes[0].observation_variable
+        return artifacts
+
+
+@dataclass(eq=False, repr=False)
+class MinimizeDistanceToLine(Task):
+    root: Body = field(kw_only=True)
+    tip: Body = field(kw_only=True)
+    controlled_point: Point3 = field(kw_only=True)
+    line_start: Point3 = field(kw_only=True)
+    line_end: Point3 = field(kw_only=True)
+    weight: float = field(kw_only=True, default=DefaultWeights.WEIGHT_ABOVE_CA)
+    reference_velocity: float = field(
+        kw_only=True, default=CartesianPosition.default_reference_velocity
+    )
+    threshold: float = field(kw_only=True, default=0.01)
+
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+
+        root_T_tip = context.world.compose_forward_kinematics_expression(
+            root=self.root, tip=self.tip
+        )
+        tip_P_controlled_point = context.world.transform(
+            self.controlled_point, self.tip
+        )
+        root_P_controlled_point = root_T_tip @ tip_P_controlled_point
+
+        root_P_line_start = context.world.transform(self.line_start, self.root)
+        root_P_line_end = context.world.transform(self.line_end, self.root)
+        distance, root_P_closest = root_P_controlled_point.distance_to_line_segment(
+            root_P_line_start, root_P_line_end
+        )
+        artifacts.constraints.add_point_goal_constraints(
+            frame_P_goal=root_P_closest,
+            frame_P_current=root_P_controlled_point,
             reference_velocity=0.1,
             weight=self.weight,
         )
-        reach_top.observation_expression = distance_to_top < 0.01
+        artifacts.observation = distance < self.threshold
+        return artifacts
 
-        # %% tilted orientation goal
-        tilt_error = root_V_cylinder_z.angle_between(root_V_up)
-        tilt_task = Task(name="Slightly Tilted")
-        self.add_task(tilt_task)
-        tilt_task.add_position_constraint(
-            expr_current=tilt_error,
-            expr_goal=self.tilt,
-            reference_velocity=0.1,
+
+@dataclass(eq=False, repr=False)
+class MovePointToPoint(Task):
+    root_link: Body = field(kw_only=True)
+    tip_link: Body = field(kw_only=True)
+    controlled_point: Point3 = field(kw_only=True)
+    target_point: Point3 = field(kw_only=True)
+    weight: float = field(kw_only=True, default=DefaultWeights.WEIGHT_ABOVE_CA)
+    threshold: float = field(kw_only=True, default=0.01)
+    reference_velocity: float = field(
+        kw_only=True, default=CartesianPosition.default_reference_velocity
+    )
+
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        root_T_tip = context.world.compose_forward_kinematics_expression(
+            root=self.root_link, tip=self.tip_link
+        )
+        tip_P_controlled_point = context.world.transform(
+            self.controlled_point, self.tip_link
+        )
+        root_P_controlled_point = root_T_tip @ tip_P_controlled_point
+
+        root_P_target = context.world.transform(self.target_point, self.root_link)
+
+        artifacts.constraints.add_point_goal_constraints(
+            frame_P_goal=root_P_target,
+            frame_P_current=root_P_controlled_point,
+            reference_velocity=self.reference_velocity,
             weight=self.weight,
         )
-        root_V_cylinder_z.vis_frame = self.tip
-        tilt_task.observation_expression = sm.abs(tilt_error - self.tilt) <= 0.01
 
-        init_done = f"{reach_top} and {tilt_task}"
-
-        reach_top.end_condition = init_done
-
-        # %% move down
-        stay_on_line = Task(name="Stay on Straight Line")
-        self.add_task(stay_on_line)
-        stay_on_line.add_point_goal_constraints(
-            frame_P_current=root_P_tip,
-            frame_P_goal=root_P_on_line,
-            reference_velocity=0.1,
-            weight=self.weight,
-            name="pregrasp",
+        artifacts.observation = (
+            root_P_controlled_point.euclidean_distance(root_P_target) < self.threshold
         )
-        stay_on_line.observation_expression = distance_to_line < 0.01
-
-        insert_task = Task(name="Insert")
-        self.add_task(insert_task)
-        insert_task.add_point_goal_constraints(
-            frame_P_current=root_P_tip,
-            frame_P_goal=root_P_hole,
-            reference_velocity=0.1,
-            weight=self.weight,
-            name="insertion",
-        )
-        insert_task.start_condition = init_done
-        insert_task.observation_expression = distance_to_hole < 0.01
-
-        bottom_reached = f"{insert_task} and {stay_on_line}"
-
-        tilt_task.end_condition = bottom_reached
-        # %% tilt straight
-        # tilt_monitor.observation_expression = cas.less(tilt_error, 0.01)
-
-        tilt_straight_task = Task(name="Tilt Straight")
-        self.add_task(tilt_straight_task)
-        tilt_straight_task.add_vector_goal_constraints(
-            frame_V_current=root_V_cylinder_z,
-            frame_V_goal=root_V_up,
-            reference_velocity=0.1,
-            weight=self.weight,
-        )
-        tilt_straight_task.start_condition = bottom_reached
-        # tilt_straight_task.end_condition = tilt_monitor.observation_state
-        tilt_straight_task.observation_expression = tilt_error <= 0.01
-
-        self.observation_expression = tilt_straight_task.observation_expression
+        return artifacts

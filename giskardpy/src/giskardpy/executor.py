@@ -230,10 +230,12 @@ class Executor:
             for i in range(timeout):
                 self.tick()
                 self.pacer.sleep()
+                # self.motion_statechart.draw("muh.pdf")
                 if self.motion_statechart.is_end_motion():
                     return
             raise TimeoutError("Timeout reached while waiting for end of motion.")
         finally:
+            self.motion_statechart.draw("muh.pdf")
             self._set_velocity_acceleration_jerk_to_zero()
 
     def _set_velocity_acceleration_jerk_to_zero(self):

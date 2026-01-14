@@ -45,7 +45,7 @@ class FeatureFunctionGoal(Task, ABC):
 
     @abstractmethod
     def get_controlled_and_reference_features(
-        self,
+        self, context: BuildContext
     ) -> tuple[Union[Point3, Vector3], Union[Point3, Vector3]]:
         """
         Return the controlled and reference features.
@@ -56,7 +56,7 @@ class FeatureFunctionGoal(Task, ABC):
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         self.controlled_feature, self.reference_feature = (
-            self.get_controlled_and_reference_features()
+            self.get_controlled_and_reference_features(context)
         )
         artifacts = NodeArtifacts()
         root_reference_feature = context.world.transform(
@@ -296,8 +296,12 @@ class AngleGoal(FeatureFunctionGoal):
     weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
     max_vel: float = field(default=0.2, kw_only=True)
 
-    def get_controlled_and_reference_features(self):
-        return self.tip_vector, self.reference_vector
+    def get_controlled_and_reference_features(self, context: BuildContext):
+        root_V_vector = context.world.transform(self.tip_vector, self.root_link)
+        root_V_reference_vector = context.world.transform(
+            self.reference_vector, self.root_link
+        )
+        return root_V_vector, root_V_reference_vector
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)

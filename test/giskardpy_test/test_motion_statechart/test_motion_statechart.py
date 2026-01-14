@@ -30,6 +30,7 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
 )
 from giskardpy.motion_statechart.goals.open_close import Open, Close
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from giskardpy.motion_statechart.goals.tracebot import InsertCylinder
 from giskardpy.motion_statechart.graph_node import (
     EndMotion,
     CancelMotion,
@@ -87,12 +88,14 @@ from krrood.symbolic_math.symbolic_math import (
     trinary_logic_or,
     FloatVariable,
 )
+from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     KinematicStructureEntityKwargsTracker,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import Manipulator
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.semantic_annotations.factories import (
     DoorFactory,
     SemanticPositionDescription,
@@ -107,12 +110,14 @@ from semantic_digital_twin.spatial_types import (
     Point3,
     RotationMatrix,
 )
-from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+from semantic_digital_twin.spatial_types.derivatives import DerivativeMap, Derivatives
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection1DOF,
     FixedConnection,
+    Connection6DoF,
+    PrismaticConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_digital_twin.world_description.geometry import Cylinder, Box, Scale
@@ -3011,3 +3016,56 @@ class TestLifeCycleTransitions:
 
         assert unpause.count_ticks1.observation_state == ObservationStateValues.TRUE
         assert unpause.observation_state == ObservationStateValues.TRUE
+
+
+def test_insert(tracy_world: World, rclpy_node):
+    left_tool_frame = tracy_world.get_body_by_name("l_gripper_tool_frame")
+    with tracy_world.modify_world():
+        box = Body(
+            name=PrefixedName("muh"),
+            collision=ShapeCollection([Cylinder(width=0.05, height=0.1)]),
+        )
+        connection = FixedConnection(
+            parent=left_tool_frame,
+            child=box,
+        )
+        tracy_world.add_connection(connection)
+
+    vis = VizMarkerPublisher(tracy_world, rclpy_node)
+    msc = MotionStatechart()
+
+    msc.add_node(
+        sequence := Sequence(
+            [
+                SetSeedConfiguration(
+                    seed_configuration=JointState.from_str_dict(
+                        mapping={
+                            "left_shoulder_pan_joint": 3.14,
+                            "left_shoulder_lift_joint": -1.57,
+                            "left_elbow_joint": 1.5,
+                            "left_wrist_1_joint": -1.57,
+                            "left_wrist_2_joint": -1,
+                            "left_wrist_3_joint": 0,
+                            "right_shoulder_pan_joint": 3.14,
+                            "right_shoulder_lift_joint": -1.57,
+                            "right_elbow_joint": -1.5,
+                            "right_wrist_1_joint": -1.57,
+                            "right_wrist_2_joint": 1,
+                            "right_wrist_3_joint": 0,
+                        },
+                        world=tracy_world,
+                    ),
+                ),
+                InsertCylinder(
+                    hole_point=Point3(1, 0.5, 1, reference_frame=tracy_world.root),
+                    cylinder=box,
+                ),
+            ]
+        )
+    )
+    msc.add_node(EndMotion.when_true(sequence))
+    kin_sim = Executor(world=tracy_world)
+    kin_sim.compile(msc)
+    kin_sim.tick_until_end()
+    msc.draw("muh.pdf")
+    kin_sim.plot_trajectory("trajectory.pdf")
