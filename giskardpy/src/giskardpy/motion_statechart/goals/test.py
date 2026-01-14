@@ -11,6 +11,7 @@ from giskardpy.motion_statechart.graph_node import Goal, CancelMotion, NodeArtif
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
+from krrood.symbolic_math.symbolic_math import trinary_logic_not
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.world_entity import Body
@@ -77,17 +78,15 @@ class GraspSequence(Goal):
 class Cutting(Goal):
     tip_link: Body = field(kw_only=True)
     root_link: Body = field(kw_only=True)
-    depth: float = field(kw_only=True)
+    cut_depth: float = field(kw_only=True)
     right_shift: float = field(kw_only=True)
-    max_velocity: float = 100
-    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
+    max_velocity: float = field(kw_only=True, default=100)
+    weight: float = field(kw_only=True, default=DefaultWeights.WEIGHT_ABOVE_CA)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
-        artifacts = NodeArtifacts()
-        schnibble_down_pose = context.world.compute_forward_kinematics(
-            root=self.tip_link, tip=self.tip_link
+    def expand(self, context: BuildContext) -> None:
+        schnibble_down_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=-self.cut_depth, reference_frame=self.tip_link
         )
-        schnibble_down_pose.x = -self.depth
         cut_down = CartesianPose(
             root_link=self.root_link,
             name=f"{self.name}/Down",
@@ -99,19 +98,18 @@ class Cutting(Goal):
 
         made_contact = ConstTrueNode(name=f"{self.name}/Made Contact?")
         self.add_node(made_contact)
-        made_contact.start_condition = cut_down
-        made_contact.end_condition = made_contact
+        made_contact.start_condition = cut_down.observation_variable
+        made_contact.end_condition = made_contact.observation_variable
 
         cancel = CancelMotion(
             name=f"{self.name}/CancelMotion", exception=Exception("no contact")
         )
         self.add_node(cancel)
-        cancel.start_condition = f"not {made_contact.name}"
+        cancel.start_condition = trinary_logic_not(made_contact.observation_variable)
 
-        schnibble_up_pose = context.world.compute_forward_kinematics(
-            root=self.tip_link, tip=self.tip_link
+        schnibble_up_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=self.cut_depth, reference_frame=self.tip_link
         )
-        schnibble_up_pose.x = self.depth
         cut_up = CartesianPose(
             root_link=self.root_link,
             name=f"{self.name}/Up",
@@ -121,10 +119,9 @@ class Cutting(Goal):
         )
         self.add_node(cut_up)
 
-        schnibble_right_pose = context.world.compute_forward_kinematics(
-            root=self.tip_link, tip=self.tip_link
+        schnibble_right_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            y=self.right_shift, reference_frame=self.tip_link
         )
-        schnibble_right_pose.y = self.right_shift
         move_right = CartesianPose(
             root_link=self.root_link,
             name=f"{self.name}/Move Right",
@@ -133,10 +130,19 @@ class Cutting(Goal):
             binding_policy=GoalBindingPolicy.Bind_on_start,
         )
         self.add_node(move_right)
+        self.move_right = move_right
 
-        self.add_node(Sequence([cut_down, cut_up, move_right]))
+        cut_down.end_condition = cut_down.observation_variable
+        cut_up.start_condition = cut_down.observation_variable
+        cut_up.end_condition = cut_up.observation_variable
+        move_right.start_condition = cut_up.observation_variable
+        move_right.end_condition = move_right.observation_variable
+
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+
         artifacts.observation = sm.if_else(
-            move_right.observation_variable == sm.Scalar.const_true(),
+            self.move_right.observation_variable == sm.Scalar.const_true(),
             sm.Scalar.const_true(),
             sm.Scalar.const_false(),
         )
