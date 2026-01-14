@@ -7,7 +7,6 @@ import numpy as np
 
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import Body
-from test.krrood_test.test_eql.factories.world import last_world_id
 from .templates import Sequence, Parallel
 from ..context import BuildContext
 from ..data_types import DefaultWeights
@@ -16,7 +15,6 @@ from ..graph_node import Task
 from ..tasks.align_planes import AlignPlanes
 from ..tasks.cartesian_tasks import CartesianPosition
 from ..tasks.feature_functions import AngleGoal
-from ..test_nodes.test_nodes import ConstTrueNode
 
 
 @dataclass(eq=False, repr=False)
