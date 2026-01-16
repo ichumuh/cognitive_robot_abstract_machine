@@ -4881,6 +4881,31 @@ class AddSemanticAnnotationModificationDAO(
     }
 
 
+class AttributeUpdateModificationDAO(
+    WorldModelModificationDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.world_modification.AttributeUpdateModification
+    ],
+):
+
+    __tablename__ = "AttributeUpdateModificationDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(WorldModelModificationDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    entity_id: Mapped[sqlalchemy.sql.sqltypes.UUID] = mapped_column(
+        sqlalchemy.sql.sqltypes.UUID, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "AttributeUpdateModificationDAO",
+        "inherit_condition": database_id == WorldModelModificationDAO.database_id,
+    }
+
+
 class RemoveActuatorModificationDAO(
     WorldModelModificationDAO,
     DataAccessObject[

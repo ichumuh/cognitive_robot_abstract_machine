@@ -83,8 +83,19 @@ class JerkVariable(sm.FloatVariable):
 
 @dataclass(eq=False)
 class DegreeOfFreedomLimits:
+    """
+    A class representing the limits of a degree of freedom.
+    """
+
     lower_limit: DerivativeMap[float]
+    """
+    Lower limits of the degree of freedom.
+    """
+
     upper_limit: DerivativeMap[float]
+    """
+    Upper limits of the degree of freedom.
+    """
 
 
 @dataclass(eq=False)

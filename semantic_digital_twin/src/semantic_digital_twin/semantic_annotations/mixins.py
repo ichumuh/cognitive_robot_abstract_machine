@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from functools import wraps
 
 import numpy as np
 import trimesh
@@ -17,8 +18,10 @@ from typing_extensions import (
     Iterable,
     Type,
     assert_never,
+    Any,
 )
 
+from krrood.adapters.json_serializer import to_json, shallow_diff_json
 from krrood.ormatic.utils import classproperty
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
@@ -26,6 +29,7 @@ from ..exceptions import (
     MissingConnectionType,
     InvalidConnectionLimits,
     MismatchingWorld,
+    MissingWorldModificationContextError,
 )
 from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
 from ..spatial_types.derivatives import DerivativeMap
@@ -47,6 +51,7 @@ from ..world_description.world_entity import (
     KinematicStructureEntity,
     Connection,
 )
+from ..world_description.world_modification import AttributeUpdateModification
 
 if TYPE_CHECKING:
     from .semantic_annotations import (
@@ -57,6 +62,48 @@ if TYPE_CHECKING:
         Slider,
         Aperture,
     )
+
+
+def synchronized_attribute_modification(func):
+    """
+    A decorator for SemanticAnnotation methods that synchronizes changes by
+    removing the annotation from the world before execution and adding it
+    back after execution.
+
+    This ensures that the update is captured in the world's modification history
+    as a removal and a re-addition, which triggers the synchronization protocol.
+    """
+
+    @wraps(func)
+    def wrapper(self: SemanticAnnotation, *args: Any, **kwargs: Any) -> Any:
+
+        current_world = self._world
+
+        object_before_change = to_json(self)
+
+        result = func(self, *args, **kwargs)
+
+        object_after_change = to_json(self)
+
+        diff = shallow_diff_json(object_before_change, object_after_change)
+
+        modification_kwargs = {
+            "entity_id": object_after_change["id"],
+            "updated_kwargs": diff,
+        }
+
+        if (
+            current_world.get_world_model_manager().current_model_modification_block
+            is None
+        ):
+            raise MissingWorldModificationContextError(func)
+        current_world.get_world_model_manager().current_model_modification_block.append(
+            AttributeUpdateModification.from_kwargs(modification_kwargs)
+        )
+
+        return result
+
+    return wrapper
 
 
 @dataclass(eq=False)
@@ -86,7 +133,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
     def _parent_connection_type(self) -> Type[Connection]:
         """
         The type of connection used to connect the root kinematic structure entity to the world.
-        Override if needed.
+        .. note:: Currently its always, except with sliders and hinges, but in the future this may change. So override if needed.
         """
         return FixedConnection
 
@@ -124,7 +171,6 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         world_root_T_self = world_root_T_self or HomogeneousTransformationMatrix()
 
         with world.modify_world():
-            world.add_semantic_annotation(self_instance)
             world.add_kinematic_structure_entity(kinematic_structure_entity)
             if issubclass(connection_type, ActiveConnection1DOF):
                 limits = connection_limits or cls._generate_default_dof_limits(
@@ -156,6 +202,7 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
             else:
                 assert_never(connection_type)
             world.add_connection(world_root_C_self)
+            world.add_semantic_annotation(self_instance)
 
         return self_instance
 
@@ -511,6 +558,7 @@ class HasDoors(HasRootKinematicStructureEntity, ABC):
     The doors of the semantic annotation.
     """
 
+    @synchronized_attribute_modification
     def add_door(
         self,
         door: Door,

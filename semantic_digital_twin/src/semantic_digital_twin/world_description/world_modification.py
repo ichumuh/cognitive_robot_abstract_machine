@@ -4,6 +4,7 @@ from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from krrood.adapters.exceptions import JSON_TYPE_NAME, UUID_TYPE_NAME
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
 from typing_extensions import (
     List,
@@ -62,6 +63,59 @@ class WorldModelModification(SubclassJSONSerializer, ABC):
         :return: A new instance.
         """
         raise NotImplementedError
+
+
+@dataclass
+class AttributeUpdateModification(WorldModelModification):
+
+    entity_id: UUID
+    updated_kwargs: Dict[str, Any]
+
+    @classmethod
+    def from_kwargs(cls, kwargs: Dict[str, Any]):
+        return cls(from_json(kwargs["entity_id"]), kwargs["updated_kwargs"])
+
+    def apply(self, world: World):
+        entity = world.get_world_entity_with_id_by_id(self.entity_id)
+        for key, value in self.updated_kwargs.items():
+            current_value = getattr(entity, key)
+            if isinstance(current_value, list):
+                for item in value.get("remove", []):
+                    if item not in current_value:
+                        continue
+                    if item[JSON_TYPE_NAME] == UUID_TYPE_NAME:
+                        uuid = from_json(item)
+                        entity_to_remove = world.get_world_entity_with_id_by_id(uuid)
+                        current_value.remove(entity_to_remove)
+                    else:
+                        current_value.remove(item)
+                for item in value.get("add", []):
+                    if item in current_value:
+                        continue
+                    if item[JSON_TYPE_NAME] == UUID_TYPE_NAME:
+                        uuid = from_json(item)
+                        entity_to_add = world.get_world_entity_with_id_by_id(uuid)
+                        current_value.append(entity_to_add)
+                    else:
+                        current_value.append(item)
+            else:
+                if current_value == value:
+                    continue
+                setattr(entity, key, value)
+
+    def to_json(self):
+        return {
+            **super().to_json(),
+            "entity_id": to_json(self.entity_id),
+            "updated_kwargs": self.updated_kwargs,
+        }
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        return cls(
+            entity_id=from_json(data["entity_id"]),
+            updated_kwargs=data["updated_kwargs"],
+        )
 
 
 @dataclass
@@ -365,6 +419,7 @@ class WorldModelModificationBlock(SubclassJSONSerializer):
     """
 
     def apply(self, world: World):
+        ...
         with world.modify_world():
             for modification in self.modifications:
                 modification.apply(world)

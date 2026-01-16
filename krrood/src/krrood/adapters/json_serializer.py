@@ -5,6 +5,8 @@ import importlib
 import inspect
 import uuid
 from abc import ABC
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from types import NoneType
 
@@ -153,6 +155,31 @@ class SubclassJSONSerializer:
 
         return external_json_deserializer.from_json(data, clazz=target_cls, **kwargs)
 
+    def update_from_json_diff(self, diff: Dict[str, Any], **kwargs) -> None:
+        """
+        Update the current object from a shallow diff json dict.
+
+        :param diff: The shallow diff json dict
+        :param kwargs: Additional keyword arguments to pass to the constructor of the subclass.
+        """
+        for key, change in diff.items():
+            if hasattr(self, key):
+                current_value = getattr(self, key)
+                if isinstance(current_value, list):
+                    for item in change.get("remove", []):
+                        current_value.remove(from_json(item, **kwargs))
+                    for item in change.get("add", []):
+                        current_value.append(from_json(item, **kwargs))
+                else:
+                    if change.get("remove"):
+                        setattr(self, key, None)
+                    if change.get("add"):
+                        setattr(
+                            self,
+                            key,
+                            from_json(change["add"], **kwargs),
+                        )
+
 
 def from_json(data: Dict[str, Any], **kwargs) -> Union[SubclassJSONSerializer, Any]:
     """
@@ -189,6 +216,35 @@ def to_json(obj: Union[SubclassJSONSerializer, Any]) -> JSON_RETURN_TYPE:
     )
 
     return registered_json_serializer.to_json(obj)
+
+
+def shallow_diff_json(
+    first_json: Dict[str, Any], second_json: Dict[str, Any]
+) -> Dict[str, Any]:
+    diff: Dict[str, Any] = {}
+
+    all_keys = first_json.keys() | second_json.keys()
+    for key in all_keys:
+        first_value = first_json.get(key)
+        second_value = second_json.get(key)
+        change = {"add": [], "remove": []}
+        if isinstance(first_value, Iterable):
+            for item in first_value:
+                if item not in second_value:
+                    change["remove"].append(item)
+            for item in second_value:
+                if item not in first_value:
+                    change["add"].append(item)
+        else:
+            if first_value == second_value:
+                continue
+            if first_value is None:
+                change["add"] = second_value
+            else:
+                change["remove"] = first_value
+        if change["add"] or change["remove"]:
+            diff[key] = change
+    return diff
 
 
 T = TypeVar("T")

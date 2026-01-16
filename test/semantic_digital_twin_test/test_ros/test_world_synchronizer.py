@@ -21,7 +21,11 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import (
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle, Door
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Handle,
+    Door,
+    Fridge,
+)
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
@@ -30,6 +34,7 @@ from semantic_digital_twin.world_description.connections import (
     PrismaticConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
+from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -489,6 +494,45 @@ def test_compute_state_changes_nan_handling(rclpy_node):
     s.previous_world_state_data[0] = np.nan
     assert s.compute_state_changes() == {}
     s.close()
+
+
+def test_attribute_updates(rclpy_node):
+    world1 = World(name="w1")
+    world2 = World(name="w2")
+
+    synchronizer_1 = ModelSynchronizer(
+        node=rclpy_node,
+        world=world1,
+    )
+    synchronizer_2 = ModelSynchronizer(
+        node=rclpy_node,
+        world=world2,
+    )
+
+    root = Body(name=PrefixedName("root"))
+    with world1.modify_world():
+        world1.add_body(root)
+    fridge = Fridge.create_with_new_body_in_world(
+        name=PrefixedName("case"),
+        world=world1,
+        scale=Scale(1, 1, 2.0),
+    )
+    door = Door.create_with_new_body_in_world(
+        name=PrefixedName("left_door"),
+        world=world1,
+    )
+    time.sleep(1)
+    assert [hash(sa) for sa in world1.semantic_annotations] == [
+        hash(sa) for sa in world2.semantic_annotations
+    ], f"{[sa.name for sa in world1.semantic_annotations]} vs {[sa.name for sa in world2.semantic_annotations]}"
+
+    with world1.modify_world():
+        fridge.add_door(door)
+
+    time.sleep(1)
+    assert [hash(sa) for sa in world1.semantic_annotations] == [
+        hash(sa) for sa in world2.semantic_annotations
+    ], f"{[sa.name for sa in world1.semantic_annotations]} vs {[sa.name for sa in world2.semantic_annotations]}"
 
 
 if __name__ == "__main__":

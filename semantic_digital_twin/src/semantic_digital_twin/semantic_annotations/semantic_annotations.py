@@ -245,12 +245,12 @@ class Door(HasHandle, HasHinge):
             name=entry_way_region_name,
             area=ShapeCollection([TriangleMesh(mesh=door.root.combined_mesh)]),
         )
-        entry_way = EntryWay(name=entry_way_name, root=entry_way_region)
-        with world.modify_world():
-            world.add_semantic_annotation(entry_way)
-            world.add_region(entry_way.root)
-            world.add_connection(FixedConnection(door.root, entry_way.root))
-        door.entry_way = entry_way
+        # entry_way = EntryWay(name=entry_way_name, root=entry_way_region)
+        # with world.modify_world():
+        #     world.add_region(entry_way.root)
+        #     world.add_connection(FixedConnection(door.root, entry_way.root))
+        #     world.add_semantic_annotation(entry_way)
+        # door.entry_way = entry_way
         return door
 
     def calculate_world_T_hinge_based_on_handle(
