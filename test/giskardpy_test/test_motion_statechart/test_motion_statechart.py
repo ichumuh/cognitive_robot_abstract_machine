@@ -2294,50 +2294,51 @@ class TestParallel:
 class TestOpenClose:
     def test_open(self, pr2_world_state_reset):
 
-        door = Door.create_with_new_body_in_world(
-            name=PrefixedName("door"),
-            world=pr2_world_state_reset,
-            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=1.5, z=1, yaw=np.pi, reference_frame=pr2_world_state_reset.root
-            ),
-        )
+        with pr2_world_state_reset.modify_world():
+            door = Door.create_with_new_body_in_world(
+                name=PrefixedName("door"),
+                world=pr2_world_state_reset,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.5, z=1, yaw=np.pi, reference_frame=pr2_world_state_reset.root
+                ),
+            )
 
-        handle = Handle.create_with_new_body_in_world(
-            name=PrefixedName("handle"),
-            world=pr2_world_state_reset,
-            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=1.5,
-                y=0.45,
-                z=1,
-                yaw=np.pi,
-                reference_frame=pr2_world_state_reset.root,
-            ),
-        )
+            handle = Handle.create_with_new_body_in_world(
+                name=PrefixedName("handle"),
+                world=pr2_world_state_reset,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.5,
+                    y=0.45,
+                    z=1,
+                    yaw=np.pi,
+                    reference_frame=pr2_world_state_reset.root,
+                ),
+            )
 
-        lower_limits = DerivativeMap()
-        lower_limits.position = -np.pi / 2
-        lower_limits.velocity = -1
-        upper_limits = DerivativeMap()
-        upper_limits.position = np.pi / 2
-        upper_limits.velocity = 1
+            lower_limits = DerivativeMap()
+            lower_limits.position = -np.pi / 2
+            lower_limits.velocity = -1
+            upper_limits = DerivativeMap()
+            upper_limits.position = np.pi / 2
+            upper_limits.velocity = 1
 
-        hinge = Hinge.create_with_new_body_in_world(
-            name=PrefixedName("hinge"),
-            world=pr2_world_state_reset,
-            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=1.5,
-                y=-0.5,
-                z=1,
-                yaw=np.pi,
-                reference_frame=pr2_world_state_reset.root,
-            ),
-            connection_limits=DegreeOfFreedomLimits(
-                lower_limit=lower_limits, upper_limit=upper_limits
-            ),
-        )
+            hinge = Hinge.create_with_new_body_in_world(
+                name=PrefixedName("hinge"),
+                world=pr2_world_state_reset,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.5,
+                    y=-0.5,
+                    z=1,
+                    yaw=np.pi,
+                    reference_frame=pr2_world_state_reset.root,
+                ),
+                connection_limits=DegreeOfFreedomLimits(
+                    lower_limit=lower_limits, upper_limit=upper_limits
+                ),
+            )
 
-        door.add_handle(handle)
-        door.add_hinge(hinge=hinge)
+            door.add_handle(handle)
+            door.add_hinge(hinge=hinge)
 
         root_C_hinge = door.hinge.root.parent_connection
 
