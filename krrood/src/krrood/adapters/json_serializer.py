@@ -156,29 +156,27 @@ class SubclassJSONSerializer:
 
         return external_json_deserializer.from_json(data, clazz=target_cls, **kwargs)
 
-    def update_from_json_diff(self, diff: Dict[str, Any], **kwargs) -> None:
+    def update_from_json_diff(self, diffs: List[JSONAttributeDiff], **kwargs) -> None:
         """
-        Update the current object from a shallow diff json dict.
+        Update the current object from a list of shallow diffs.
 
-        :param diff: The shallow diff json dict
+        :param diffs: The shallow diffs to apply.
         :param kwargs: Additional keyword arguments to pass to the constructor of the subclass.
         """
-        for key, change in diff.items():
-            if hasattr(self, key):
-                current_value = getattr(self, key)
+        for diff in diffs:
+            if hasattr(self, diff.attribute_name):
+                current_value = getattr(self, diff.attribute_name)
                 if isinstance(current_value, list):
-                    for item in change.get("remove", []):
+                    for item in diff.remove:
                         current_value.remove(from_json(item, **kwargs))
-                    for item in change.get("add", []):
+                    for item in diff.add:
                         current_value.append(from_json(item, **kwargs))
                 else:
-                    if change.get("remove"):
-                        setattr(self, key, None)
-                    if change.get("add"):
+                    if diff.add:
                         setattr(
                             self,
-                            key,
-                            from_json(change["add"], **kwargs),
+                            diff.attribute_name,
+                            from_json(diff.add[0], **kwargs),
                         )
 
 
@@ -270,7 +268,7 @@ def shallow_diff_json(
         original_value = original_json.get(key)
         new_value = new_json.get(key)
         change = JSONAttributeDiff(attribute_name=key)
-        if isinstance(original_value, Iterable):
+        if isinstance(original_value, list_like_classes):
             for item_to_check in original_value:
                 if item_to_check not in new_value:
                     change.remove.append(from_json(item_to_check))
