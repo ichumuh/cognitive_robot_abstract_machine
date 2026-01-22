@@ -12,6 +12,14 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.connections import OmniDrive
 
 
+@dataclass
+class Callback:
+    last_msg: MarkerArray = field(init=False, default=None)
+
+    def __call__(self, msg: MarkerArray):
+        self.last_msg = msg
+
+
 def test_visualization_marker(rclpy_node, cylinder_bot_world):
     tf_wrapper = TFWrapper(node=rclpy_node)
     tf_publisher = TFPublisher(node=rclpy_node, world=cylinder_bot_world)
@@ -24,13 +32,6 @@ def test_visualization_marker(rclpy_node, cylinder_bot_world):
         timeout=Duration(seconds=1.0),
         time=Time(),
     )
-
-    @dataclass
-    class Callback:
-        last_msg: MarkerArray = field(init=False, default=None)
-
-        def __call__(self, msg: MarkerArray):
-            self.last_msg = msg
 
     callback = Callback()
 
@@ -67,3 +68,33 @@ def test_visualization_marker(rclpy_node, cylinder_bot_world):
     else:
         assert False, "TF lookup timed out"
     assert callback.last_msg is None
+
+
+def test_visualization_marker_pr2(rclpy_node, pr2_world_state_reset):
+    tf_wrapper = TFWrapper(node=rclpy_node)
+    tf_publisher = TFPublisher(node=rclpy_node, world=pr2_world_state_reset)
+    viz = VizMarkerPublisher(
+        world=pr2_world_state_reset, node=rclpy_node, use_visuals=False
+    )
+    tf_wrapper.wait_for_transform(
+        "odom_combined",
+        "base_footprint",
+        timeout=Duration(seconds=1.0),
+        time=Time(),
+    )
+
+    callback = Callback()
+
+    sub = rclpy_node.create_subscription(
+        msg_type=MarkerArray,
+        topic=viz.topic_name,
+        callback=callback,
+        qos_profile=viz.qos_profile,
+    )
+    for i in range(30):
+        if callback.last_msg is not None:
+            break
+        sleep(0.1)
+    else:
+        assert False, "Callback timed out"
+    assert len(callback.last_msg.markers) == 54

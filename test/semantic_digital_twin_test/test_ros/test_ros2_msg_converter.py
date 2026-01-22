@@ -245,7 +245,7 @@ def test_convert_sphere_shape(cylinder_bot_world):
 def test_convert_mesh_shape(cylinder_bot_world):
     mesh = FileMesh(
         filename="test_mesh.obj",
-        color=Color(0.0, 0.0, 0.0, 1.0),
+        color=Color(0.0, 0.0, 0.0, 0.0),
         origin=HomogeneousTransformationMatrix.from_xyz_rpy(
             1, 2, 3, reference_frame=cylinder_bot_world.get_body_by_name("map")
         ),

@@ -231,5 +231,5 @@ class FileMeshToRos2Converter(ShapeToRos2Converter[FileMesh]):
         marker.scale.y = data.scale.y
         marker.scale.z = data.scale.z
         marker.mesh_use_embedded_materials = True
-        marker.color = ColorRGBA(r=0.0, g=0.0, b=0.0, a=1.0)
+        marker.color = ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0)
         return marker

@@ -17,6 +17,11 @@ class VizMarkerPublisher(ModelChangeCallback):
     Publishes the world model as a visualization marker.
     .. warning:: Relies on the tf tree to correctly position the markers.
         Use TFPublisher to publish the tf tree.
+    .. warning:: To see something in Rviz you must:
+        1. add a MarkerArray plugin,
+        2. set the current topic name,
+        3. set DurabilityPolicy.TRANSIENT_LOCAL,
+        4. make sure that the fixed frame is the tf root.
     """
 
     red: ClassVar[ColorRGBA] = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)

@@ -17,7 +17,7 @@ OutputType = TypeVar("OutputType")
 class ROS2ConversionError(DataclassException):
     """Base class for errors that occur during ROS2 message conversion."""
 
-    message: str = field(init=False)
+    message: str = field(kw_only=True, default=None, init=False)
 
 
 @dataclass
