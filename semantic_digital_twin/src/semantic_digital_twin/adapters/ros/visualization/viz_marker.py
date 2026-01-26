@@ -32,11 +32,6 @@ class VizMarkerPublisher(ModelChangeCallback):
     The name of the topic to which the Visualization Marker should be published.
     """
 
-    throttle_state_updates: int = 1
-    """
-    Only published every n-th state update.
-    """
-
     use_visuals: bool = field(kw_only=True, default=True)
     """
     Whether to use the visual shapes of the bodies or the collision shapes.
@@ -61,8 +56,6 @@ class VizMarkerPublisher(ModelChangeCallback):
         self.notify()
 
     def _notify(self):
-        if self.world.state.version % self.throttle_state_updates != 0:
-            return
         self.markers = MarkerArray()
         for body in self.world.bodies:
             marker_ns = str(body.name)
