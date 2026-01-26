@@ -429,16 +429,6 @@ class HomogeneousTransformationMatrixMappingDAO(
         nullable=True,
         use_existing_column=True,
     )
-    reference_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    child_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     position: Mapped[Point3MappingDAO] = relationship(
         "Point3MappingDAO", uselist=False, foreign_keys=[position_id], post_update=True
@@ -447,18 +437,6 @@ class HomogeneousTransformationMatrixMappingDAO(
         "QuaternionMappingDAO",
         uselist=False,
         foreign_keys=[rotation_id],
-        post_update=True,
-    )
-    reference_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[reference_frame_id],
-        post_update=True,
-    )
-    child_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[child_frame_id],
         post_update=True,
     )
 
@@ -548,19 +526,6 @@ class Point3MappingDAO(
     y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
-    reference_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    reference_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[reference_frame_id],
-        post_update=True,
-    )
-
 
 class PoseMappingDAO(
     Base, DataAccessObject[semantic_digital_twin.orm.model.PoseMapping]
@@ -582,11 +547,6 @@ class PoseMappingDAO(
         nullable=True,
         use_existing_column=True,
     )
-    reference_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     position: Mapped[Point3MappingDAO] = relationship(
         "Point3MappingDAO", uselist=False, foreign_keys=[position_id], post_update=True
@@ -595,12 +555,6 @@ class PoseMappingDAO(
         "QuaternionMappingDAO",
         uselist=False,
         foreign_keys=[rotation_id],
-        post_update=True,
-    )
-    reference_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[reference_frame_id],
         post_update=True,
     )
 
@@ -666,19 +620,6 @@ class QuaternionMappingDAO(
     z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     w: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
-    reference_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    reference_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[reference_frame_id],
-        post_update=True,
-    )
-
 
 class RotationMatrixMappingDAO(
     Base, DataAccessObject[semantic_digital_twin.orm.model.RotationMatrixMapping]
@@ -695,22 +636,11 @@ class RotationMatrixMappingDAO(
         nullable=True,
         use_existing_column=True,
     )
-    reference_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     rotation: Mapped[QuaternionMappingDAO] = relationship(
         "QuaternionMappingDAO",
         uselist=False,
         foreign_keys=[rotation_id],
-        post_update=True,
-    )
-    reference_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[reference_frame_id],
         post_update=True,
     )
 
@@ -1067,19 +997,6 @@ class Vector3MappingDAO(
     x: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-
-    reference_frame_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    reference_frame: Mapped[KinematicStructureEntityDAO] = relationship(
-        "KinematicStructureEntityDAO",
-        uselist=False,
-        foreign_keys=[reference_frame_id],
-        post_update=True,
-    )
 
 
 class VelocityVariableDAO(
@@ -1726,10 +1643,6 @@ class KinematicStructureEntityDAO(
         ForeignKey(WorldEntityWithIDDAO.database_id),
         primary_key=True,
         use_existing_column=True,
-    )
-
-    index: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        use_existing_column=True
     )
 
     __mapper_args__ = {
