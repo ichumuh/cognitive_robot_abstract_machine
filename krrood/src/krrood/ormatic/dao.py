@@ -821,15 +821,10 @@ class DataAccessObject(HasGeneric[T]):
         processed_ids = set()
         for work_item in discovery_order:
             # Skip post_init for objects that were created via AlternativeMapping
-            # because they are typically created via their constructor, which already
-            # calls __post_init__ (for dataclasses).
-            try:
-                if issubclass(
-                    work_item.dao_instance.original_class(), AlternativeMapping
-                ):
-                    continue
-            except (AttributeError, TypeError, NoGenericError):
-                pass
+            # because they are created via their constructor, which already
+            # calls __post_init__.
+            if issubclass(work_item.dao_instance.original_class(), AlternativeMapping):
+                continue
 
             domain_object = state.get(work_item.dao_instance)
             if domain_object is not None and id(domain_object) not in processed_ids:
@@ -880,9 +875,8 @@ class DataAccessObject(HasGeneric[T]):
         """
         for relationship in mapper.relationships:
             value = getattr(self, relationship.key)
-            if self._is_single_relationship(relationship):
-                if value is not None:
-                    value.from_dao(state=state)
+            if self._is_single_relationship(relationship) and value is not None:
+                value.from_dao(state=state)
             elif relationship.direction in (ONETOMANY, MANYTOMANY):
                 for item in value:
                     item.from_dao(state=state)
