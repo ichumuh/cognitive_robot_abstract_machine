@@ -23,16 +23,10 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 def test_tf_publisher(rclpy_node, pr2_world_state_reset):
-    r_gripper_tool_frame = (
-        pr2_world_state_reset.get_kinematic_structure_entities_by_name(
-            "r_gripper_tool_frame"
-        )
-    )
     tf_wrapper = TFWrapper(node=rclpy_node)
     tf_publisher = TFPublisher(
         node=rclpy_node,
         world=pr2_world_state_reset,
-        ignored_kinematic_structure_entities=r_gripper_tool_frame,
     )
 
     assert tf_wrapper.wait_for_transform(
@@ -52,8 +46,7 @@ def test_tf_publisher(rclpy_node, pr2_world_state_reset):
     transform2 = HomogeneousTransformationMatrixToRos2Converter.convert(fk)
     assert transform.transform == transform2.transform
 
-    with pytest.raises(LookupException):
-        tf_wrapper.lookup_transform("odom_combined", "pr2/r_gripper_tool_frame")
+    tf_wrapper.lookup_transform("odom_combined", "pr2/r_gripper_tool_frame")
 
 
 def test_tf_publisher_ignore_robot(rclpy_node, pr2_world_setup):
@@ -68,13 +61,11 @@ def test_tf_publisher_ignore_robot(rclpy_node, pr2_world_setup):
     )
 
     assert not tf_wrapper.wait_for_transform(
-        "odom_combined",
+        "pr2/base_link",
         "pr2/base_footprint",
         timeout=Duration(seconds=1.0),
         time=Time(),
     )
-    with pytest.raises(LookupException):
-        transform = tf_wrapper.lookup_transform("odom_combined", "pr2/base_footprint")
 
     assert tf_wrapper.wait_for_transform(
         "odom_combined",
@@ -202,31 +193,79 @@ def test_static_world(rclpy_node):
         body1 = Body(name=PrefixedName("body1"))
         body2 = Body(name=PrefixedName("body2"))
         body3 = Body(name=PrefixedName("body3"))
+        body4 = Body(name=PrefixedName("body4"))
+        body5 = Body(name=PrefixedName("body5"))
 
         body1_C_body2 = FixedConnection(parent=body1, child=body2)
         world.add_connection(body1_C_body2)
-
         body2_C_body3 = FixedConnection(parent=body2, child=body3)
         world.add_connection(body2_C_body3)
+
+        body1_C_body4 = FixedConnection(parent=body1, child=body4)
+        world.add_connection(body1_C_body4)
+        body4_C_body5 = FixedConnection(parent=body4, child=body5)
+        world.add_connection(body4_C_body5)
 
     tf_wrapper = TFWrapper(node=rclpy_node)
     tf_publisher = TFPublisher(
         node=rclpy_node,
         world=world,
-        ignored_kinematic_structure_entities={body2, body3},
+        ignored_kinematic_structure_entities={body2, body3, body5},
     )
 
-    # even though body1 is ignored, it should still be published because it is connected to body2
+    # body1 not ignored -> publish
     assert tf_wrapper.wait_for_transform(
         str(body1.name),
-        str(body2.name),
+        str(body2.name),  # ignored
         timeout=Duration(seconds=1.0),
         time=Time(),
     )
 
+    # both parent and child are ignored -> no publish
     assert not tf_wrapper.wait_for_transform(
+        str(body2.name),  # ignored
+        str(body3.name),  # ignored
+        timeout=Duration(seconds=1.0),
+        time=Time(),
+    )
+
+    # both parent and child are not ignored -> publish
+    assert tf_wrapper.wait_for_transform(
+        str(body1.name),
+        str(body4.name),
+        timeout=Duration(seconds=1.0),
+        time=Time(),
+    )
+
+    # body4 not ignored -> publish
+    assert tf_wrapper.wait_for_transform(
+        str(body4.name),
+        str(body5.name),  # ignored
+        timeout=Duration(seconds=1.0),
+        time=Time(),
+    )
+
+
+def test_static_world2(rclpy_node):
+    world = World()
+    with world.modify_world():
+        body1 = Body(name=PrefixedName("body1"))
+        body2 = Body(name=PrefixedName("body2"))
+
+        body1_C_body2 = FixedConnection(parent=body1, child=body2)
+        world.add_connection(body1_C_body2)
+
+    tf_wrapper = TFWrapper(node=rclpy_node)
+    tf_publisher = TFPublisher(
+        node=rclpy_node,
+        world=world,
+        ignored_kinematic_structure_entities={body2},
+    )
+
+    # even though body2 is ignored, there is no other transform for body1, so we need to publish anyway
+    assert tf_wrapper.wait_for_transform(
+        str(body1.name),
         str(body2.name),
-        str(body3.name),
         timeout=Duration(seconds=1.0),
         time=Time(),
     )
