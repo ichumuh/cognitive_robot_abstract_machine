@@ -15,7 +15,7 @@ from krrood.ontomatic.property_descriptor.attribute_introspector import (
 )
 from krrood.utils import recursive_subclasses
 
-# from pycram.datastructures.dataclasses import Context
+from pycram.datastructures.dataclasses import Context  # type: ignore
 from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -376,7 +376,7 @@ def simple_pr2_world_setup(pr2_world_setup, simple_apartment_setup):
     world.merge_world(apartment_world)
 
     robot_view = PR2.from_world(world)
-    return world, robot_view, None  # Context(world, robot_view)
+    return world, robot_view, Context(world, robot_view)
 
 
 @pytest.fixture(scope="session")
@@ -389,7 +389,7 @@ def hsr_apartment_world(hsr_world_setup, apartment_world_setup):
     )
 
     robot_view = HSRB.from_world(hsr_copy)
-    return apartment_copy, robot_view, None  # Context(hsr_copy, robot_view)
+    return apartment_copy, robot_view, Context(hsr_copy, robot_view)
 
 
 ###############################
