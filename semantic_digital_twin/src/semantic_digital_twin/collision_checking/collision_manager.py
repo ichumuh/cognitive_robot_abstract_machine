@@ -1,36 +1,53 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from enum import Enum
-from itertools import combinations_with_replacement
 
-from typing_extensions import Optional, List, Dict, Any, Self
+from typing_extensions import List
 
-from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
-from .collision_detector import CollisionMatrix, CollisionCheck, CollisionRule
-from .collision_rules import Updatable
-from ..adapters.world_entity_kwargs_tracker import WorldEntityWithIDKwargsTracker
+from .collision_detector import CollisionMatrix
+from .collision_matrix import CollisionRule
+from .collision_rules import (
+    Updatable,
+    AllowCollisionBetweenGroups,
+    AllowCollisionForAdjacentPairs,
+    SelfCollisionMatrixRule,
+)
 from ..callbacks.callback import ModelChangeCallback
-from ..world import World
-from ..world_description.world_entity import Body
 
 
 @dataclass
 class CollisionManager(ModelChangeCallback):
     """
-    static disables:
-        Disable non-robot collisions.
-        Disable adjacent body collisions, including ones with no hardware interface.
-        self collision matrix
+    Manages collision rules and turn them into collision matrices.
+    1. apply default rules
+    2. apply temporary rules
+    3. apply final rules
+        this is usually allow collisions, like the self collision matrix
     """
 
-    self_collision_matrix: CollisionRule
     default_collision_rules: List[CollisionRule] = field(default_factory=list)
     temporary_collision_rules: List[CollisionRule] = field(default_factory=list)
-    updatable_rules: List[Updatable] = field(default_factory=list)
+    final_rules: List[CollisionRule] = field(default_factory=list)
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.final_rules.extend(
+            [AllowCollisionBetweenGroups(), AllowCollisionForAdjacentPairs()]
+        )
+        self._notify()
 
     def _notify(self):
-        for rule in self.updatable_rules:
-            rule.update(self.world)
+        for rule in self.rules:
+            if isinstance(rule, Updatable):
+                rule.update(self.world)
+
+    @property
+    def rules(self) -> List[CollisionRule]:
+        return (
+            self.default_collision_rules
+            + self.temporary_collision_rules
+            + self.final_rules
+        )
 
     def create_collision_matrix(self) -> CollisionMatrix:
         collision_matrix = CollisionMatrix()
@@ -38,30 +55,6 @@ class CollisionManager(ModelChangeCallback):
             rule.apply_to_collision_matrix(collision_matrix)
         for rule in self.temporary_collision_rules:
             rule.apply_to_collision_matrix(collision_matrix)
-        self.self_collision_matrix.apply_to_collision_matrix(collision_matrix)
+        for rule in self.final_rules:
+            rule.apply_to_collision_matrix(collision_matrix)
         return collision_matrix
-
-    def add_disabled_collision_pair(self, body_a: Body, body_b: Body):
-        """
-        Disable collision checking between two bodies
-        """
-        pair = tuple(sorted([body_a, body_b], key=lambda body: body.id))
-        self._disabled_collision_pairs.add(pair)
-
-    def disable_collisions_for_adjacent_bodies(self):
-        """
-        Computes pairs of bodies that should not be collision checked because they have no controlled connections
-        between them.
-
-        When all connections between two bodies are not controlled, these bodies cannot move relative to each
-        other, so collision checking between them is unnecessary.
-
-        :return: Set of body pairs that should have collisions disabled
-        """
-
-        body_combinations = combinations_with_replacement(
-            self.world.bodies_with_collision, 2
-        )
-        for body_a, body_b in body_combinations:
-            if not self.world.is_controlled_connection_in_chain(body_a, body_b):
-                pass

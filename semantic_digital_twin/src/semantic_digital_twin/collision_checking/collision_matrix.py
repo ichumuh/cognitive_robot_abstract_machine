@@ -22,13 +22,15 @@ class CollisionCheck:
     """
     Second body in the collision check.
     """
-    distance: float
+    distance: float | None = None
     """
     Minimum distance to check for collisions.
     """
 
     @classmethod
-    def create_and_validate(cls, body_a: Body, body_b: Body, distance: float) -> Self:
+    def create_and_validate(
+        cls, body_a: Body, body_b: Body, distance: float | None = None
+    ) -> Self:
         self = cls(body_a=body_a, body_b=body_b, distance=distance)
         if self.distance < 0:
             raise ValueError(f"Distance must be positive, got {self.distance}")

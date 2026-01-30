@@ -4133,11 +4133,6 @@ class AbstractRobotDAO(
         nullable=True,
         use_existing_column=True,
     )
-    default_collision_config_id: Mapped[int] = mapped_column(
-        ForeignKey("CollisionCheckingConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     torso: Mapped[TorsoDAO] = relationship(
         "TorsoDAO", uselist=False, foreign_keys=[torso_id], post_update=True
@@ -4172,12 +4167,6 @@ class AbstractRobotDAO(
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_sensor_chains_association.c.source_abstractrobotdao_id",
         secondaryjoin="KinematicChainDAO.database_id == abstractrobotdao_sensor_chains_association.c.target_kinematicchaindao_id",
         cascade="save-update, merge",
-    )
-    default_collision_config: Mapped[CollisionCheckingConfigDAO] = relationship(
-        "CollisionCheckingConfigDAO",
-        uselist=False,
-        foreign_keys=[default_collision_config_id],
-        post_update=True,
     )
 
     __mapper_args__ = {

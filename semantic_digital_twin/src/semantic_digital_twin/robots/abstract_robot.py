@@ -428,11 +428,6 @@ class AbstractRobot(Agent, ABC):
     A collection of all kinematic chains containing a sensor, such as a camera.
     """
 
-    default_collision_config: CollisionCheckingConfig = field(
-        kw_only=True,
-        default_factory=lambda: CollisionCheckingConfig(buffer_zone_distance=0.05),
-    )
-
     @abstractmethod
     def setup_collision_config(self):
         """

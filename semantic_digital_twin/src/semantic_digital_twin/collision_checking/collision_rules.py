@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from itertools import combinations_with_replacement
+from itertools import combinations_with_replacement, combinations
 
 from lxml import etree
-from typing_extensions import List, Dict, Any, Protocol
-from typing_extensions import Tuple, TYPE_CHECKING, Self
+from typing_extensions import List, Protocol, Tuple, TYPE_CHECKING, runtime_checkable
 
-from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
 from .collision_matrix import CollisionRule, CollisionMatrix, CollisionCheck
-from ..adapters.world_entity_kwargs_tracker import WorldEntityWithIDKwargsTracker
 from ..robots.abstract_robot import AbstractRobot
 from ..world import World
 from ..world_description.world_entity import Body, CollisionCheckingConfig
@@ -19,9 +15,13 @@ if TYPE_CHECKING:
     pass
 
 
+class HasBodies(Protocol):
+    bodies: List[Body]
+
+
 @dataclass
-class AvoidCollisionBetweenGroups(CollisionRule):
-    buffer_zone_distance: float | None = None
+class AvoidCollisionRule(CollisionRule):
+    buffer_zone_distance: float
     """
     Distance defining a buffer zone around the entity. The buffer zone represents a soft boundary where
     proximity should be monitored but minor violations are acceptable.
@@ -32,16 +32,38 @@ class AvoidCollisionBetweenGroups(CollisionRule):
     Critical distance threshold that must not be violated. Any proximity below this threshold represents
     a severe collision risk requiring immediate attention.
     """
+
+
+@dataclass
+class AvoidCollisionBetweenGroups(AvoidCollisionRule):
     body_group1: List[Body] = field(default_factory=list)
     body_group2: List[Body] = field(default_factory=list)
 
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
+        collision_checks = set()
         for body_a in self.body_group1:
             for body_b in self.body_group2:
+                if body_a == body_b:
+                    continue
                 collision_check = CollisionCheck.create_and_validate(
                     body_a=body_a, body_b=body_b, distance=self.buffer_zone_distance
                 )
-                collision_matrix.add_collision_check(collision_check)
+                collision_checks.add(collision_check)
+        collision_matrix.add_collision_checks(collision_checks)
+
+
+@dataclass
+class AvoidAllCollisions(AvoidCollisionRule):
+    bodies: List[Body] = field(default_factory=list)
+
+    def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
+        collision_checks = set()
+        for body_a, body_b in combinations(self.bodies, 2):
+            collision_check = CollisionCheck.create_and_validate(
+                body_a=body_a, body_b=body_b, distance=self.buffer_zone_distance
+            )
+            collision_checks.add(collision_check)
+        collision_matrix.add_collision_checks(collision_checks)
 
 
 @dataclass
@@ -50,11 +72,19 @@ class AllowCollisionBetweenGroups(CollisionRule):
     body_group2: List[Body] = field(default_factory=list)
 
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
+        collision_checks = set()
         for body_a in self.body_group1:
             for body_b in self.body_group2:
-                collision_matrix.remove_collision_check(body_a, body_b)
+                if body_a == body_b:
+                    continue
+                collision_check = CollisionCheck.create_and_validate(
+                    body_a=body_a, body_b=body_b, distance=0
+                )
+                collision_checks.add(collision_check)
+        collision_matrix.remove_collision_checks(collision_checks)
 
 
+@runtime_checkable
 class Updatable(Protocol):
     def update(self, world: World):
         pass
@@ -67,26 +97,26 @@ class AllowNonRobotCollisions(CollisionRule):
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
         collision_matrix.remove_collision_checks(self.allowed_collision_pairs)
 
-    def update(self):
+    def update(self, world: World):
         """
         Disable collision checks between bodies that do not belong to any robot.
         """
         # Bodies that are part of any robot and participate in collisions
         robot_bodies: set[Body] = {
             body
-            for robot in self.world.get_semantic_annotations_by_type(AbstractRobot)
+            for robot in world.get_semantic_annotations_by_type(AbstractRobot)
             for body in robot.bodies_with_collisions
         }
 
         # Bodies with collisions that are NOT part of a robot
         non_robot_bodies: set[Body] = (
-            set(self.world.bodies_with_enabled_collision) - robot_bodies
+            set(world.bodies_with_enabled_collision) - robot_bodies
         )
         if not non_robot_bodies:
             return
 
         # Disable every unordered pair (including self-collisions) exactly once
-        for a, b in combinations_with_replacement(non_robot_bodies, 2):
+        for a, b in combinations(non_robot_bodies, 2):
             self.allowed_collision_pairs.add(
                 CollisionCheck.create_and_validate(body_a=a, body_b=b, distance=0)
             )
@@ -94,25 +124,29 @@ class AllowNonRobotCollisions(CollisionRule):
 
 @dataclass
 class AllowCollisionForAdjacentPairs(CollisionRule):
+    allowed_collision_pairs: set[CollisionCheck] = field(default_factory=set)
+
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
-        body_combinations = combinations_with_replacement(
-            self.world.bodies_with_collision, 2
-        )
-        for body_a, body_b in body_combinations:
-            if not self.world.is_controlled_connection_in_chain(body_a, body_b):
-                collision_matrix.remove_collision_check(body_a, body_b)
+        collision_matrix.remove_collision_checks(self.allowed_collision_pairs)
+
+    def update(self, world: World):
+        for body_a, body_b in combinations(world.bodies_with_collision, 2):
+            if not world.is_controlled_connection_in_chain(body_a, body_b):
+                self.allowed_collision_pairs.add(
+                    CollisionCheck.create_and_validate(body_a, body_b)
+                )
 
 
 @dataclass
-class AllowCollisionPairsRule(CollisionRule):
+class SelfCollisionMatrixRule(CollisionRule):
     pairs: List[Tuple[Body, Body]] = field(default_factory=list)
 
-    def compute_collision_matrix(self) -> Set[CollisionCheck]:
+    def compute_collision_matrix(self) -> set[CollisionCheck]:
         """
         Parses the collision requrests and (temporary) collision configs in the world
         to create a set of collision checks.
         """
-        collision_matrix: Set[CollisionCheck] = set()
+        collision_matrix: set[CollisionCheck] = set()
         for collision_request in self.collision_requests:
             if collision_request.all_bodies_for_group1():
                 view_1_bodies = self.world.bodies_with_enabled_collision

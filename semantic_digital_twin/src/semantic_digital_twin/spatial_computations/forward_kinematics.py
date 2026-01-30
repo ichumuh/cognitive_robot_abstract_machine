@@ -60,6 +60,8 @@ class ForwardKinematicsManager(ModelChangeCallback):
     body_id_to_all_fk_index: Dict[UUID, int] = field(init=False)
 
     def _notify(self):
+        if len(self.world.kinematic_structure_entities) == 0:
+            return
         self.update_root_T_kse_expression_cache()
         self.compile()
 
