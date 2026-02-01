@@ -588,9 +588,6 @@ class Region(KinematicStructureEntity):
     def __post_init__(self):
         self.area.reference_frame = self
 
-    def __hash__(self):
-        return id(self)
-
     @classmethod
     def from_shape_collection(
         cls, name: PrefixedName, shape_collection: ShapeCollection
