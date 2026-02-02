@@ -25,7 +25,7 @@ from jupyterquiz import display_quiz
 
 questions = [
     {
-      "question": "What is the main purpose of factories in the semantic world?",
+      "question": "What is the main purpose of factories in the semantic digital twin?",
       "type": "multiple_choice",
       "answers": [
         {"answer": "Convenience builders that create consistent worlds and views", "correct": True},
