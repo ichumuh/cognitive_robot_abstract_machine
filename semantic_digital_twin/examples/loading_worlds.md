@@ -23,10 +23,11 @@ First, we need to compose the path to your world file.
 import logging
 import os
 
-from semantic_digital_twin.utils import get_semantic_digital_twin_directory_root
+import semantic_digital_twin
+from krrood.utils import get_package_root
 
 logging.disable(logging.CRITICAL)
-apartment = os.path.join(get_semantic_digital_twin_directory_root(os.getcwd()), "resources", "urdf", "apartment.urdf")
+apartment = os.path.join(get_package_root(semantic_digital_twin), "resources", "urdf", "apartment.urdf")
 
 ```
 

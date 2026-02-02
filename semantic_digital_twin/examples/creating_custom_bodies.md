@@ -39,7 +39,7 @@ Supported Shapes are:
 - Cylinder
 - FileMesh/TriangleMesh
 
-Finally, in our kinematic structure, each entity needs to have a unique name. For this we can use a simple datastructure called `PrefixedName`. You always need to provide a name, but the prefix is optional.
+Finally, in our kinematic structure, each entity has a name. For this we can use a simple datastructure called `PrefixedName`. You always need to provide a name, but the prefix is optional. This is for human readability and allows for easy identification of entities. For uniqueness constraints, a UUID is used and stored in the `id` field.
 
 ```{code-cell} ipython3
 import os
