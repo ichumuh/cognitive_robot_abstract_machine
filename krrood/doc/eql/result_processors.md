@@ -124,7 +124,9 @@ print(next(min_query.evaluate()))  # -> Body(name='Handle1', height=1)
 
 ## Grouped Aggregations
 
-Aggregators support a `.per(*variables)` method that allows performing aggregations per group defined by one or more variables.
+Aggregators have a `per(*variables)` method that allows performing aggregations per group defined by one or more variables.
+When .per() is used, each result is a dictionary mapping the variables to their values; since the aggregations are now
+performed per group, it could be beneficial to know the group values.
 
 ```{code-cell} ipython3
 body = variable(Body, domain=world.bodies)
@@ -133,7 +135,6 @@ body = variable(Body, domain=world.bodies)
 count_per_body_name_first_character = eql.count(body).per(body.name[0])
 results = count_per_body_name_first_character.evaluate()
 
-# When .per() is used, each result is a dictionary mapping the variables to their values
 for res in results:
     group_value = res[body.name[0]]
     count_value = res[count_per_body_name_first_character]

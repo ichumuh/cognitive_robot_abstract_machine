@@ -223,34 +223,12 @@ def get_function_argument_names(function: Callable) -> List[str]:
     return list(inspect.signature(function).parameters.keys())
 
 
-@lru_cache
-def get_class_argument_names(clazz: Type) -> List[str]:
-    """
-    :param clazz: A class to inspect
-    :return: The argument names of the class
-    """
-    return get_function_argument_names(clazz.__init__)
-
-
-@lru_cache
-def get_function_or_class_argument_names(
-    function_or_class: Union[Callable, Type],
-) -> List[str]:
-    """
-    :param function_or_class: A function or class to inspect
-    :return: The argument names of the function or class
-    """
-    if inspect.isclass(function_or_class):
-        return get_class_argument_names(function_or_class)
-    else:
-        return get_function_argument_names(function_or_class)
-
-
 def merge_args_and_kwargs(
     function_or_class: Union[Callable, Type], args, kwargs, ignore_first: bool = False
 ) -> Dict[str, Any]:
     """
-    Merge the arguments and keyword-arguments of a function into a dict of keyword-arguments.
+    Merge the arguments and keyword-arguments of a function/class into a dict of keyword-arguments.
+    If a class is passed, the arguments are assumed to be the `__init__` arguments.
 
     :param function_or_class: The function/class to get the argument names from
     :param args: The arguments passed to the function
@@ -260,10 +238,15 @@ def merge_args_and_kwargs(
     :return: The dict of assigned keyword-arguments.
     """
     starting_index = 1 if ignore_first else 0
+    function_or_class = (
+        function_or_class.__init__
+        if inspect.isclass(function_or_class)
+        else function_or_class
+    )
     all_kwargs = {
         name: arg
         for name, arg in zip(
-            get_function_or_class_argument_names(function_or_class)[starting_index:],
+            get_function_argument_names(function_or_class)[starting_index:],
             args,
         )
     }
@@ -271,15 +254,18 @@ def merge_args_and_kwargs(
     return all_kwargs
 
 
-def construct_key_from_dict(all_kwargs: Dict[str, Any]) -> Tuple[Any, ...]:
+def convert_args_and_kwargs_into_a_hashable_key(
+    dictionary: Dict[str, Any],
+) -> Tuple[Any, ...]:
     """
-    Generates a key for the dictionary based on the provided arguments.
+    Generates a hashable key from the dictionary. The key is a tuple of sorted (key, value) pairs.
+    If a value is a dictionary, it is converted to a frozenset of its items.
 
-    :param all_kwargs: The keyword arguments to generate the key from.
+    :param dictionary: The keyword arguments to generate the key from.
     :return: The generated key as a tuple.
     """
     key = []
-    for k, v in all_kwargs.items():
+    for k, v in dictionary.items():
         if isinstance(v, dict):
             v = frozenset(v.items())
         key.append((k, v))

@@ -66,7 +66,7 @@ from .utils import (
     T,
     chain_stages,
     merge_args_and_kwargs,
-    construct_key_from_dict,
+    convert_args_and_kwargs_into_a_hashable_key,
 )
 from ..class_diagrams import ClassRelation
 from ..class_diagrams.class_diagram import WrappedClass
@@ -378,6 +378,31 @@ class Selectable(SymbolicExpression[T], ABC):
         return False
 
 
+@dataclass
+class DomainMappingCacheItem:
+    type: Type[DomainMapping]
+    child: CanBehaveLikeAVariable
+    args: Tuple[Any, ...] = field(default_factory=tuple)
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        self.args = (self.child,) + self.args
+
+    @cached_property
+    def all_kwargs(self):
+        return merge_args_and_kwargs(
+            self.type, self.args, self.kwargs, ignore_first=True
+        )
+
+    def __hash__(self):
+        return hash(
+            (self.type,) + convert_args_and_kwargs_into_a_hashable_key(self.all_kwargs)
+        )
+
+    def __eq__(self, other):
+        return hash(self) == hash(other)
+
+
 @dataclass(eq=False, repr=False)
 class CanBehaveLikeAVariable(Selectable[T], ABC):
     """
@@ -389,15 +414,11 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
     """
     The path of the variable in the symbol graph as a sequence of relation instances.
     """
-    _known_mappings_: Dict[
-        Type[DomainMapping], Dict[Tuple[Any, ...], DomainMapping]
-    ] = field(init=False, default_factory=dict)
+    _known_mappings_: Dict[DomainMappingCacheItem, DomainMapping] = field(
+        init=False, default_factory=dict
+    )
     """
     A storage of created domain mappings to prevent recreating same mapping multiple times.
-    """
-    _attributes_: Dict[str, Attribute[T]] = field(init=False, default_factory=dict)
-    """
-    A storage of created symbolic attributes to prevent recreating same attribute multiple times.
     """
 
     def _update_truth_value_(self, current_value: Any):
@@ -427,17 +448,26 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         :param kwargs: Keyword arguments to pass to the domain mapping constructor.
         :return: The retrieved or created domain mapping instance.
         """
+        cache_item = DomainMappingCacheItem(type_, self, args, kwargs)
+        if cache_item in self._known_mappings_:
+            return self._known_mappings_[cache_item]
+        else:
+            instance = type_(**cache_item.all_kwargs)
+            self._known_mappings_[cache_item] = instance
+            return instance
+
+    def _get_domain_mapping_key_(self, type_: Type[DomainMapping], *args, **kwargs):
+        """
+        Generates a hashable key for the given type and arguments.
+
+        :param type_: The type of the domain mapping.
+        :param args: Positional arguments to pass to the domain mapping constructor.
+        :param kwargs: Keyword arguments to pass to the domain mapping constructor.
+        :return: The generated hashable key.
+        """
         args = (self,) + args
         all_kwargs = merge_args_and_kwargs(type_, args, kwargs, ignore_first=True)
-        key = construct_key_from_dict(all_kwargs)
-        if type_ not in self._known_mappings_:
-            self._known_mappings_[type_] = {}
-        if key in self._known_mappings_[type_]:
-            return self._known_mappings_[type_][key]
-        else:
-            instance = type_(**all_kwargs)
-            self._known_mappings_[type_][key] = instance
-            return instance
+        return convert_args_and_kwargs_into_a_hashable_key(all_kwargs)
 
     def __getattr__(self, name: str) -> CanBehaveLikeAVariable[T]:
         # Prevent debugger/private attribute lookups from being interpreted as symbolic attributes
