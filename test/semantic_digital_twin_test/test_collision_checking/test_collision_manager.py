@@ -8,6 +8,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionBetweenGroups,
     AllowNonRobotCollisions,
     AvoidAllCollisions,
+    HighPriorityAllowCollisionRule,
 )
 from semantic_digital_twin.robots.pr2 import PR2
 
@@ -93,5 +94,16 @@ class TestCollisionRules:
         pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
         collision_manager = CollisionManager(pr2_world_state_reset)
         collision_manager.low_priority_rules.extend(pr2.default_collision_rules)
+        collision_manager.high_priority_rules.extend(pr2.high_priority_collision_rules)
         collision_matrix = collision_manager.create_collision_matrix()
-        pass
+        rule: HighPriorityAllowCollisionRule
+        for rule in collision_manager.high_priority_rules:
+            assert (
+                rule.allowed_collision_pairs & collision_matrix.collision_checks
+                == set()
+            )
+            for check in collision_matrix.collision_checks:
+                assert check.body_a not in rule.allowed_collision_bodies
+                assert check.body_b not in rule.allowed_collision_bodies
+
+        assert len(collision_matrix.collision_checks) > 0

@@ -104,7 +104,8 @@ class HighPriorityAllowCollisionRule(CollisionRule):
         collision_matrix.collision_checks = {
             collision_check
             for collision_check in collision_matrix.collision_checks
-            if collision_check not in self.allowed_collision_bodies
+            if collision_check.body_a not in self.allowed_collision_bodies
+            and collision_check.body_b not in self.allowed_collision_bodies
         }
 
 

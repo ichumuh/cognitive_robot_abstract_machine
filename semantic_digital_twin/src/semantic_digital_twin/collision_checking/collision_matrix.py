@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..world import World
 
 
-@dataclass
+@dataclass(repr=False)
 class CollisionCheck:
     body_a: Body
     """
@@ -48,6 +48,9 @@ class CollisionCheck:
         if not self.body_b.has_collision():
             raise ValueError(f"Body {self.body_b.name} has no collision geometry")
         return self
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.body_a.name}, {self.body_b.name}, {self.distance})"
 
     def __hash__(self):
         return hash((self.body_a, self.body_b))
@@ -95,10 +98,10 @@ class CollisionMatrix:
         )
 
     def add_collision_checks(self, collision_checks: set[CollisionCheck]):
-        self.collision_checks.update(collision_checks)
+        self.collision_checks |= collision_checks
 
     def remove_collision_checks(self, collision_checks: set[CollisionCheck]):
-        self.collision_checks.difference_update(collision_checks)
+        self.collision_checks -= collision_checks
 
 
 class CollisionRulePriority(FloatEnum):

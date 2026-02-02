@@ -14,6 +14,7 @@ from typing_extensions import (
 )
 
 from ..collision_checking.collision_matrix import CollisionRule
+from ..datastructures.prefixed_name import PrefixedName
 from ..spatial_types.derivatives import DerivativeMap
 from ..spatial_types.spatial_types import (
     Vector3,
@@ -430,13 +431,7 @@ class AbstractRobot(Agent, ABC):
     """
 
     default_collision_rules: list[CollisionRule] = field(default_factory=list)
-
-    @abstractmethod
-    def setup_collision_rules(self):
-        """
-        Loads the SRDF file for the robot, if it exists.
-        """
-        ...
+    high_priority_collision_rules: list[CollisionRule] = field(default_factory=list)
 
     @property
     def controlled_connections(self) -> Set[ActiveConnection]:
@@ -446,7 +441,6 @@ class AbstractRobot(Agent, ABC):
         return set(self._world.controlled_connections) & set(self.connections)
 
     @classmethod
-    @abstractmethod
     def from_world(cls, world: World) -> Self:
         """
         Creates a robot semantic annotation from the given world.
@@ -457,7 +451,29 @@ class AbstractRobot(Agent, ABC):
 
         :return: A robot semantic annotation.
         """
-        raise NotImplementedError("This method should be implemented in subclasses.")
+        with world.modify_world():
+            robot = cls(
+                name=PrefixedName(name="pr2", prefix=world.name),
+                root=world.get_body_by_name("base_footprint"),
+                _world=world,
+            )
+            robot._setup_semantic_annotations()
+        robot._setup_collision_rules()
+        robot._setup_velocity_limits()
+        robot._setup_hardware_interfaces()
+        return robot
+
+    @abstractmethod
+    def _setup_semantic_annotations(self): ...
+
+    @abstractmethod
+    def _setup_collision_rules(self): ...
+
+    @abstractmethod
+    def _setup_velocity_limits(self): ...
+
+    @abstractmethod
+    def _setup_hardware_interfaces(self): ...
 
     @property
     def drive(self) -> Optional[OmniDrive]:

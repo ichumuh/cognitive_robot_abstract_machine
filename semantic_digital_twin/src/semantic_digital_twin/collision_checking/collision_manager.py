@@ -10,6 +10,7 @@ from .collision_rules import (
     Updatable,
     AllowCollisionBetweenGroups,
     AllowCollisionForAdjacentPairs,
+    AllowNonRobotCollisions,
 )
 from ..callbacks.callback import ModelChangeCallback
 
@@ -31,7 +32,7 @@ class CollisionManager(ModelChangeCallback):
     def __post_init__(self):
         super().__post_init__()
         self.high_priority_rules.extend(
-            [AllowCollisionBetweenGroups(), AllowCollisionForAdjacentPairs()]
+            [AllowNonRobotCollisions(), AllowCollisionForAdjacentPairs()]
         )
         self._notify()
 
