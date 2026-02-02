@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 from functools import lru_cache
-from typing import Callable, List, Dict, Any
 
 """
 Utilities for hashing, rendering, and general helpers used by the
@@ -26,7 +25,6 @@ from typing_extensions import (
     TypeVar,
     List,
     Dict,
-    Iterable,
     Callable,
     Iterator,
     Union,

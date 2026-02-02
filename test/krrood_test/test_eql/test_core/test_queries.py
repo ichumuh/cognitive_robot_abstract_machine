@@ -888,39 +888,6 @@ def test_distinct_on():
     }
 
 
-def test_max_min_no_variable():
-    values = [2, 1, 3, 5, 4]
-    value = variable(int, domain=values)
-
-    max_query = eql.max(entity(value))
-    assert list(max_query.evaluate())[0] == max(values)
-
-    min_query = eql.min(entity(value))
-    assert list(min_query.evaluate())[0] == min(values)
-
-
-def test_max_min_without_entity():
-    values = [2, 1, 3, 5, 4]
-    value = variable(int, domain=values)
-
-    max_query = eql.max(value)
-    assert list(max_query.evaluate())[0] == max(values)
-
-    min_query = eql.min(value)
-    assert list(min_query.evaluate())[0] == min(values)
-
-
-def test_max_min_with_empty_list():
-    empty_list = []
-    value = variable(int, domain=empty_list)
-
-    max_query = eql.max(entity(value))
-    assert list(max_query.evaluate())[0] is None
-
-    min_query = eql.min(entity(value))
-    assert list(min_query.evaluate())[0] is None
-
-
 def test_order_by_key():
     names = ["Handle1", "handle2", "Handle3", "container1", "Container2", "container3"]
     body_name = variable(str, domain=names)

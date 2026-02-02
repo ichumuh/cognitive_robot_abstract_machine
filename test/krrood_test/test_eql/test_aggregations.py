@@ -2,6 +2,7 @@ import krrood.entity_query_language.entity_result_processors as eql
 from krrood.entity_query_language.entity import (
     variable,
     variable_from,
+    entity,
 )
 from ..dataset.semantic_world_like_classes import Cabinet
 
@@ -93,3 +94,36 @@ def test_max_count_per(handles_and_containers_world):
         if isinstance(c, Cabinet) and len(c.drawers) > expected:
             expected = len(c.drawers)
     assert result_max == expected
+
+
+def test_max_min_no_variable():
+    values = [2, 1, 3, 5, 4]
+    value = variable(int, domain=values)
+
+    max_query = eql.max(entity(value))
+    assert list(max_query.evaluate())[0] == max(values)
+
+    min_query = eql.min(entity(value))
+    assert list(min_query.evaluate())[0] == min(values)
+
+
+def test_max_min_without_entity():
+    values = [2, 1, 3, 5, 4]
+    value = variable(int, domain=values)
+
+    max_query = eql.max(value)
+    assert list(max_query.evaluate())[0] == max(values)
+
+    min_query = eql.min(value)
+    assert list(min_query.evaluate())[0] == min(values)
+
+
+def test_max_min_with_empty_list():
+    empty_list = []
+    value = variable(int, domain=empty_list)
+
+    max_query = eql.max(entity(value))
+    assert list(max_query.evaluate())[0] is None
+
+    min_query = eql.min(entity(value))
+    assert list(min_query.evaluate())[0] is None
