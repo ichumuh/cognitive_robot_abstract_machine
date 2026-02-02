@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Self
 
+import numpy as np
+
 from .robot_mixins import HasNeck, SpecifiesLeftRightArm
 from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.joint_state import JointState
@@ -197,12 +199,12 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             icub3.add_torso(torso)
 
             # Create states
-            left_arm_park = JointState(
+            left_arm_park = JointState.from_mapping(
                 name=PrefixedName("left_arm_park", prefix=icub3.name.name),
                 mapping=dict(
                     zip(
                         [c for c in left_arm.connections if type(c) != FixedConnection],
-                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        [0.0] * len(list(left_arm.connections)),
                     )
                 ),
                 state_type=StaticJointState.PARK,
@@ -210,7 +212,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_arm.add_joint_state(left_arm_park)
 
-            right_arm_park = JointState(
+            right_arm_park = JointState.from_mapping(
                 name=PrefixedName("right_arm_park", prefix=icub3.name.name),
                 mapping=dict(
                     zip(
@@ -219,7 +221,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                             for c in right_arm.connections
                             if type(c) != FixedConnection
                         ],
-                        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                        [0.0] * len(list(right_arm.connections)),
                     )
                 ),
                 state_type=StaticJointState.PARK,
@@ -231,64 +233,43 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 c for c in left_gripper.connections if type(c) != FixedConnection
             ]
 
-            left_gripper_open = JointState(
+            left_gripper_open = JointState.from_mapping(
                 name=PrefixedName("left_gripper_open", prefix=icub3.name.name),
                 mapping=dict(
                     zip(
                         left_gripper_joints,
-                        [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        ],
+                        [0.0] * len(list(left_gripper_joints)),
                     )
                 ),
                 state_type=GripperState.OPEN,
             )
 
-            left_gripper_close = JointState(
+            left_gripper_close = JointState.from_mapping(
                 name=PrefixedName("left_gripper_close", prefix=icub3.name.name),
                 mapping=dict(
                     zip(
                         left_gripper_joints,
                         [
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             -0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                         ],
                     )
                 ),
@@ -302,64 +283,43 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 c for c in right_gripper.connections if type(c) != FixedConnection
             ]
 
-            right_gripper_open = JointState(
+            right_gripper_open = JointState.from_mapping(
                 name=PrefixedName("right_gripper_open", prefix=icub3.name.name),
                 mapping=dict(
                     zip(
                         right_gripper_joints,
-                        [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        ],
+                        [0.0] * len(list(right_gripper_joints)),
                     )
                 ),
                 state_type=GripperState.OPEN,
             )
 
-            right_gripper_close = JointState(
+            right_gripper_close = JointState.from_mapping(
                 name=PrefixedName("right_gripper_close", prefix=icub3.name.name),
                 mapping=dict(
                     zip(
                         right_gripper_joints,
                         [
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             -0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                             0.3490658503988659,
-                            1.5707963267948966,
-                            1.5707963267948966,
-                            1.5707963267948966,
+                            np.pi / 2,
+                            np.pi / 2,
+                            np.pi / 2,
                         ],
                     )
                 ),
@@ -371,19 +331,19 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_joint = [world.get_connection_by_name("torso_roll")]
 
-            torso_low = JointState(
+            torso_low = JointState.from_mapping(
                 name=PrefixedName("torso_low", prefix=icub3.name.name),
                 mapping=dict(zip(torso_joint, [0.0])),
                 state_type=TorsoState.LOW,
             )
 
-            torso_mid = JointState(
+            torso_mid = JointState.from_mapping(
                 name=PrefixedName("torso_mid", prefix=icub3.name.name),
                 mapping=dict(zip(torso_joint, [0.0])),
                 state_type=TorsoState.MID,
             )
 
-            torso_high = JointState(
+            torso_high = JointState.from_mapping(
                 name=PrefixedName("torso_high", prefix=icub3.name.name),
                 mapping=dict(zip(torso_joint, [0.0])),
                 state_type=TorsoState.HIGH,

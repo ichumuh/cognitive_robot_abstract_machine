@@ -152,7 +152,7 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             )
             armar.add_torso(torso)
 
-            left_arm_park = JointState(
+            left_arm_park = JointState.from_mapping(
                 name=PrefixedName("left_arm_park", prefix=armar.name.name),
                 mapping=dict(
                     zip(
@@ -165,7 +165,7 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_arm.add_joint_state(left_arm_park)
 
-            right_arm_park = JointState(
+            right_arm_park = JointState.from_mapping(
                 name=PrefixedName("right_arm_park", prefix=armar.name.name),
                 mapping=dict(
                     zip(
@@ -186,53 +186,23 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 c for c in left_gripper.connections if type(c) != FixedConnection
             ]
 
-            left_gripper_open = JointState(
+            left_gripper_open = JointState.from_mapping(
                 name=PrefixedName("left_gripper_open", prefix=armar.name.name),
                 mapping=dict(
                     zip(
                         left_gripper_joints,
-                        [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        ],
+                        [0] * len(left_gripper_joints),
                     )
                 ),
                 state_type=GripperState.OPEN,
             )
 
-            left_gripper_close = JointState(
+            left_gripper_close = JointState.from_mapping(
                 name=PrefixedName("left_gripper_close", prefix=armar.name.name),
                 mapping=dict(
                     zip(
                         left_gripper_joints,
-                        [
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                        ],
+                        [1.57] * len(left_gripper_joints),
                     )
                 ),
                 state_type=GripperState.CLOSE,
@@ -245,53 +215,23 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 c for c in right_gripper.connections if type(c) != FixedConnection
             ]
 
-            right_gripper_open = JointState(
+            right_gripper_open = JointState.from_mapping(
                 name=PrefixedName("right_gripper_open", prefix=armar.name.name),
                 mapping=dict(
                     zip(
                         right_gripper_joints,
-                        [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                        ],
+                        [0] * len(right_gripper_joints),
                     )
                 ),
                 state_type=GripperState.OPEN,
             )
 
-            right_gripper_close = JointState(
+            right_gripper_close = JointState.from_mapping(
                 name=PrefixedName("right_gripper_close", prefix=armar.name.name),
                 mapping=dict(
                     zip(
                         right_gripper_joints,
-                        [
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                            1.57,
-                        ],
+                        [1.57] * len(right_gripper_joints),
                     )
                 ),
                 state_type=GripperState.CLOSE,
@@ -302,19 +242,19 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             torso_joint = [world.get_connection_by_name("torso_joint")]
 
-            torso_low = JointState(
+            torso_low = JointState.from_mapping(
                 name=PrefixedName("torso_low", prefix=armar.name.name),
                 mapping=dict(zip(torso_joint, [-0.365])),
                 state_type=TorsoState.LOW,
             )
 
-            torso_mid = JointState(
+            torso_mid = JointState.from_mapping(
                 name=PrefixedName("torso_mid", prefix=armar.name.name),
                 mapping=dict(zip(torso_joint, [-0.185])),
                 state_type=TorsoState.MID,
             )
 
-            torso_high = JointState(
+            torso_high = JointState.from_mapping(
                 name=PrefixedName("torso_high", prefix=armar.name.name),
                 mapping=dict(zip(torso_joint, [0.0])),
                 state_type=TorsoState.HIGH,

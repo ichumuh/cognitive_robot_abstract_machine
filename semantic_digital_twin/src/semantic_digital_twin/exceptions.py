@@ -38,6 +38,9 @@ if TYPE_CHECKING:
 
 @dataclass
 class NoJointStateWithType(DataclassException):
+    """
+    Raised when a JointState type is search which is not defined
+    """
 
     joint_state: JointStateType
 
