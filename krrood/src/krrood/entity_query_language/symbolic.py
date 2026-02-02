@@ -537,7 +537,7 @@ class Aggregator(ResultProcessor[T], ABC):
         parent: Optional[SymbolicExpression] = None,
     ) -> Iterable[OperationResult]:
         sources = sources or {}
-        if self._id_ in sources:
+        if self._binding_id_ in sources:
             yield OperationResult(sources, False, self)
             return
 
@@ -545,33 +545,46 @@ class Aggregator(ResultProcessor[T], ABC):
         if self._per_ is None:
             values = self._apply_aggregation_function_(child_results)
         else:
-            # Grouping logic
-            groups = defaultdict(list)
-            for res in child_results:
-                per_values = tuple(
-                    next(per._evaluate__(res.bindings, parent=self)).value
-                    for per in self._per_
-                )
-                groups[per_values].append(res)
+            groups = self._group_child_results_(child_results)
+            values = self._aggregation_per_group_(groups)
 
-            values = []
-            for per_values, group_res in groups.items():
-                agg_results = self._apply_aggregation_function_(group_res)
-                per_id_value_dict = {
-                    per._id_: per_val for per, per_val in zip(self._per_, per_values)
-                }
-                for agg_res in agg_results:
-                    values.append({**agg_res, **per_id_value_dict})
-
-        entered = False
         for value in values:
-            entered = True
             yield OperationResult({**sources, **value}, False, self)
-        if not entered:
-            # If the aggregator returns no results, return the default value for the aggregator.
-            yield OperationResult(
-                {**sources, self._id_: self._default_value_}, False, self
+
+    def _group_child_results_(
+        self, child_results: Iterable[OperationResult]
+    ) -> Dict[Tuple, List[OperationResult]]:
+        """
+        Group child results by the values of the per variables.
+
+        :param child_results: The child results to be grouped.
+        :return: A dictionary mapping the per values to the child results that belong to that group.
+        """
+        groups = defaultdict(list)
+        for res in child_results:
+            per_values = tuple(
+                next(per._evaluate__(res.bindings, parent=self)).value
+                for per in self._per_
             )
+            groups[per_values].append(res)
+        return groups
+
+    def _aggregation_per_group_(
+        self, groups: Dict[Tuple, List[OperationResult]]
+    ) -> Iterable[Dict[int, Any]]:
+        """
+        Apply the aggregation function per child result group.
+
+        :param groups: The grouped child results.
+        :return: An iterable of dictionaries containing the aggregated results and the per values.
+        """
+        for per_values, group_res in groups.items():
+            agg_results = self._apply_aggregation_function_(group_res)
+            per_id_value_dict = {
+                per._id_: per_val for per, per_val in zip(self._per_, per_values)
+            }
+            for agg_res in agg_results:
+                yield {**agg_res, **per_id_value_dict}
 
     @abstractmethod
     def _apply_aggregation_function_(
@@ -653,6 +666,8 @@ class Sum(EntityAggregator[T]):
             sum_val += val
         if entered:
             yield {self._binding_id_: sum_val}
+        else:
+            yield {self._binding_id_: self._default_value_}
 
 
 @dataclass(eq=False, repr=False)
@@ -675,6 +690,8 @@ class Average(EntityAggregator[T]):
             count += 1
         if count:
             yield {self._binding_id_: sum_val / count}
+        else:
+            yield {self._binding_id_: self._default_value_}
 
 
 @dataclass(eq=False, repr=False)
@@ -699,7 +716,7 @@ class Extreme(EntityAggregator[T], ABC):
         except ValueError:
             # Means that the child results were empty, so do not return any results,
             # the default value will be returned instead (see Aggregator._evaluate__)
-            pass
+            yield {self._binding_id_: self._default_value_}
 
     @property
     @abstractmethod
