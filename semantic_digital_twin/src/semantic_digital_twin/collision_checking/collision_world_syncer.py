@@ -47,21 +47,21 @@ class CollisionWorldSynchronizer:
     world: World
     robots: Set[AbstractRobot]
 
-    collision_detector: CollisionDetector = None
-    matrix_manager: CollisionManager = field(init=False)
+    # collision_detector: CollisionDetector = None
+    # matrix_manager: CollisionManager = field(init=False)
 
-    collision_matrix: Set[CollisionCheck] = field(default_factory=set)
+    # collision_matrix: Set[CollisionCheck] = field(default_factory=set)
 
-    external_monitored_links: Dict[Body, int] = field(default_factory=dict)
-    self_monitored_links: Dict[Tuple[Body, Body], int] = field(default_factory=dict)
+    # external_monitored_links: Dict[Body, int] = field(default_factory=dict)
+    # self_monitored_links: Dict[Tuple[Body, Body], int] = field(default_factory=dict)
     world_model_version: int = -1
 
-    external_collision_data: np.ndarray = field(
-        default_factory=lambda: np.zeros(0, dtype=float)
-    )
-    self_collision_data: np.ndarray = field(
-        default_factory=lambda: np.zeros(0, dtype=float)
-    )
+    # external_collision_data: np.ndarray = field(
+    #     default_factory=lambda: np.zeros(0, dtype=float)
+    # )
+    # self_collision_data: np.ndarray = field(
+    #     default_factory=lambda: np.zeros(0, dtype=float)
+    # )
 
     collision_list_sizes: int = 1000
 
@@ -71,35 +71,35 @@ class CollisionWorldSynchronizer:
     def __hash__(self):
         return hash(id(self))
 
-    def sync(self):
-        if self.has_world_model_changed():
-            self.collision_detector.sync_world_model()
-        self.collision_detector.sync_world_state()
+    # def sync(self):
+    #     if self.has_world_model_changed():
+    #         self.collision_detector.sync_world_model()
+    #     self.collision_detector.sync_world_state()
 
-    def has_world_model_changed(self) -> bool:
-        if self.world_model_version != self.world.get_world_model_manager().version:
-            self.world_model_version = self.world.get_world_model_manager().version
-            return True
-        return False
+    # def has_world_model_changed(self) -> bool:
+    #     if self.world_model_version != self.world.get_world_model_manager().version:
+    #         self.world_model_version = self.world.get_world_model_manager().version
+    #         return True
+    #     return False
 
-    def set_collision_matrix(self, collision_matrix):
-        self.collision_matrix = collision_matrix
+    # def set_collision_matrix(self, collision_matrix):
+    #     self.collision_matrix = collision_matrix
 
-    def check_collisions(self) -> Collisions:
-        collisions = self.collision_detector.check_collisions(self.collision_matrix)
-        self.closest_points = Collisions.from_collision_list(
-            collisions, self.collision_list_sizes, robots=list(self.robots)
-        )
-        return self.closest_points
+    # def check_collisions(self) -> Collisions:
+    #     collisions = self.collision_detector.check_collisions(self.collision_matrix)
+    #     self.closest_points = Collisions.from_collision_list(
+    #         collisions, self.collision_list_sizes, robots=list(self.robots)
+    #     )
+    #     return self.closest_points
 
-    def is_collision_checking_enabled(self) -> bool:
-        return not isinstance(self.collision_detector, NullCollisionDetector)
+    # def is_collision_checking_enabled(self) -> bool:
+    #     return not isinstance(self.collision_detector, NullCollisionDetector)
 
     # %% external collision symbols
-    def monitor_link_for_external(self, body: Body, idx: int):
-        self.external_monitored_links[body] = max(
-            idx, self.external_monitored_links.get(body, 0)
-        )
+    # def monitor_link_for_external(self, body: Body, idx: int):
+    #     self.external_monitored_links[body] = max(
+    #         idx, self.external_monitored_links.get(body, 0)
+    #     )
 
     def reset_cache(self):
         self.collision_detector.reset_cache()
