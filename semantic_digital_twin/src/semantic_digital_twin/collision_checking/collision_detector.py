@@ -168,8 +168,8 @@ class Collision:
 
     def reverse(self):
         return Collision.from_parts(
-            body_a=self.original_body_b,
-            body_b=self.original_body_a,
+            body_a=self.body_b,
+            body_b=self.body_a,
             root_P_pa=self.root_P_pb,
             root_P_pb=self.root_P_pa,
             root_V_n=-self.root_V_n,

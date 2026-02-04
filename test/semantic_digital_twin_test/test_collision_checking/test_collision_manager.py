@@ -248,8 +248,14 @@ class TestExternalCollisionExpressionManager:
     def test_simple(self, cylinder_bot_world):
         robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
         collision_manager = cylinder_bot_world.collision_manager
+        collision_manager.normal_priority_rules.append(
+            AvoidAllCollisions(
+                buffer_zone_distance=10, bodies=cylinder_bot_world.bodies_with_collision
+            )
+        )
         collision_manager.add_collision_consumer(
             external_collisions := ExternalCollisionExpressionManager(robot)
         )
+        external_collisions.register_body(robot.root, number_of_potential_collisions=2)
         collision_manager.compute_collisions()
         pass

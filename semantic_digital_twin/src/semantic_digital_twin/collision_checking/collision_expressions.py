@@ -73,7 +73,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
 
     def on_compute_collisions(self, collision: CollisionCheckingResult):
         """
-        Takes collisions, checks if they are external and inserts them
+        Takes collisions, checks if they are external, and inserts them
         into the buffer at the right place.
         """
         closest_contacts: dict[Body, list[Collision]] = {}
@@ -81,12 +81,11 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             # 1. check if collision is external
             if (
                 collision.body_a not in self.registered_bodies
-                and collision.body_b in self.registered_bodies
+                and collision.body_b not in self.registered_bodies
             ):
-                collision = collision.reverse()
-            else:
-                # neither body_a nor body_b are registered, so collision doesn't belong to this robot.
                 continue
+            if collision.body_a not in self.registered_bodies:
+                collision = collision.reverse()
 
             group1 = self.get_collision_group(collision.body_a)
             group1_T_root = group1.root.global_pose.inverse().to_np()
@@ -98,7 +97,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
                 root_V_contact_normal=collision.root_V_n,
                 contact_distance=collision.contact_distance,
                 buffer_distance=max(
-                    self.get_buffer_zone_distance(collision.body_a),
+                    self.geb(collision.body_a),
                     self.get_buffer_zone_distance(collision.body_b),
                 ),
                 violated_distance=max(

@@ -46,6 +46,8 @@ class CollisionGroup:
 
 @dataclass
 class CollisionConsumer(ABC):
+    collision_manager: CollisionManager = field(init=False)
+
     @abstractmethod
     def on_reset(self):
         """
@@ -145,6 +147,7 @@ class CollisionManager(ModelChangeCallback):
 
     def add_collision_consumer(self, consumer: CollisionConsumer):
         self.collision_consumers.append(consumer)
+        consumer.collision_manager = self
         consumer.on_world_model_update(self.world)
 
     def reset_consumers(self):
@@ -181,8 +184,6 @@ class CollisionManager(ModelChangeCallback):
     def get_buffer_zone_distance(self, body: Body) -> float: ...
 
     def get_violated_violated_distance(self, body: Body) -> float: ...
-
-    def get_possible_collision_bodies(self, body: Body) -> set[Body]: ...
 
     @property
     def rules(self) -> List[CollisionRule]:
