@@ -142,6 +142,19 @@ def cylinder_bot_world():
         )
         world.add_connection(env_connection)
 
+        environment2 = Body(
+            name=PrefixedName("environment2"),
+            collision=ShapeCollection(shapes=[Cylinder(width=0.5, height=0.5)]),
+        )
+        env_connection2 = FixedConnection(
+            parent=body,
+            child=environment2,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                y=1
+            ),
+        )
+        world.add_connection(env_connection2)
+
         connection = OmniDrive.create_with_dofs(
             world=world, parent=body, child=robot_world.root
         )

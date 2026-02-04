@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Self
 
 from pkg_resources import resource_filename
 
@@ -27,6 +28,7 @@ from ..robots.abstract_robot import (
     Base,
 )
 from ..spatial_types import Quaternion, Vector3
+from ..world import World
 from ..world_description.connections import ActiveConnection, FixedConnection
 
 
@@ -36,6 +38,14 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
     Represents the Personal Robot 2 (PR2), which was originally created by Willow Garage.
     The PR2 robot consists of two arms, each with a parallel gripper, a head with a camera, and a prismatic torso
     """
+
+    @classmethod
+    def _init_empty_robot(cls, world: World) -> Self:
+        return cls(
+            name=PrefixedName(name="pr2", prefix=world.name),
+            root=world.get_body_by_name("base_footprint"),
+            _world=world,
+        )
 
     def _setup_collision_rules(self):
         """

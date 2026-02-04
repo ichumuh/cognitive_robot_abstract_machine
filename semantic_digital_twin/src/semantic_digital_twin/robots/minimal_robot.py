@@ -9,7 +9,6 @@ from ..robots.abstract_robot import (
     AbstractRobot,
 )
 from ..world import World
-from ..world_description.world_entity import Body
 
 
 @dataclass
@@ -27,25 +26,25 @@ class MinimalRobot(AbstractRobot):
             )
         )
 
-    def setup_collision_rules(self):
-        pass
+    def _setup_semantic_annotations(self): ...
 
     @classmethod
-    def from_world(cls, world: World) -> Self:
-        """
-        Creates a minimal semantic robot annotation from the given world, starting at root_body
-        """
+    def _init_empty_robot(cls, world: World) -> Self:
+        return cls(
+            name=PrefixedName(name="generic_robot", prefix=world.name),
+            root=world.root,
+            _world=world,
+        )
 
-        with world.modify_world():
-            robot = cls(
-                name=PrefixedName(name="generic_robot", prefix=world.name),
-                root=world.root,
-                _world=world,
-            )
+    def _setup_collision_rules(self):
+        pass
 
-            world.add_semantic_annotation(robot)
+    def _setup_velocity_limits(self):
+        vel_limits = defaultdict(lambda: 1.0)
+        self.tighten_dof_velocity_limits_of_1dof_connections(new_limits=vel_limits)
 
-            vel_limits = defaultdict(lambda: 1.0)
-            robot.tighten_dof_velocity_limits_of_1dof_connections(new_limits=vel_limits)
+    def _setup_hardware_interfaces(self):
+        pass
 
-        return robot
+    def _setup_joint_states(self):
+        pass

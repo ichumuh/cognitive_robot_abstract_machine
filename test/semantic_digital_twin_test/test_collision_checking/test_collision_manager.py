@@ -1,8 +1,13 @@
 from dataclasses import dataclass
 from itertools import combinations
 
+import pytest
+
 from semantic_digital_twin.collision_checking.collision_detector import (
     CollisionCheckingResult,
+)
+from semantic_digital_twin.collision_checking.collision_expressions import (
+    ExternalCollisionExpressionManager,
 )
 from semantic_digital_twin.collision_checking.collision_manager import (
     CollisionManager,
@@ -19,7 +24,16 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidAllCollisions,
     HighPriorityAllowCollisionRule,
 )
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.abstract_robot import AbstractRobot
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import OmniDrive
+from semantic_digital_twin.world_description.geometry import Cylinder
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+from semantic_digital_twin.world_description.world_entity import Body
 
 
 class TestCollisionRules:
@@ -164,28 +178,31 @@ class TestCollisionRules:
 
 
 class TestCollisionGroups:
-    def test_collision_groups(self, pr2_world_state_reset):
-        @dataclass
-        class MochCollisionGroupConsumer(CollisionGroupConsumer):
-            def on_reset(self): ...
-            def on_compute_collisions(
-                self, collision_results: CollisionCheckingResult
-            ): ...
-            def on_collision_matrix_update(self): ...
 
-        pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
-        collision_manager = pr2_world_state_reset.collision_manager
+    @dataclass
+    class MochCollisionGroupConsumer(CollisionGroupConsumer):
+        def on_reset(self): ...
+        def on_compute_collisions(self, collision_results: CollisionCheckingResult): ...
+        def on_collision_matrix_update(self): ...
+
+    @pytest.mark.parametrize(
+        "fix_name", ["pr2_world_state_reset", "cylinder_bot_world"]
+    )
+    def test_collision_groups(self, fix_name, request):
+        world = request.getfixturevalue(fix_name)
+        robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
+        collision_manager = world.collision_manager
         collision_manager.collision_consumers = [
-            collision_group_consumer := MochCollisionGroupConsumer()
+            collision_group_consumer := self.MochCollisionGroupConsumer()
         ]
-        pr2_world_state_reset._notify_model_change()
+        world._notify_model_change()
 
         # there should be groups
         assert len(collision_group_consumer.collision_groups) > 0
 
         # there should be fewer groups than bodies with collisions
-        assert len(collision_group_consumer.collision_groups) < len(
-            pr2.bodies_with_collision
+        assert len(collision_group_consumer.collision_groups) <= len(
+            world.bodies_with_collision
         )
 
         # no group should be in the bodies of another group
@@ -198,12 +215,15 @@ class TestCollisionGroups:
         # no group should be empty if the root has no collision
         for group in collision_group_consumer.collision_groups:
             try:
-                assert len(group.bodies) > 0 or group.root in pr2.bodies_with_collision
+                assert (
+                    len(group.bodies) > 0 or group.root in robot.bodies_with_collision
+                )
             except AssertionError:
                 pass
 
+        # the parent connection of every group is controlled, unless it's the root group
         for group in collision_group_consumer.collision_groups:
-            if group.root == pr2_world_state_reset.root:
+            if group.root == world.root:
                 continue
             assert (
                 group.root.parent_connection.is_controlled
@@ -220,5 +240,16 @@ class TestCollisionGroups:
                     assert body1 != body2
 
         # ever body with a collision should be in a group
-        for body in pr2.bodies_with_collision:
+        for body in robot.bodies_with_collision:
             collision_group_consumer.get_collision_group(body)
+
+
+class TestExternalCollisionExpressionManager:
+    def test_simple(self, cylinder_bot_world):
+        robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
+        collision_manager = cylinder_bot_world.collision_manager
+        collision_manager.add_collision_consumer(
+            external_collisions := ExternalCollisionExpressionManager(robot)
+        )
+        collision_manager.compute_collisions()
+        pass

@@ -54,13 +54,13 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
     Repeats blocks of size block_size.
     """
 
-    block_size: int = field(default=12, init=False)
+    block_size: int = field(default=9, init=False)
     """
     block layout:
-        12 per collision
+        9 per collision
         point_on_body_a,  (3)
-        contact_distance, (1)
         contract_normal,  (3)
+        contact_distance, (1)
         buffer_distance,  (1)
         violated_distance (1)
     """
@@ -76,36 +76,55 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
         Takes collisions, checks if they are external and inserts them
         into the buffer at the right place.
         """
+        closest_contacts: dict[Body, list[Collision]] = {}
         for collision in collision.contacts:
             # 1. check if collision is external
-            if collision.body_a not in self.registered_bodies and collision.body_b in self.registered_bodies:
+            if (
+                collision.body_a not in self.registered_bodies
+                and collision.body_b in self.registered_bodies
+            ):
                 collision = collision.reverse()
             else:
                 # neither body_a nor body_b are registered, so collision doesn't belong to this robot.
                 continue
+
             group1 = self.get_collision_group(collision.body_a)
             group1_T_root = group1.root.global_pose.inverse().to_np()
             group1_P_pa = group1_T_root @ collision.root_P_pa
-            data = np.concatenate(
-                (
-                    group1_P_pa,
-                    group2_P_pb,
-                    collision.root_V_n,
-                    collision.contact_distance,
-                    max(
-                        self.get_buffer_zone_distance(collision.body_a),
-                        self.get_buffer_zone_distance(collision.body_b),
-                    ),
-                    max(
-                        self.get_violated_violated_distance(collision.body_a),
-                        self.get_violated_violated_distance(collision.body_b),
-                    ),
-                )
+            self.insert_data_block(
+                body=group1.root,
+                idx=0,
+                group1_P_point_on_a=group1_P_pa,
+                root_V_contact_normal=collision.root_V_n,
+                contact_distance=collision.contact_distance,
+                buffer_distance=max(
+                    self.get_buffer_zone_distance(collision.body_a),
+                    self.get_buffer_zone_distance(collision.body_b),
+                ),
+                violated_distance=max(
+                    self.get_violated_violated_distance(collision.body_a),
+                    self.get_violated_violated_distance(collision.body_b),
+                ),
             )
         # 3. transform collision into group frames
         # 4. insert collision into buffer
 
-    def insert_data_block(self, body, idx, group1_P_point_on_a, ) -> np.ndarray:
+    def insert_data_block(
+        self,
+        body: KinematicStructureEntity,
+        idx: int,
+        group1_P_point_on_a: np.ndarray,
+        root_V_contact_normal: np.ndarray,
+        contact_distance: float,
+        buffer_distance: float,
+        violated_distance: float,
+    ):
+        start_idx = self.registered_bodies[body] + idx * self.block_size
+        self.collision_data[start_idx : start_idx + 3] = group1_P_point_on_a[:3]
+        self.collision_data[start_idx + 3 : start_idx + 6] = root_V_contact_normal[:3]
+        self.collision_data[start_idx + 6] = contact_distance
+        self.collision_data[start_idx + 7] = buffer_distance
+        self.collision_data[start_idx + 8] = violated_distance
 
     def register_body(self, body: Body, number_of_potential_collisions: int):
         """
@@ -251,35 +270,3 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             name=str(PrefixedName(f"len(closest_point({body.name}))")),
             provider=provider,
         )
-
-    def transform_to_collision_groups(
-        self, collision_results: CollisionCheckingResult
-    ) -> CollisionGroupResults:
-        result = CollisionGroupResults()
-        for collision in collision_results.contacts:
-            group1 = self.get_collision_group(collision.body_a)
-            group2 = self.get_collision_group(collision.body_b)
-            if group1 == group2:
-                raise YouFoundABugError(
-                    message="Collision between two bodies in the same group."
-                )
-            group1_T_root = group1.root.global_pose.inverse().to_np()
-            group2_T_root = group2.root.global_pose.inverse().to_np()
-            group1_P_pa = group1_T_root @ collision.root_P_pa
-            group2_P_pb = group2_T_root @ collision.root_P_pb
-            data = np.concatenate(
-                (
-                    group1_P_pa,
-                    group2_P_pb,
-                    collision.root_V_n,
-                    collision.contact_distance,
-                    max(
-                        self.get_buffer_zone_distance(collision.body_a),
-                        self.get_buffer_zone_distance(collision.body_b),
-                    ),
-                    max(
-                        self.get_violated_violated_distance(collision.body_a),
-                        self.get_violated_violated_distance(collision.body_b),
-                    ),
-                )
-            )

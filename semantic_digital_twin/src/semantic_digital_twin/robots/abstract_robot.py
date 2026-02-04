@@ -478,17 +478,18 @@ class AbstractRobot(Agent, ABC):
         :return: A robot semantic annotation.
         """
         with world.modify_world():
-            robot = cls(
-                name=PrefixedName(name="pr2", prefix=world.name),
-                root=world.get_body_by_name("base_footprint"),
-                _world=world,
-            )
+            robot = cls._init_empty_robot(world)
+            world.add_semantic_annotation(robot)
             robot._setup_semantic_annotations()
             robot._setup_collision_rules()
             robot._setup_velocity_limits()
             robot._setup_hardware_interfaces()
             robot._setup_joint_states()
         return robot
+
+    @classmethod
+    @abstractmethod
+    def _init_empty_robot(cls, world: World) -> Self: ...
 
     @abstractmethod
     def _setup_semantic_annotations(self): ...

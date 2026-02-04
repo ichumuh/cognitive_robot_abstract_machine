@@ -74,18 +74,16 @@ class CollisionGroupConsumer(CollisionConsumer, ABC):
         self.update_collision_groups(world)
 
     def update_collision_groups(self, world: World):
-        self.collision_groups = []
+        self.collision_groups = [CollisionGroup(world.root)]
         for parent, childs in rustworkx.bfs_successors(
             world.kinematic_structure, world.root.index
         ):
-            try:
-                collision_group = self.get_collision_group(parent)
-            except Exception:
-                collision_group = CollisionGroup(parent)
-                self.collision_groups.append(collision_group)
+            collision_group = self.get_collision_group(parent)
             for child in childs:
                 parent_C_child = world.get_connection(parent, child)
-                if not parent_C_child.is_controlled:
+                if parent_C_child.is_controlled:
+                    self.collision_groups.append(CollisionGroup(child))
+                else:
                     collision_group.bodies.add(child)
 
         for group in self.collision_groups:
@@ -144,6 +142,10 @@ class CollisionManager(ModelChangeCallback):
                 rule.update(self.world)
         for consumer in self.collision_consumers:
             consumer.on_world_model_update(self.world)
+
+    def add_collision_consumer(self, consumer: CollisionConsumer):
+        self.collision_consumers.append(consumer)
+        consumer.on_world_model_update(self.world)
 
     def reset_consumers(self):
         for consumer in self.collision_consumers:
