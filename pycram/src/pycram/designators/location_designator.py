@@ -248,10 +248,6 @@ class CostmapLocation(LocationDesignatorDescription):
             test_world = deepcopy(self.world)
             test_world.name = "Test World"
 
-            node = rclpy.create_node("Location")
-            VizMarkerPublisher(test_world, node)
-            TFPublisher(test_world, node)
-
             params_box = Box(params)
             # Target is either a pose or an object since the object is later needed for the visibility validator
             target = (
