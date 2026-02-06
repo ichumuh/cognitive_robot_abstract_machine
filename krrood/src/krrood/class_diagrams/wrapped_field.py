@@ -100,10 +100,15 @@ class WrappedField:
         """
         Resolve the type hint for this field.
 
-        Handles forward references by iteratively building a namespace with
-        classes from the class diagram and sys.modules until all references
-        are resolved.
+        If the field's type is already a concrete (non-string) type hint,
+        return it directly. Otherwise, resolve forward references by
+        iteratively building a namespace with classes from the class diagram
+        and sys.modules until all references are resolved.
         """
+        # Fast path: already-resolved type (e.g., provided by specialized generic introspector)
+        if not isinstance(self.field.type, str):
+            return self.field.type
+
         local_namespace = self._build_initial_namespace()
 
         while True:

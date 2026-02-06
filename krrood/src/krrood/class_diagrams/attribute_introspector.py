@@ -76,15 +76,31 @@ class SpecializedGenericDataclassIntrospector(AttributeIntrospector):
         substitution = dict(zip(parameters, type_args))
 
         def resolve(type_hint):
+            # Handle string-based annotations (from __future__ annotations)
+            if isinstance(type_hint, str):
+                # Try to map string names of TypeVars to actual substitutions
+                for param in parameters:
+                    if param.__name__ == type_hint:
+                        return substitution.get(param, param)
+                return type_hint
+            # Handle real TypeVars
             if isinstance(type_hint, TypeVar):
                 return substitution.get(type_hint, type_hint)
             origin_hint = get_origin(type_hint)
             if origin_hint:
                 args = get_args(type_hint)
                 resolved_args = tuple(resolve(arg) for arg in args)
+                # Reconstruct the generic with resolved args
                 return origin_hint[resolved_args]
             return type_hint
 
-        fields = [DiscoveredAttribute(public_name=f.name, field=resolve(copy.copy(f))) for f in dataclasses.fields(origin)]
-        return fields
+        discovered_attributes: List[DiscoveredAttribute] = []
+        for f in dataclasses.fields(origin):
+            # Create a shallow copy of the dataclass field and update its type hint
+            resolved_field = copy.copy(f)
+            resolved_field.type = resolve(f.type)
+            discovered_attributes.append(
+                DiscoveredAttribute(public_name=f.name, field=resolved_field)
+            )
+        return discovered_attributes
 

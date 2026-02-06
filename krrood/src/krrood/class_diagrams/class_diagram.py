@@ -29,7 +29,8 @@ from typing_extensions import (
 
 from .attribute_introspector import (
     AttributeIntrospector,
-    DataclassOnlyIntrospector, SpecializedGenericDataclassIntrospector,
+    DataclassOnlyIntrospector,
+    SpecializedGenericDataclassIntrospector,
 )
 from .utils import Role, get_generic_type_param
 from .wrapped_field import WrappedField
@@ -183,6 +184,7 @@ class WrappedSpecializedGeneric(WrappedClass):
     """
     Specialization of WrappedClass for completely parameterized generic types, e.g. Generic[float].
     """
+
     def _get_introspector(self) -> AttributeIntrospector:
         return SpecializedGenericDataclassIntrospector()
 
@@ -191,11 +193,12 @@ class WrappedSpecializedGeneric(WrappedClass):
         """
         :return: The type arguments of the generic type.
         """
-        return  get_args(self.clazz)
+        return get_args(self.clazz)
 
     @property
     def name(self):
         return f"{self.clazz.__name__}_{'_'.join(map(str, self.type_arguments))}"
+
 
 @dataclass
 class ClassDiagram:
@@ -219,6 +222,7 @@ class ClassDiagram:
         self._dependency_graph = rx.PyDiGraph()
         for clazz in classes:
             self.add_node(WrappedClass(clazz=clazz))
+        self._create_nodes_for_specialized_generic_type_hints()
         self._create_all_relations()
 
     def get_associations_with_condition(
@@ -698,5 +702,3 @@ class ClassDiagram:
 
                 node = WrappedSpecializedGeneric(wrapped_field.type_endpoint)
                 self.add_node(node)
-
-
