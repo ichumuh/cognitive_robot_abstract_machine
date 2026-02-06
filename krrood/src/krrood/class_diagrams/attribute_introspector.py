@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import copy
+import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, Field, is_dataclass
 from dataclasses import fields as dc_fields
 
-from typing_extensions import List, Type, Optional, TYPE_CHECKING
+from typing_extensions import List, Type, Optional, TYPE_CHECKING, get_origin, get_args, TypeVar
 
 if TYPE_CHECKING:
     from ..ontomatic.property_descriptor import PropertyDescriptor
@@ -63,3 +65,26 @@ class DataclassOnlyIntrospector(AttributeIntrospector):
 
     def skip_field(self, field_: Field) -> bool:
         return field_.name.startswith("_") or not field_.init
+
+
+@dataclass
+class SpecializedGenericDataclassIntrospector(AttributeIntrospector):
+    def discover(self, owner_cls: Type) -> List[DiscoveredAttribute]:
+        origin = get_origin(owner_cls)
+        type_args = get_args(owner_cls)
+        parameters = origin.__parameters__
+        substitution = dict(zip(parameters, type_args))
+
+        def resolve(type_hint):
+            if isinstance(type_hint, TypeVar):
+                return substitution.get(type_hint, type_hint)
+            origin_hint = get_origin(type_hint)
+            if origin_hint:
+                args = get_args(type_hint)
+                resolved_args = tuple(resolve(arg) for arg in args)
+                return origin_hint[resolved_args]
+            return type_hint
+
+        fields = [DiscoveredAttribute(public_name=f.name, field=resolve(copy.copy(f))) for f in dataclasses.fields(origin)]
+        return fields
+

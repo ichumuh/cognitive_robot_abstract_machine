@@ -29,7 +29,7 @@ from typing_extensions import (
 
 from .attribute_introspector import (
     AttributeIntrospector,
-    DataclassOnlyIntrospector,
+    DataclassOnlyIntrospector, SpecializedGenericDataclassIntrospector,
 )
 from .utils import Role, get_generic_type_param
 from .wrapped_field import WrappedField
@@ -183,11 +183,8 @@ class WrappedSpecializedGeneric(WrappedClass):
     """
     Specialization of WrappedClass for completely parameterized generic types, e.g. Generic[float].
     """
-
-    @cached_property
-    def fields(self) -> List[WrappedField]:
-        _introspector = self._get_introspector()
-        concrete_type = ...
+    def _get_introspector(self) -> AttributeIntrospector:
+        return SpecializedGenericDataclassIntrospector()
 
     @property
     def type_arguments(self) -> Tuple[Type, ...]:

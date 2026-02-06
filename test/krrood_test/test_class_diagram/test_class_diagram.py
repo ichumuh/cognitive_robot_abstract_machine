@@ -77,5 +77,10 @@ def test_create_nodes_for_specialized_generic():
     diagram._create_nodes_for_specialized_generic_type_hints()
     wrapped_clazz = diagram.get_wrapped_class(GenericClass[float])
 
-    print(wrapped_clazz.type_arguments)
+    assert len(wrapped_clazz.fields) == 1
+
+    f = wrapped_clazz.fields[0]
+    print(f)
+    # assert f.type_endpoint is float
+
 
