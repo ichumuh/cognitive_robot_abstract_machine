@@ -3,20 +3,6 @@ from __future__ import division
 from dataclasses import dataclass, field
 
 import krrood.symbolic_math.symbolic_math as sm
-from giskardpy.motion_statechart.context import BuildContext
-from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.exceptions import NodeInitializationError
-from giskardpy.motion_statechart.goals.templates import Sequence
-from giskardpy.motion_statechart.graph_node import (
-    Goal,
-    MotionStatechartNode,
-)
-from giskardpy.motion_statechart.tasks.cartesian_tasks import (
-    CartesianPosition,
-    CartesianOrientation,
-    CartesianPositionStraight,
-    CartesianPose,
-)
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -24,6 +10,12 @@ from semantic_digital_twin.spatial_types import (
 )
 from semantic_digital_twin.world_description.connections import DiffDrive
 from semantic_digital_twin.world_description.world_entity import Body
+from .templates import Sequence
+from ..context import BuildContext
+from ..data_types import DefaultWeights
+from ..exceptions import NodeInitializationError
+from ..graph_node import Goal, MotionStatechartNode
+from ..tasks.cartesian_tasks import CartesianPosition, CartesianOrientation, CartesianPositionStraight, CartesianPose
 
 
 @dataclass(eq=False, repr=False)
