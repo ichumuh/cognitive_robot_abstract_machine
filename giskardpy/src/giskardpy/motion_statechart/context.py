@@ -5,14 +5,14 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing_extensions import Self, Dict, Type, TypeVar, TYPE_CHECKING
 
-from krrood.symbolic_math.symbolic_math import FloatVariable
 from semantic_digital_twin.collision_checking.collision_manager import CollisionManager
 from semantic_digital_twin.world import World
+from .variable_managers.auxiliary_variable_manager import AuxiliaryVariableManager
+from .variable_managers.float_variable_manager import FloatVariableData
+from ..qp.qp_controller_config import QPControllerConfig
 
 if TYPE_CHECKING:
-    from .auxilary_variable_manager import FloatVariableManager
     from .exceptions import MissingContextExtensionError
-    from ..qp.qp_controller_config import QPControllerConfig
 
 
 @dataclass
@@ -34,12 +34,15 @@ class BuildContext:
 
     world: World
     """There world in which to execute the Motion Statechart."""
-    float_variable_manager: FloatVariableManager
+    float_variable_data: FloatVariableData = field(default_factory=FloatVariableData)
+    auxiliary_variable_manager: AuxiliaryVariableManager = field(init=False)
     """Auxiliary variable manager used by nodes to create auxiliary variables."""
-    qp_controller_config: QPControllerConfig
-    """Configuration of the QP controller used to solve the QP problem."""
-    control_cycle_variable: FloatVariable
-    """Auxiliary variable used to count control cycles, can be used my Motion StatechartNodes to implement time-dependent actions."""
+    qp_controller_config: QPControllerConfig = field(
+        default_factory=QPControllerConfig.create_with_simulation_defaults
+    )
+    """Optional configuration for the QP Controller. Is only needed when constraints are present in the motion statechart."""
+    # control_cycle_variable: FloatVariable
+    # """Auxiliary variable used to count control cycles, can be used my Motion StatechartNodes to implement time-dependent actions."""
     extensions: Dict[Type[ContextExtension], ContextExtension] = field(
         default_factory=dict, repr=False, init=False
     )
@@ -47,6 +50,11 @@ class BuildContext:
     Dictionary of extensions used to augment the build context.
     Ros2 extensions are automatically added to the build context when using the Ros2Executor.
     """
+
+    def __post_init__(self):
+        self.auxiliary_variable_manager = AuxiliaryVariableManager(
+            self.float_variable_data
+        )
 
     @property
     def collision_manager(self) -> CollisionManager:
@@ -76,7 +84,8 @@ class BuildContext:
     def empty(cls) -> Self:
         return cls(
             world=World(),
-            float_variable_manager=None,
+            float_variable_data=None,
+            auxiliary_variable_manager=None,
             qp_controller_config=None,
             control_cycle_variable=None,
         )
@@ -85,7 +94,6 @@ class BuildContext:
 @dataclass
 class ExecutionContext:
     world: World
-    external_collision_data_data: np.ndarray
     self_collision_data_data: np.ndarray
     auxiliar_variables_data: np.ndarray
     control_cycle_counter: int

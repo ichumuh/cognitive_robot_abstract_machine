@@ -133,7 +133,7 @@ def test_x_axis_units_control_cycles_vs_seconds(monkeypatch):
     assert tuple(ax_main_cycles.get_xlim())[0] == 0.0
 
     # Seconds (with context)
-    context = kin.build_context
+    context = kin.context
     plotter_seconds = HistoryGanttChartPlotter(
         msc, context=context, second_width_in_cm=2.0
     )

@@ -206,9 +206,7 @@ class ObservationState(State):
                 self.observation_symbols(),
                 self.life_cycle_symbols(),
                 context.world.state.get_variables(),
-                context.world.collision_manager.get_external_collision_symbol(),
-                context.collision_expression_manager.get_self_collision_symbol(),
-                context.float_variable_manager.variables,
+                context.float_variable_data.variables,
             ),
             sparse=False,
         )
@@ -222,15 +220,7 @@ class ObservationState(State):
             arg_idx=2, numpy_array=context.world.state.data
         )
         self._compiled_updater.bind_args_to_memory_view(
-            arg_idx=3,
-            numpy_array=context.collision_expression_manager.external_collision_data,
-        )
-        self._compiled_updater.bind_args_to_memory_view(
-            arg_idx=4,
-            numpy_array=context.collision_expression_manager.self_collision_data,
-        )
-        self._compiled_updater.bind_args_to_memory_view(
-            arg_idx=5, numpy_array=context.float_variable_manager.data
+            arg_idx=3, numpy_array=context.float_variable_data.data
         )
 
     @profile
@@ -556,7 +546,7 @@ class MotionStatechart(SubclassJSONSerializer):
                 case _:
                     pass
 
-    def tick(self, context: ExecutionContext):
+    def tick(self, context: BuildContext):
         """
         Executes a single tick of the motion statechart.
         First the observation state is updated, then the life cycle state is updated.
@@ -567,7 +557,7 @@ class MotionStatechart(SubclassJSONSerializer):
         self._raise_if_cancel_motion()
         self.history.append(
             next_item=StateHistoryItem(
-                control_cycle=context.control_cycle_counter,
+                control_cycle=len(self.history),
                 life_cycle_state=self.life_cycle_state,
                 observation_state=self.observation_state,
             )

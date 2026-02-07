@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -13,12 +14,25 @@ from semantic_digital_twin.spatial_types import (
 
 @dataclass
 class FloatVariableManager:
+    float_variable_data: FloatVariableData
+
+    def update_data(self):
+        pass
+
+
+@dataclass
+class FloatVariableData:
+    """
+    Stores float variables and their values in a single flat numpy array.
+    """
+
     variables: List[FloatVariable] = field(default_factory=list)
     data: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
 
-    def add_variable(self, variable: FloatVariable):
+    def add_variable(self, variable: FloatVariable) -> int:
         self.variables.append(variable)
         self.data = np.append(self.data, 0.0)
+        return len(self.variables) - 1
 
     def create_float_variable(
         self, name: PrefixedName, provider: Callable[[], float] = None
@@ -57,8 +71,3 @@ class FloatVariableManager:
                 self.add_variable(auxiliary_variable)
                 transformation_matrix[row, column] = auxiliary_variable
         return transformation_matrix
-
-    def resolve_auxiliary_variables(self) -> np.ndarray:
-        for i, v in enumerate(self.variables):
-            self.data[i] = v.resolve()
-        return self.data

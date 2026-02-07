@@ -3,8 +3,10 @@ from enum import Enum
 
 import numpy as np
 
-from giskardpy.motion_statechart.auxilary_variable_manager import FloatVariableManager
 from giskardpy.motion_statechart.context import BuildContext
+from giskardpy.motion_statechart.variable_managers.auxiliary_variable_manager import (
+    AuxiliaryVariableManager,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
@@ -73,11 +75,11 @@ class ForwardKinematicsBinding:
         self._root_T_tip_np = world.compute_forward_kinematics_np(self.root, self.tip)
 
     def _create_transformation_matrix(
-        self, auxiliary_variable_manager: FloatVariableManager
+        self, auxiliary_variable_manager: AuxiliaryVariableManager
     ) -> HomogeneousTransformationMatrix:
         """
         Creates the TransformationMatrix root_T_tip, represented using auxiliary variables.
-        :param auxiliary_variable_manager: The FloatVariableManager used for creating the auxiliary variables.
+        :param auxiliary_variable_manager: The AuxiliaryVariableManager used for creating the auxiliary variables.
         """
         if self._root_T_tip_expr is None:
             tm = auxiliary_variable_manager.create_transformation_matrix(

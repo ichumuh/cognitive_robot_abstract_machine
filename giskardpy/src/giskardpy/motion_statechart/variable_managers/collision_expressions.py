@@ -13,20 +13,21 @@ from semantic_digital_twin.collision_checking.collision_manager import (
     CollisionGroupConsumer,
     CollisionGroup,
 )
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.abstract_robot import AbstractRobot
 from semantic_digital_twin.spatial_types import Vector3, Point3
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
 )
+from .float_variable_manager import FloatVariableData
 
 
 @dataclass
-class ExternalCollisionExpressionManager(CollisionGroupConsumer):
+class ExternalCollisionVariableManager(CollisionGroupConsumer):
     """
     Owns symbols and buffer
     """
+
+    float_variable_data: FloatVariableData
 
     registered_bodies: dict[KinematicStructureEntity, int] = field(
         default_factory=dict, init=False
@@ -35,31 +36,23 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
     Maps bodies to the index of point_on_body_a in the collision buffer.
     """
 
-    collision_data: np.ndarray = field(
-        default_factory=lambda: np.zeros(0, dtype=float), init=False
-    )
-    """
-    All collision data in a single numpy array.
-    Repeats blocks of size block_size.
-    """
-
     active_groups: set[CollisionGroup] = field(default_factory=set, init=False)
 
-    block_size: int = field(default=9, init=False)
-    """
-    block layout:
-        9 per collision
-        point_on_body_a,  (3)
-        contact_normal,  (3)
-        contact_distance, (1)
-        buffer_distance,  (1)
-        violated_distance (1)
-    """
-    _point_on_a_offset: int = field(init=False, default=0)
-    _contact_normal_offset: int = field(init=False, default=3)
-    _contact_distance_offset: int = field(init=False, default=6)
-    _buffer_distance_offset: int = field(init=False, default=7)
-    _violated_distance_offset: int = field(init=False, default=8)
+    # block_size: int = field(default=9, init=False)
+    # """
+    # block layout:
+    #     9 per collision
+    #     point_on_body_a,  (3)
+    #     contact_normal,  (3)
+    #     contact_distance, (1)
+    #     buffer_distance,  (1)
+    #     violated_distance (1)
+    # """
+    # _point_on_a_offset: int = field(init=False, default=0)
+    # _contact_normal_offset: int = field(init=False, default=3)
+    # _contact_distance_offset: int = field(init=False, default=6)
+    # _buffer_distance_offset: int = field(init=False, default=7)
+    # _violated_distance_offset: int = field(init=False, default=8)
 
     def __hash__(self):
         return hash(id(self))
@@ -124,19 +117,21 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
         violated_distance: float,
     ):
         start_idx = self.registered_bodies[body] + idx * self.block_size
-        self.collision_data[start_idx : start_idx + self._contact_normal_offset] = (
-            group1_P_point_on_a[:3]
-        )
-        self.collision_data[
+        self.float_variable_manager.data[
+            start_idx : start_idx + self._contact_normal_offset
+        ] = group1_P_point_on_a[:3]
+        self.float_variable_manager.data[
             start_idx
             + self._contact_normal_offset : start_idx
             + self._contact_distance_offset
         ] = root_V_contact_normal[:3]
-        self.collision_data[start_idx + self._contact_distance_offset] = (
+        self.float_variable_manager.data[start_idx + self._contact_distance_offset] = (
             contact_distance
         )
-        self.collision_data[start_idx + self._buffer_distance_offset] = buffer_distance
-        self.collision_data[start_idx + self._violated_distance_offset] = (
+        self.float_variable_manager.data[start_idx + self._buffer_distance_offset] = (
+            buffer_distance
+        )
+        self.float_variable_manager.data[start_idx + self._violated_distance_offset] = (
             violated_distance
         )
 
@@ -144,10 +139,10 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
         """
         Register a body
         """
-        self.registered_bodies[body] = len(self.collision_data)
-        self.collision_data = np.resize(
-            self.collision_data,
-            self.collision_data.shape[0]
+        self.registered_bodies[body] = len(self.float_variable_manager.data)
+        self.float_variable_manager.data = np.resize(
+            self.float_variable_manager.data,
+            self.float_variable_manager.data.shape[0]
             + self.block_size * self.collision_manager.get_max_avoided_bodies(body),
         )
         for group in self.collision_groups:
@@ -192,7 +187,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             + self._point_on_a_offset
         )
         end = start + 3
-        return self.collision_data[start:end]
+        return self.float_variable_manager.data[start:end]
 
     @lru_cache
     def get_group1_P_point_on_a_symbol(
@@ -212,7 +207,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             + self._contact_normal_offset
         )
         end = start + 3
-        return self.collision_data[start:end]
+        return self.float_variable_manager.data[start:end]
 
     @lru_cache
     def get_group1_V_contact_normal_symbol(
@@ -232,7 +227,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             + self._contact_distance_offset
         )
         end = start + 1
-        return self.collision_data[start:end][0]
+        return self.float_variable_manager.data[start:end][0]
 
     @lru_cache
     def get_contact_distance_symbol(
@@ -252,7 +247,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             + self._buffer_distance_offset
         )
         end = start + 1
-        return self.collision_data[start:end][0]
+        return self.float_variable_manager.data[start:end][0]
 
     @lru_cache
     def get_buffer_distance_symbol(
@@ -272,7 +267,7 @@ class ExternalCollisionExpressionManager(CollisionGroupConsumer):
             + self._violated_distance_offset
         )
         end = start + 1
-        return self.collision_data[start:end][0]
+        return self.float_variable_manager.data[start:end][0]
 
     @lru_cache
     def get_violated_distance_symbol(

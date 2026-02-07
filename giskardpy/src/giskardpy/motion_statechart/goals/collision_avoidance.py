@@ -16,8 +16,8 @@ from giskardpy.motion_statechart.graph_node import (
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.symbolic_math.symbolic_math import Scalar
-from semantic_digital_twin.collision_checking.collision_expressions import (
-    ExternalCollisionExpressionManager,
+from giskardpy.motion_statechart.variable_managers.collision_expressions import (
+    ExternalCollisionVariableManager,
 )
 from semantic_digital_twin.collision_checking.collision_manager import CollisionGroup
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
@@ -28,13 +28,12 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
 )
-from test_collision_checking.test_collision_detectors import collision_detectors
 
 
 @dataclass
 class ExternalCollisionContext(ContextExtension):
-    collision_expression_manager: ExternalCollisionExpressionManager = field(
-        default_factory=ExternalCollisionExpressionManager
+    collision_expression_manager: ExternalCollisionVariableManager = field(
+        default_factory=ExternalCollisionVariableManager
     )
 
 
@@ -42,7 +41,7 @@ class ExternalCollisionContext(ContextExtension):
 class ExternalCollisionDistanceMonitor(MotionStatechartNode):
     collision_group: CollisionGroup = field(kw_only=True)
     index: int = field(default=0, kw_only=True)
-    external_collision_manager: ExternalCollisionExpressionManager = field(kw_only=True)
+    external_collision_manager: ExternalCollisionVariableManager = field(kw_only=True)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
@@ -68,7 +67,7 @@ class ExternalCollisionAvoidanceTask(Task):
     collision_group: CollisionGroup = field(kw_only=True)
     max_velocity: float = field(default=0.2, kw_only=True)
     index: int = field(default=0, kw_only=True)
-    external_collision_manager: ExternalCollisionExpressionManager = field(kw_only=True)
+    external_collision_manager: ExternalCollisionVariableManager = field(kw_only=True)
 
     @property
     def tip(self) -> KinematicStructureEntity:
@@ -208,7 +207,7 @@ class ExternalCollisionAvoidance(Goal):
     max_velocity: float = field(default=0.2, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
-        external_collision_manager = ExternalCollisionExpressionManager()
+        external_collision_manager = ExternalCollisionVariableManager()
         context.collision_manager.add_collision_consumer(external_collision_manager)
         for body in self.robot.bodies_with_collision:
             if context.collision_manager.get_max_avoided_bodies(body):
@@ -407,7 +406,7 @@ class CollisionAvoidance(Goal):
     def expand(self, context: BuildContext) -> None:
         context.collision_manager.normal_priority_rules.extend(self.collision_rules)
         context.collision_manager.add_collision_consumer(
-            ExternalCollisionExpressionManager()
+            ExternalCollisionVariableManager()
         )
         context.collision_manager.update_collision_matrix()
 

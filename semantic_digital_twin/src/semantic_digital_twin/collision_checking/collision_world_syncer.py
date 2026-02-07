@@ -1,33 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import List, Dict, Optional, Tuple, Set
+from typing import List, Set
 
 import numpy as np
 from line_profiler import profile
 
 import krrood.symbolic_math.symbolic_math as sm
-from semantic_digital_twin.collision_checking.collisions import (
-    Collisions,
-)
-from giskardpy.motion_statechart.auxilary_variable_manager import (
-    create_vector3,
-    create_point,
-)
-from semantic_digital_twin.collision_checking.collision_detector import (
-    CollisionDetector,
-    CollisionCheck,
-    NullCollisionDetector,
-)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import AbstractRobot
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     Body,
-    KinematicStructureEntity,
 )
 
 np.random.seed(1337)

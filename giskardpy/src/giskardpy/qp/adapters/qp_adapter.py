@@ -1815,9 +1815,7 @@ class InequalityModel(ProblemDataPart):
 class GiskardToQPAdapter:
     world_state_symbols: List[sm.FloatVariable]
     life_cycle_symbols: List[sm.FloatVariable]
-    external_collision_symbols: List[sm.FloatVariable]
-    self_collision_symbols: List[sm.FloatVariable]
-    auxiliary_variables: List[sm.FloatVariable]
+    float_variables: List[sm.FloatVariable]
 
     degrees_of_freedom: List[DegreeOfFreedom]
     constraint_collection: ConstraintCollection
@@ -1932,9 +1930,7 @@ class GiskardToQPAdapter:
         self,
         world_state: np.ndarray,
         life_cycle_state: np.ndarray,
-        external_collision_data: np.ndarray,
-        self_collision_data: np.ndarray,
-        auxiliary_variables: np.ndarray,
+        float_variables: np.ndarray,
     ) -> QPData:
         raise NotImplementedError()
 

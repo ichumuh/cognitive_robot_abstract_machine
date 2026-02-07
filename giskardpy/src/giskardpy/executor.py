@@ -1,29 +1,21 @@
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, InitVar
+from dataclasses import dataclass, field
 
 from typing_extensions import Optional
 
 from krrood.symbolic_math.symbolic_math import FloatVariable
-from semantic_digital_twin.collision_checking.collision_detector import (
-    NullCollisionDetector,
-)
-from semantic_digital_twin.collision_checking.pybullet_collision_detector import (
-    BulletCollisionDetector,
-)
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.abstract_robot import (
-    AbstractRobot,
-)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_state import WorldStateTrajectory
 from semantic_digital_twin.world_description.world_state_trajectory_plotter import (
     WorldStateTrajectoryPlotter,
 )
 from .data_types.exceptions import NoQPControllerConfigException
-from .motion_statechart.auxilary_variable_manager import FloatVariableManager
 from .motion_statechart.context import BuildContext, ExecutionContext
 from .motion_statechart.motion_statechart import MotionStatechart
+from .motion_statechart.variable_managers.auxiliary_variable_manager import (
+    AuxiliaryVariableManager,
+)
 from .qp.exceptions import EmptyProblemException
 from .qp.qp_controller import QPController
 from .qp.qp_controller_config import QPControllerConfig
@@ -96,12 +88,8 @@ class Executor:
     scenes, and control cycles for the robot's operations.
     """
 
-    world: World
-    """The world object containing the state and entities of the robot's environment."""
-    controller_config: QPControllerConfig = field(
-        default_factory=QPControllerConfig.create_with_simulation_defaults
-    )
-    """Optional configuration for the QP Controller. Is only needed when constraints are present in the motion statechart."""
+    context: BuildContext
+
     tmp_folder: str = field(default="/tmp/")
     """Path to safe temporary files."""
     record_trajectory: bool = False
@@ -118,10 +106,10 @@ class Executor:
     # %% init False
     motion_statechart: MotionStatechart = field(init=False)
     """The motion statechart describing the robot's motion logic."""
-    auxiliary_variable_manager: FloatVariableManager = field(
-        default_factory=FloatVariableManager, init=False
-    )
-    """Manages auxiliary symbolic variables for execution contexts."""
+    # auxiliary_variable_manager: AuxiliaryVariableManager = field(
+    #     default_factory=AuxiliaryVariableManager, init=False
+    # )
+    # """Manages auxiliary symbolic variables for execution contexts."""
     qp_controller: Optional[QPController] = field(default=None, init=False)
     """Optional quadratic programming controller used for motion control."""
 
@@ -135,68 +123,49 @@ class Executor:
 
     @property
     def time(self) -> float:
-        return self.control_cycles * self.controller_config.control_dt
+        return self.control_cycles * self.context.qp_controller_config.control_dt
 
     def __post_init__(self):
-        self.pacer.target_frequency = self.controller_config.target_frequency
+        self.pacer.target_frequency = self.context.qp_controller_config.target_frequency
 
     def _create_control_cycles_variable(self):
-        self._control_cycles_variable = (
-            self.auxiliary_variable_manager.create_float_variable(
-                PrefixedName("control_cycles"), lambda: self.control_cycles
-            )
+        self._control_cycles_variable = FloatVariable.create_with_resolver(
+            "control_cycles", lambda: self.control_cycles
+        )
+        self.context.auxiliary_variable_manager.add_variable(
+            self._control_cycles_variable
         )
 
     def compile(self, motion_statechart: MotionStatechart):
         self.motion_statechart = motion_statechart
         self.control_cycles = 0
         self._create_control_cycles_variable()
-        self.motion_statechart.compile(self.build_context)
-        self._compile_qp_controller(self.controller_config)
+        self.motion_statechart.compile(self.context)
+        self._compile_qp_controller(self.context.qp_controller_config)
         self.world_state_trajectory = WorldStateTrajectory.from_world_state(
-            self.world.state, time=self.time
-        )
-
-    @property
-    def build_context(self) -> BuildContext:
-        return BuildContext(
-            world=self.world,
-            float_variable_manager=self.auxiliary_variable_manager,
-            qp_controller_config=self.controller_config,
-            control_cycle_variable=self._control_cycles_variable,
+            self.context.world.state, time=self.time
         )
 
     @property
     def execution_context(self) -> ExecutionContext:
-        return ExecutionContext(
-            world=self.world,
-            external_collision_data_data=self.collision_scene.get_external_collision_data(),
-            self_collision_data_data=self.collision_scene.get_self_collision_data(),
-            auxiliar_variables_data=self.auxiliary_variable_manager.resolve_auxiliary_variables(),
-            control_cycle_counter=self.control_cycles,
-        )
+        return self.context
 
     def tick(self):
         self.control_cycles += 1
-        self.collision_scene.sync()
-        self.collision_scene.check_collisions()
-        execution_context = self.execution_context
-        self.motion_statechart.tick(execution_context)
+        self.motion_statechart.tick(self.context)
         if self.qp_controller is None:
             return
         next_cmd = self.qp_controller.get_cmd(
-            world_state=self.world.state.data,
+            world_state=self.context.world.state.data,
             life_cycle_state=self.motion_statechart.life_cycle_state.data,
-            external_collisions=execution_context.external_collision_data_data,
-            self_collisions=execution_context.self_collision_data_data,
-            auxiliary_variables=execution_context.auxiliar_variables_data,
+            float_variables=self.context.float_variable_data.data,
         )
-        self.world.apply_control_commands(
+        self.context.world.apply_control_commands(
             next_cmd,
             self.qp_controller.config.control_dt,
             self.qp_controller.config.max_derivative,
         )
-        self.world_state_trajectory.append(self.world.state, self.time)
+        self.world_state_trajectory.append(self.context.world.state, self.time)
 
     def tick_until_end(self, timeout: int = 1_000):
         """
@@ -214,14 +183,14 @@ class Executor:
             self._set_velocity_acceleration_jerk_to_zero()
 
     def _set_velocity_acceleration_jerk_to_zero(self):
-        self.world.state.velocities[:] = 0
-        self.world.state.accelerations[:] = 0
-        self.world.state.jerks[:] = 0
+        self.context.world.state.velocities[:] = 0
+        self.context.world.state.accelerations[:] = 0
+        self.context.world.state.jerks[:] = 0
 
     def _compile_qp_controller(self, controller_config: QPControllerConfig):
         ordered_dofs = sorted(
-            self.world.active_degrees_of_freedom,
-            key=lambda dof: self.world.state._index[dof.id],
+            self.context.world.active_degrees_of_freedom,
+            key=lambda dof: self.context.world.state._index[dof.id],
         )
         constraint_collection = (
             self.motion_statechart.combine_constraint_collections_of_nodes()
@@ -238,14 +207,14 @@ class Executor:
             config=controller_config,
             degrees_of_freedom=ordered_dofs,
             constraint_collection=constraint_collection,
-            world_state_symbols=self.world.state.get_variables(),
+            world_state_symbols=self.context.world.state.get_variables(),
             life_cycle_variables=self.motion_statechart.life_cycle_state.life_cycle_symbols(),
-            external_collision_avoidance_variables=self.collision_scene.get_external_collision_symbol(),
-            self_collision_avoidance_variables=self.collision_scene.get_self_collision_symbol(),
-            auxiliary_variables=self.auxiliary_variable_manager.variables,
+            float_variables=self.context.float_variable_data.variables,
         )
         if self.qp_controller.has_not_free_variables():
             raise EmptyProblemException()
 
     def plot_trajectory(self, file_name: str = "./trajectory.pdf"):
-        self.trajectory_plotter.plot_trajectory(self.world_state_trajectory, file_name)
+        self.trajectory_plotter.plot_trajectory(
+            self.context.world_state_trajectory, file_name
+        )

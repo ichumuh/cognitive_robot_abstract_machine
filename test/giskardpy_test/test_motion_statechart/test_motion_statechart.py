@@ -10,6 +10,7 @@ import pytest
 from giskardpy.data_types.exceptions import DuplicateNameException
 from giskardpy.executor import Executor, SimulationPacer
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
+from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.data_types import (
     LifeCycleValues,
     ObservationStateValues,
@@ -94,9 +95,6 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
-from semantic_digital_twin.collision_checking.collision_world_syncer import (
-    CollisionCheckerLib,
-)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import Manipulator, AbstractRobot
 from semantic_digital_twin.robots.hsrb import HSRB
@@ -1086,7 +1084,7 @@ def test_revolute_joint(pr2_world_state_reset):
     end.start_condition = joint_goal.observation_variable
 
     kin_sim = Executor(
-        world=pr2_world_state_reset,
+        BuildContext(world=pr2_world_state_reset),
     )
     kin_sim.compile(motion_statechart=msc)
     kin_sim.tick_until_end()
@@ -2598,7 +2596,6 @@ class TestCollisionAvoidance:
 
         kin_sim = Executor(
             world=cylinder_bot_world,
-            collision_checker=CollisionCheckerLib.bpb,
         )
         kin_sim.compile(motion_statechart=msc_copy)
 
