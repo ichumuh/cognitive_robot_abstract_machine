@@ -60,7 +60,7 @@ class ForwardKinematicsBinding:
 
     def __post_init__(self, build_context: BuildContext):
         self.bind(build_context.world)
-        self._create_transformation_matrix(build_context.float_variable_manager)
+        self._create_transformation_matrix(build_context.auxiliary_variable_manager)
 
     @property
     def root_T_tip(self):

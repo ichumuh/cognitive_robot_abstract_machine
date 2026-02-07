@@ -27,3 +27,6 @@ class FloatVariableData:
     def add_variables_of_expression(self, expression: SymbolicMathType):
         for variable in expression.free_variables():
             self.add_variable(variable)
+
+    def set_value(self, variable_index: int, value: float):
+        self.data[variable_index] = value

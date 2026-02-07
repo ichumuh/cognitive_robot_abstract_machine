@@ -200,7 +200,9 @@ class ExternalCollisionAvoidance(Goal):
     max_velocity: float = field(default=0.2, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
-        external_collision_manager = ExternalCollisionVariableManager()
+        external_collision_manager = ExternalCollisionVariableManager(
+            context.float_variable_data
+        )
         context.collision_manager.add_collision_consumer(external_collision_manager)
         for body in self.robot.bodies_with_collision:
             if context.collision_manager.get_max_avoided_bodies(body):

@@ -113,13 +113,21 @@ class Executor:
     qp_controller: Optional[QPController] = field(default=None, init=False)
     """Optional quadratic programming controller used for motion control."""
 
-    control_cycles: int = field(init=False)
-    """Tracks the number of control cycles elapsed during execution."""
-    _control_cycles_variable: FloatVariable = field(init=False)
-    """Auxiliary variable linked to the control_cycles attribute."""
+    # control_cycles: int = field(init=False)
+    # """Tracks the number of control cycles elapsed during execution."""
+    # _control_cycles_variable: FloatVariable = field(init=False)
+    # """Auxiliary variable linked to the control_cycles attribute."""
+    _control_cycle_index: int = field(init=False)
+    """Tracks the index of the current control cycle."""
 
     _time_variable: FloatVariable = field(init=False)
     """Auxiliary variable representing the current time in seconds since the start of the simulation."""
+
+    @classmethod
+    def create_from_parts(cls, world: World, pacer: Pacer | None = None):
+        if pacer is None:
+            pacer = SimulationPacer()
+        return cls(BuildContext(world=world), pacer=pacer)
 
     @property
     def time(self) -> float:
@@ -127,19 +135,25 @@ class Executor:
 
     def __post_init__(self):
         self.pacer.target_frequency = self.context.qp_controller_config.target_frequency
+        self._create_control_cycles_variable()
 
     def _create_control_cycles_variable(self):
-        self._control_cycles_variable = FloatVariable.create_with_resolver(
-            "control_cycles", lambda: self.control_cycles
+        self.context.control_cycle_variable = FloatVariable("control_cycles")
+        self._control_cycle_index = self.context.float_variable_data.add_variable(
+            self.context.control_cycle_variable
         )
-        self.context.auxiliary_variable_manager.add_variable(
-            self._control_cycles_variable
-        )
+
+    @property
+    def control_cycles(self):
+        return self.context.float_variable_data.data[self._control_cycle_index]
+
+    @control_cycles.setter
+    def control_cycles(self, value):
+        self.context.float_variable_data.set_value(self._control_cycle_index, value)
 
     def compile(self, motion_statechart: MotionStatechart):
         self.motion_statechart = motion_statechart
         self.control_cycles = 0
-        self._create_control_cycles_variable()
         self.motion_statechart.compile(self.context)
         self._compile_qp_controller(self.context.qp_controller_config)
         self.world_state_trajectory = WorldStateTrajectory.from_world_state(
