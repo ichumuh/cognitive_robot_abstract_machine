@@ -1221,6 +1221,31 @@ def test_long_goal(pr2_world_state_reset: World):
 class TestCartesianTasks:
     """Test suite for all Cartesian motion tasks."""
 
+    def test_simple_cartesian_pose(self, cylinder_bot_world: World, rclpy_node):
+        TFPublisher(world=cylinder_bot_world, node=rclpy_node)
+        VizMarkerPublisher(world=cylinder_bot_world, node=rclpy_node, use_visuals=False)
+        tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
+
+        msc = MotionStatechart()
+        msc.add_nodes(
+            [
+                goal := CartesianPose(
+                    root_link=cylinder_bot_world.root,
+                    tip_link=tip,
+                    goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=1, reference_frame=cylinder_bot_world.root
+                    ),
+                ),
+            ]
+        )
+        msc.add_node(EndMotion.when_true(goal))
+
+        kin_sim = Executor.create_from_parts(
+            world=cylinder_bot_world, pacer=SimulationPacer(real_time_factor=1.0)
+        )
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+
     def test_cart_goal_1eef(self, pr2_world_state_reset: World):
         tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
             "r_gripper_tool_frame"
@@ -1248,6 +1273,10 @@ class TestCartesianTasks:
         )
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
+
+        assert np.allclose(
+            kin_sim.context.world.compute_forward_kinematics(root, tip), tip_goal
+        )
 
     def test_front_facing_orientation(self, hsr_world_setup: World):
         with hsr_world_setup.modify_world():

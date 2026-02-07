@@ -24,9 +24,11 @@ class FloatVariableData:
         variable.resolve = lambda: self.data[index]
         return index
 
-    def add_variables_of_expression(self, expression: SymbolicMathType):
+    def add_variables_of_expression(self, expression: SymbolicMathType) -> int:
+        index = len(self.variables)
         for variable in expression.free_variables():
             self.add_variable(variable)
+        return index
 
     def set_value(self, variable_index: int, value: float):
         self.data[variable_index] = value

@@ -51,7 +51,7 @@ class ForwardKinematicsBinding:
     tip: KinematicStructureEntity
     """Tip of the kinematic chain."""
 
-    _root_T_tip_np: np.ndarray | None = field(init=False)
+    _matrix_index: int = field(init=False)
     """The current state of the TransformationMatrix root_T_tip."""
     _root_T_tip_expr: HomogeneousTransformationMatrix | None = field(
         default=None, init=False
@@ -59,34 +59,30 @@ class ForwardKinematicsBinding:
     """The TransformationMatrix root_T_tip, represented using auxiliary variables."""
 
     def __post_init__(self, build_context: BuildContext):
-        self.bind(build_context.world)
-        self._create_transformation_matrix(build_context.auxiliary_variable_manager)
+        self._root_T_tip_expr = HomogeneousTransformationMatrix.create_with_variables(
+            str(self.name)
+        )
+        self._root_T_tip_expr.reference_frame = self.root
+        self._root_T_tip_expr.child_frame = self.tip
+        self._matrix_index = (
+            build_context.float_variable_data.add_variables_of_expression(
+                self._root_T_tip_expr
+            )
+        )
+        self.bind(build_context)
 
     @property
     def root_T_tip(self):
         return self._root_T_tip_expr
 
-    def bind(self, world: World):
+    def bind(self, context: BuildContext):
         """
         Will update root_T_tip to the current state of the kinematic chain.
         Call during on_start() etc. of a MotionStatechartNode.
         :param world: The world used for computing the forward kinematics.
         """
-        self._root_T_tip_np = world.compute_forward_kinematics_np(self.root, self.tip)
-
-    def _create_transformation_matrix(
-        self, auxiliary_variable_manager: AuxiliaryVariableManager
-    ) -> HomogeneousTransformationMatrix:
-        """
-        Creates the TransformationMatrix root_T_tip, represented using auxiliary variables.
-        :param auxiliary_variable_manager: The AuxiliaryVariableManager used for creating the auxiliary variables.
-        """
-        if self._root_T_tip_expr is None:
-            tm = auxiliary_variable_manager.create_transformation_matrix(
-                name=PrefixedName("root_T_tip", str(self.name)),
-                provider=lambda: self._root_T_tip_np,
-            )
-            tm.reference_frame = self.root
-            tm.child_frame = self.tip
-            self._root_T_tip_expr = tm
-        return self._root_T_tip_expr
+        context.float_variable_data.data[
+            self._matrix_index : self._matrix_index + 12
+        ] = context.world.compute_forward_kinematics_np(self.root, self.tip)[
+            :3, :4
+        ].T.flatten()

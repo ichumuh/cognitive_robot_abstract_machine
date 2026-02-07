@@ -205,6 +205,19 @@ class HomogeneousTransformationMatrix(
             child_frame=child_frame,
         )
 
+    @classmethod
+    def create_with_variables(
+        cls, name: str, resolver: Callable[[], np.ndarray] | None = None
+    ) -> Self:
+        transformation_matrix = HomogeneousTransformationMatrix()
+        for row in range(3):
+            for column in range(4):
+                variable = sm.FloatVariable(
+                    name=f"{cls.__name__}_{name}[{row},{column}]",
+                )
+                transformation_matrix[row, column] = variable
+        return transformation_matrix
+
     def to_json(self) -> Dict[str, Any]:
         if not self.is_constant():
             raise SpatialTypeNotJsonSerializable(self)

@@ -116,7 +116,7 @@ class CartesianPosition(Task):
         :param context: Provides access to current world state.
         """
         if self.binding_policy == GoalBindingPolicy.Bind_on_start:
-            self._fk_binding.bind(context.world)
+            self._fk_binding.bind(context)
 
 
 @dataclass(eq=False, repr=False)
@@ -245,7 +245,7 @@ class CartesianPositionStraight(Task):
         :param context: Provides access to current world state.
         """
         if self.binding_policy == GoalBindingPolicy.Bind_on_start:
-            self._fk_binding.bind(context.world)
+            self._fk_binding.bind(context)
 
 
 @dataclass(eq=False, repr=False)
@@ -334,7 +334,7 @@ class CartesianOrientation(Task):
         :param context: Provides access to current world state.
         """
         if self.binding_policy == GoalBindingPolicy.Bind_on_start:
-            self._fk_binding.bind(context.world)
+            self._fk_binding.bind(context)
 
 
 @dataclass(eq=False, repr=False)
@@ -467,7 +467,7 @@ class CartesianPose(Task):
         :param context: Provides access to current world state.
         """
         if self.binding_policy == GoalBindingPolicy.Bind_on_start:
-            self._fk_binding.bind(context.world)
+            self._fk_binding.bind(context)
 
 
 @dataclass(eq=False, repr=False)
