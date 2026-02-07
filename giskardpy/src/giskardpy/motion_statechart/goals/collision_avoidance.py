@@ -30,13 +30,6 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 
 
-@dataclass
-class ExternalCollisionContext(ContextExtension):
-    collision_expression_manager: ExternalCollisionVariableManager = field(
-        default_factory=ExternalCollisionVariableManager
-    )
-
-
 @dataclass(eq=False, repr=False)
 class ExternalCollisionDistanceMonitor(MotionStatechartNode):
     collision_group: CollisionGroup = field(kw_only=True)

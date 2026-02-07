@@ -4,9 +4,9 @@ from giskardpy.motion_statechart.variable_managers.collision_expressions import 
     ExternalCollisionVariableManager,
 )
 from giskardpy.motion_statechart.variable_managers.float_variable_manager import (
-    FloatVariableManager,
+    FloatVariableData,
 )
-from krrood.symbolic_math.symbolic_math import Vector, VariableParameters
+from krrood.symbolic_math.symbolic_math import Vector, VariableParameters, FloatVariable
 from semantic_digital_twin.collision_checking.collision_matrix import (
     MaxAvoidedCollisionsOverride,
 )
@@ -18,11 +18,12 @@ from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 
 class TestExternalCollisionExpressionManager:
     def test_simple(self, cylinder_bot_world):
+        float_variable_data = FloatVariableData()
+        float_variable_data.add_variable(FloatVariable("muh"))
+
         env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
         env2 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment2")
         robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
-        float_variable_manager = FloatVariableManager()
-
         collision_manager = cylinder_bot_world.collision_manager
         collision_manager.normal_priority_rules.extend(
             [
@@ -44,9 +45,7 @@ class TestExternalCollisionExpressionManager:
             MaxAvoidedCollisionsOverride(2, {robot.root})
         )
         collision_manager.add_collision_consumer(
-            external_collisions := ExternalCollisionVariableManager(
-                float_variable_manager
-            )
+            external_collisions := ExternalCollisionVariableManager(float_variable_data)
         )
         external_collisions.register_body(robot.root)
         collisions = collision_manager.compute_collisions()
@@ -98,14 +97,14 @@ class TestExternalCollisionExpressionManager:
         assert np.allclose(violated_distance2.evaluate()[0], 0.0)
 
         # test full expr
-        variables = external_collisions.get_collision_variables()
-        assert len(variables) == external_collisions.block_size * 2
+        variables = external_collisions.float_variable_data.variables
+        assert len(variables) == external_collisions.block_size * 2 + 1
         expression = Vector(variables)
         compiled_expression = expression.compile(
             VariableParameters.from_lists(variables)
         )
-        result = compiled_expression(external_collisions.collision_data)
-        assert np.allclose(result, external_collisions.collision_data)
+        result = compiled_expression(external_collisions.float_variable_data.data)
+        assert np.allclose(result, external_collisions.float_variable_data.data)
 
         # test specific expression
         group1_P_point_on_a = external_collisions.get_group1_P_point_on_a_symbol(
@@ -116,8 +115,13 @@ class TestExternalCollisionExpressionManager:
         )
         expr = group_1_V_contact_normal @ group1_P_point_on_a.to_vector3()
         compiled_expression = expr.compile(VariableParameters.from_lists(variables))
-        result = compiled_expression(external_collisions.collision_data)
-        expected = external_collisions.get_group1_V_contact_normal_data(
-            robot.root, 0
-        ) @ external_collisions.get_group1_P_point_on_a_data(robot.root, 0)
+        result = compiled_expression(external_collisions.float_variable_data.data)
+        expected = (
+            external_collisions.get_group1_V_contact_normal_symbol(
+                robot.root, 0
+            ).evaluate()
+            @ external_collisions.get_group1_P_point_on_a_symbol(
+                robot.root, 0
+            ).evaluate()
+        )
         assert np.allclose(result, expected)
