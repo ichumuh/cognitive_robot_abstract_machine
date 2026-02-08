@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from itertools import combinations
-from typing_extensions import Optional, Set, List, Dict, Iterable
 
 import fcl
+import numpy as np
 from trimesh.collision import CollisionManager, mesh_to_BVH
+from typing_extensions import Optional, Dict
 
 from .collision_detector import (
     CollisionDetector,
@@ -36,6 +36,7 @@ class TrimeshCollisionDetector(CollisionDetector):
     """
     The FCL collision objects for each body in the world
     """
+    buffer: float = field(default=0.05, init=False)
 
     def sync_world_model(self) -> None:
         """
@@ -106,6 +107,11 @@ class TrimeshCollisionDetector(CollisionDetector):
                 distance_result,
             )
             if distance_result.min_distance <= distance:
+                contact_normal = (
+                    distance_result.nearest_points[0]
+                    - distance_result.nearest_points[1]
+                )
+                contact_normal /= np.linalg.norm(contact_normal)
                 result.append(
                     Collision.from_parts(
                         contact_distance=distance_result.min_distance,
@@ -113,8 +119,7 @@ class TrimeshCollisionDetector(CollisionDetector):
                         body_b=body_b,
                         root_P_pa=distance_result.nearest_points[0],
                         root_P_pb=distance_result.nearest_points[1],
-                        root_V_n=distance_result.nearest_points[0]
-                        - distance_result.nearest_points[1],
+                        root_V_n=contact_normal,
                     )
                 )
 

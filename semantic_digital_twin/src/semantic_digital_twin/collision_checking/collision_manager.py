@@ -172,7 +172,7 @@ class CollisionManager(ModelChangeCallback):
         for consumer in self.collision_consumers:
             consumer.on_reset()
 
-    def update_collision_matrix(self):
+    def update_collision_matrix(self, buffer: float = 0.05):
         self.collision_matrix = CollisionMatrix()
         for rule in self.low_priority_rules:
             rule.apply_to_collision_matrix(self.collision_matrix)
@@ -182,9 +182,11 @@ class CollisionManager(ModelChangeCallback):
             rule.apply_to_collision_matrix(self.collision_matrix)
         for consumer in self.collision_consumers:
             consumer.on_collision_matrix_update()
+        if buffer is not None:
+            self.collision_matrix.apply_buffer(buffer)
 
-    def compute_collisions(self) -> CollisionCheckingResult:
-        self.update_collision_matrix()
+    def compute_collisions(self, buffer: float = 0.05) -> CollisionCheckingResult:
+        self.update_collision_matrix(buffer)
         collision_results = self.collision_checker.check_collisions(
             self.collision_matrix
         )

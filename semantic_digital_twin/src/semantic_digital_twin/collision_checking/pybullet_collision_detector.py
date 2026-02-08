@@ -28,8 +28,6 @@ class BulletCollisionDetector(CollisionDetector):
         field(default=None, init=False)
     )
 
-    buffer: float = field(default=0.05, init=False)
-
     def sync_world_model(self) -> None:
         if self.world.is_empty():
             return
@@ -70,7 +68,6 @@ class BulletCollisionDetector(CollisionDetector):
                 self.body_to_bullet_object[check.body_a],
                 self.body_to_bullet_object[check.body_b],
             ): check.distance
-            + self.buffer
             for check in collision_matrix.collision_checks
         }
 
