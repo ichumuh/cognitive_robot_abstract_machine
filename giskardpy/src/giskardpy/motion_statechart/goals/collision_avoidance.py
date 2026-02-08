@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.middleware import get_middleware
-from giskardpy.motion_statechart.context import BuildContext, ContextExtension
+from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.graph_node import (
     Goal,
@@ -16,7 +16,7 @@ from giskardpy.motion_statechart.graph_node import (
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.symbolic_math.symbolic_math import Scalar
-from giskardpy.motion_statechart.variable_managers.collision_expressions import (
+from semantic_digital_twin.collision_checking.collision_expressions import (
     ExternalCollisionVariableManager,
 )
 from semantic_digital_twin.collision_checking.collision_manager import CollisionGroup
@@ -137,7 +137,7 @@ class ExternalCollisionAvoidanceTask(Task):
         artifacts = NodeArtifacts()
 
         root_V_contact_normal = (
-            self.external_collision_manager.get_group1_V_contact_normal_symbol(
+            self.external_collision_manager.get_root_V_contact_normal_symbol(
                 self.tip, self.collision_index
             )
         )

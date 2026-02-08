@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing_extensions import Callable, List
 
-from giskardpy.motion_statechart.variable_managers.float_variable_manager import (
+from krrood.symbolic_math.float_variable_data import (
     FloatVariableData,
 )
 from krrood.symbolic_math.symbolic_math import FloatVariable

@@ -9,7 +9,7 @@ from krrood.symbolic_math.symbolic_math import FloatVariable
 from semantic_digital_twin.collision_checking.collision_manager import CollisionManager
 from semantic_digital_twin.world import World
 from .variable_managers.auxiliary_variable_manager import AuxiliaryVariableManager
-from .variable_managers.float_variable_manager import FloatVariableData
+from krrood.symbolic_math.float_variable_data import FloatVariableData
 from ..qp.qp_controller_config import QPControllerConfig
 
 if TYPE_CHECKING:
