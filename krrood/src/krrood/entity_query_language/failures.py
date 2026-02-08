@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass
 
-from typing_extensions import TYPE_CHECKING, Type, Any, List
+from typing_extensions import TYPE_CHECKING, Type, Any, List, Tuple
 
 from ..utils import DataclassException
 
@@ -154,20 +154,20 @@ class UnsupportedExpressionTypeForDistinct(UsageError):
 
 
 @dataclass
-class NoConditionsProvidedToWhereStatementOfDescriptor(UsageError):
+class NoConditionsProvided(UsageError):
     """
-    Raised when no conditions are provided to the where statement of a query descriptor.
+    Raised when no conditions are provided to the where/having statement of a query descriptor.
 
     For further details, see the section on writing queries and `where` clauses in :doc:`/krrood/doc/eql/writing_queries`.
     """
 
     descriptor: QueryObjectDescriptor
     """
-    The query object descriptor that has no conditions in its where statement.
+    The query object descriptor that has no conditions in its where/having statement.
     """
 
     def __post_init__(self):
-        self.message = f"No conditions were provided to the where statement of the descriptor {self.descriptor}"
+        self.message = f"No conditions were provided to the where/having statement of the descriptor {self.descriptor}"
         super().__post_init__()
 
 
@@ -277,7 +277,7 @@ class NonAggregatorInHavingConditionsError(AggregationUsageError):
     For further details, see :doc:`/krrood/doc/eql/result_processors`.
     """
 
-    non_aggregators: List[Selectable]
+    non_aggregators: Tuple[Selectable, ...]
 
     def __post_init__(self):
         self.message = f"The having condition of the descriptor {self.descriptor} contains non-aggregators {self.non_aggregators}."
@@ -292,7 +292,7 @@ class AggregatorInWhereConditionsError(AggregationUsageError):
     For further details, see :doc:`/krrood/doc/eql/result_processors`.
     """
 
-    aggregators: List[Aggregator]
+    aggregators: Tuple[Aggregator, ...]
     """
     The aggregators in the where condition.
     """

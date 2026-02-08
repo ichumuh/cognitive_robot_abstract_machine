@@ -3,8 +3,6 @@ from math import factorial
 
 import pytest
 
-import krrood.entity_query_language.entity_result_processors as eql
-from ...dataset.example_classes import VectorsWithProperty
 from krrood.entity_query_language.entity import (
     and_,
     not_,
@@ -21,7 +19,7 @@ from krrood.entity_query_language.entity import (
     for_all,
     distinct,
 )
-from krrood.entity_query_language.entity_result_processors import an, a, the, count
+from krrood.entity_query_language.entity_result_processors import an, a, the
 from krrood.entity_query_language.failures import (
     MultipleSolutionFound,
     UnsupportedNegation,
@@ -43,6 +41,7 @@ from krrood.entity_query_language.result_quantification_constraint import (
     AtMost,
     Range,
 )
+from ...dataset.example_classes import VectorsWithProperty
 from ...dataset.semantic_world_like_classes import (
     Handle,
     Body,
@@ -56,7 +55,6 @@ from ...dataset.semantic_world_like_classes import (
     Apple,
     Drawer,
     Cabinet,
-    View,
 )
 
 
@@ -429,13 +427,13 @@ def test_the(handles_and_containers_world):
             entity(H).where(
                 H.name.startswith("Handle"),
             )
-        ).evaluate()
+        ).tolist()
 
     handle = the(
         entity(H).where(
             H.name.startswith("Handle1"),
         )
-    ).evaluate()
+    ).tolist()
 
 
 def test_not_domain_mapping(handles_and_containers_world):
@@ -656,7 +654,7 @@ def test_select_predicate(handles_and_containers_world):
     has_name = HasName(body, "Handle1")
     query = the(entity(has_name).where(has_name))
 
-    handle1 = query.evaluate()
+    handle1 = query.tolist()[0]
     assert isinstance(handle1, HasName), "Should generate a handle."
     assert (
         handle1.body.name == "Handle1"

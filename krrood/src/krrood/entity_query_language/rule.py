@@ -8,7 +8,7 @@ from .symbolic import (
     SymbolicExpression,
     chained_logic,
     AND,
-    BinaryOperator,
+    BinaryExpression,
 )
 from .utils import T
 
@@ -28,10 +28,12 @@ def refinement(*conditions: ConditionType) -> SymbolicExpression[T]:
     :returns: The newly created branch node for further chaining.
     """
     new_branch = chained_logic(AND, *conditions)
-    current_node = SymbolicExpression._current_parent_()
+    current_node = SymbolicExpression._current_parent_in_context_stack_()
     prev_parent = current_node._parent_
     current_node._parent_ = None
-    new_conditions_root = ExceptIf(SymbolicExpression._current_parent_(), new_branch)
+    new_conditions_root = ExceptIf(
+        SymbolicExpression._current_parent_in_context_stack_(), new_branch
+    )
     new_branch._node_.weight = RDREdge.Refinement
     new_conditions_root._parent_ = prev_parent
     return new_conditions_root.right
@@ -78,7 +80,7 @@ def alternative_or_next(
     :returns: The newly created branch node for further chaining.
     """
     new_branch = chained_logic(AND, *conditions)
-    current_node = SymbolicExpression._current_parent_()
+    current_node = SymbolicExpression._current_parent_in_context_stack_()
     if isinstance(current_node._parent_, (Alternative, Next)):
         current_node = current_node._parent_
     elif (
@@ -98,6 +100,6 @@ def alternative_or_next(
         )
     new_branch._node_.weight = type_
     new_conditions_root._parent_ = prev_parent
-    if isinstance(prev_parent, BinaryOperator):
+    if isinstance(prev_parent, BinaryExpression):
         prev_parent.right = new_conditions_root
     return new_conditions_root.right

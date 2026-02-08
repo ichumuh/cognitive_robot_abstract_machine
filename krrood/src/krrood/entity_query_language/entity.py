@@ -62,7 +62,7 @@ def entity(selected_variable: T) -> Entity[T]:
     :param selected_variable: The variable to select in the result.
     :return: Entity descriptor.
     """
-    return Entity(_selected_variables=[selected_variable])
+    return Entity(_selected_variables=(selected_variable,))
 
 
 def set_of(*selected_variables: Union[Selectable[T], Any]) -> SetOf:
@@ -72,7 +72,7 @@ def set_of(*selected_variables: Union[Selectable[T], Any]) -> SetOf:
     :param selected_variables: The variables to select in the result set.
     :return: Set descriptor.
     """
-    return SetOf(_selected_variables=list(selected_variables))
+    return SetOf(_selected_variables=selected_variables)
 
 
 def variable(

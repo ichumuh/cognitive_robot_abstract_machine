@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing_extensions import Optional, Union, Type, Iterable, Callable, Any
+from typing_extensions import Optional, Union, Callable, Any
 
 from .result_quantification_constraint import (
     ResultQuantificationConstraint,
@@ -8,34 +8,30 @@ from .result_quantification_constraint import (
 from .symbolic import (
     An,
     The,
-    SetOf,
-    Entity,
     Selectable,
     Max,
     Min,
     Sum,
     Average,
     Count,
-    ResultProcessor,
+    QueryObjectDescriptor,
+    QuantifierBuilder,
 )
 from .utils import T
 
 
 def an(
-    entity_: Union[SetOf[T], Entity[T], T, Iterable[T], Type[T]],
+    entity: Union[T, QueryObjectDescriptor],
     quantification: Optional[ResultQuantificationConstraint] = None,
-) -> Union[An[T], T]:
+) -> Union[T, QueryObjectDescriptor]:
     """
     Select all values satisfying the given entity description.
 
-    :param entity_: An entity or a set expression to quantify over.
+    :param entity: An entity or a set expression to quantify over.
     :param quantification: Optional quantification constraint.
-    :return: A quantifier representing "an" element.
-    :rtype: An[T]
+    :return: The entity with the quantifier applied.
     """
-    return _apply_result_processor(
-        An, entity_, _quantification_constraint_=quantification
-    )
+    return entity._quantify_(An, quantification_constraint=quantification)
 
 
 a = an
@@ -45,16 +41,15 @@ This is an alias to accommodate for words not starting with vowels.
 
 
 def the(
-    entity_: Union[SetOf[T], Entity[T], T, Iterable[T], Type[T]],
-) -> Union[The[T], T]:
+    entity: Union[T, QueryObjectDescriptor],
+) -> Union[T, QueryObjectDescriptor]:
     """
     Select the unique value satisfying the given entity description.
 
-    :param entity_: An entity or a set expression to quantify over.
-    :return: A quantifier representing "an" element.
-    :rtype: The[T]
+    :param entity: An entity or a set expression to quantify over.
+    :return: The entity with the quantifier applied.
     """
-    return _apply_result_processor(The, entity_)
+    return entity._quantify_(The)
 
 
 def max(
@@ -72,9 +67,7 @@ def max(
     :param distinct: Whether to only consider distinct values.
     :return: A Max object that can be evaluated to find the maximum value.
     """
-    return _apply_result_processor(
-        Max, variable, _key_func_=key, _default_value_=default, _distinct_=distinct
-    )
+    return Max(variable, _key_func_=key, _default_value_=default, _distinct_=distinct)
 
 
 def min(
@@ -92,9 +85,7 @@ def min(
     :param distinct: Whether to only consider distinct values.
     :return: A Min object that can be evaluated to find the minimum value.
     """
-    return _apply_result_processor(
-        Min, variable, _key_func_=key, _default_value_=default, _distinct_=distinct
-    )
+    return Min(variable, _key_func_=key, _default_value_=default, _distinct_=distinct)
 
 
 def sum(
@@ -102,7 +93,7 @@ def sum(
     key: Optional[Callable] = None,
     default: Optional[T] = None,
     distinct: bool = False,
-) -> Union[T, Sum[T]]:
+) -> Union[T, Sum]:
     """
     Computes the sum of values produced by the given variable.
 
@@ -112,9 +103,7 @@ def sum(
     :param distinct: Whether to only consider distinct values.
     :return: A Sum object that can be evaluated to find the sum of values.
     """
-    return _apply_result_processor(
-        Sum, variable, _key_func_=key, _default_value_=default, _distinct_=distinct
-    )
+    return Sum(variable, _key_func_=key, _default_value_=default, _distinct_=distinct)
 
 
 def average(
@@ -122,7 +111,7 @@ def average(
     key: Optional[Callable] = None,
     default: Optional[T] = None,
     distinct: bool = False,
-) -> Union[T, Average[T]]:
+) -> Union[T, Average]:
     """
     Computes the sum of values produced by the given variable.
 
@@ -132,8 +121,8 @@ def average(
     :param distinct: Whether to only consider distinct values.
     :return: A Sum object that can be evaluated to find the sum of values.
     """
-    return _apply_result_processor(
-        Average, variable, _key_func_=key, _default_value_=default, _distinct_=distinct
+    return Average(
+        variable, _key_func_=key, _default_value_=default, _distinct_=distinct
     )
 
 
@@ -148,20 +137,4 @@ def count(
     :param distinct: Whether to only consider distinct values.
     :return: A Count object that can be evaluated to count the number of values.
     """
-    return _apply_result_processor(Count, variable, _distinct_=distinct)
-
-
-def _apply_result_processor(
-    result_processor: Type[ResultProcessor[T]],
-    variable: Optional[Selectable[T]] = None,
-    **result_processor_kwargs,
-) -> Union[T, ResultProcessor[T]]:
-    """
-    Applies the result processor to the given variable.
-
-    :param result_processor: The result processor to apply to the variable.
-    :param variable: The variable for which the result processor is applied.
-    :param **result_processor_kwargs: The keyword arguments for the result processor.
-    :return: The result processor instance.
-    """
-    return result_processor(_child_=variable, **result_processor_kwargs)
+    return Count(variable, _distinct_=distinct)

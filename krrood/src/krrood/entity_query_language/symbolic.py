@@ -13,7 +13,7 @@ from abc import abstractmethod, ABC
 from collections import UserDict, defaultdict
 from copy import copy
 from dataclasses import dataclass, field, fields, MISSING, is_dataclass
-from functools import lru_cache, cached_property, wraps
+from functools import lru_cache, cached_property
 
 from typing_extensions import (
     Iterable,
@@ -23,7 +23,6 @@ from typing_extensions import (
     Dict,
     ClassVar,
     Union as TypingUnion,
-    Generic,
     TYPE_CHECKING,
     List,
     Tuple,
@@ -31,6 +30,9 @@ from typing_extensions import (
     Self,
     Set,
     Iterator,
+    Generic,
+    Sized,
+    Collection,
 )
 
 from .cache_data import (
@@ -51,7 +53,7 @@ from .failures import (
     CannotProcessResultOfGivenChildType,
     LiteralConditionError,
     NonAggregatedSelectedVariablesError,
-    NoConditionsProvidedToWhereStatementOfDescriptor,
+    NoConditionsProvided,
     AggregatorInWhereConditionsError,
     HavingUsedBeforeWhereError,
     NonAggregatorInHavingConditionsError,
@@ -158,18 +160,14 @@ class OperationResult:
 
 
 @dataclass(eq=False)
-class SymbolicExpression(Generic[T], ABC):
+class SymbolicExpression(ABC):
     """
     Base class for all symbolic expressions.
 
-    Symbolic expressions form a tree and are evaluated lazily to produce
+    Symbolic expressions form a rooted directed acyclic graph (rooted DAG) and are evaluated lazily to produce
     bindings for variables, subject to logical constraints.
     """
 
-    _child_: Optional[SymbolicExpression] = field(init=False)
-    """
-    Optional child expression of this symbolic expression.
-    """
     _id_: int = field(init=False, repr=False, default=None)
     """
     Unique identifier of this node.
@@ -212,18 +210,59 @@ class SymbolicExpression(Generic[T], ABC):
             self._id_ = id_generator(self)
             self._create_node_()
             self._id_expression_map_[self._id_] = self
-        if hasattr(self, "_child_") and self._child_ is not None:
-            self._update_child_()
 
-    def _update_child_(
+    def tolist(self):
+        """
+        Evaluate and return the results as a list.
+        """
+        return list(self.evaluate())
+
+    def evaluate(
         self,
-        child: Optional[SymbolicExpression] = None,
+        limit: Optional[int] = None,
+    ) -> Iterator[TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression], T]]]:
+        """
+        Evaluate the query and map the results to the correct output data structure.
+        This is the exposed evaluation method for users.
+
+        :param limit: The maximum number of results to return. If None, return all results.
+        """
+        SymbolGraph().remove_dead_instances()
+        results = map(self._process_result_, self._evaluate_())
+        if limit is None:
+            yield from results
+        elif not isinstance(limit, int) or limit <= 0:
+            raise NonPositiveLimitValue(limit)
+        else:
+            for res_num, result in enumerate(results, 1):
+                yield result
+                if res_num == limit:
+                    return
+
+    def visualize(
+        self,
+        figsize=(35, 30),
+        node_size=7000,
+        font_size=25,
+        spacing_x: float = 4,
+        spacing_y: float = 4,
+        layout: str = "tidy",
+        edge_style: str = "orthogonal",
+        label_max_chars_per_line: Optional[int] = 13,
     ):
         """
-        Update the child expression of this symbolic expression.
+        Visualize the query graph, for arguments' documentation see `rustworkx_utils.RWXNode.visualize`.
         """
-        child = child or self._child_
-        self._child_ = self._update_children_(child)[0]
+        self._node_.visualize(
+            figsize=figsize,
+            node_size=node_size,
+            font_size=font_size,
+            spacing_x=spacing_x,
+            spacing_y=spacing_y,
+            layout=layout,
+            edge_style=edge_style,
+            label_max_chars_per_line=label_max_chars_per_line,
+        )
 
     def _update_children_(
         self, *children: SymbolicExpression
@@ -246,17 +285,17 @@ class SymbolicExpression(Generic[T], ABC):
         """
         self._node_ = RWXNode(self._name_, data=self, color=self._plot_color_)
 
-    def _process_result_(
-        self, result: OperationResult
-    ) -> TypingUnion[T, UnificationDict]:
+    def _process_result_(self, result: OperationResult) -> Any:
         """
-        Map the result to the correct output data structure for user usage. This returns the selected variables only.
-        This method should be implemented by subclasses that can be children of a ResultProcessor.
+        Map the result to the correct output data structure for user usage. It defaults to returning the bindings
+        as a dictionary mapping variable objects to their values.
 
         :param result: The result to be mapped.
         :return: The mapped result.
         """
-        raise CannotProcessResultOfGivenChildType(type(self))
+        return UnificationDict(
+            {self._id_expression_map_[id_]: v for id_, v in result.bindings.items()}
+        )
 
     def _evaluate_(
         self,
@@ -342,7 +381,7 @@ class SymbolicExpression(Generic[T], ABC):
     @cached_property
     def _conditions_root_(self) -> SymbolicExpression:
         """
-        :return: The root of the symbolic expression tree that contains conditions.
+        :return: The root of the symbolic expression graph that contains conditions.
         """
         conditions_root = self._root_
         while conditions_root._child_ is not None:
@@ -388,9 +427,10 @@ class SymbolicExpression(Generic[T], ABC):
         return [c.data for c in self._node_.children]
 
     @classmethod
-    def _current_parent_(cls) -> Optional[SymbolicExpression]:
+    def _current_parent_in_context_stack_(cls) -> Optional[SymbolicExpression]:
         """
-        :return: The current parent symbolic expression in the enclosing context of the ``with`` statement.
+        :return: The current parent symbolic expression in the enclosing context of the ``with`` statement. Used when
+        making rule trees.
         """
         if cls._symbolic_expression_stack_:
             return cls._symbolic_expression_stack_[-1]
@@ -465,29 +505,74 @@ class SymbolicExpression(Generic[T], ABC):
         return self._name_
 
 
-ResultMapping = Callable[[Iterable[Bindings]], Iterator[Bindings]]
-"""
-A function that maps the results of a query object descriptor to a new set of results.
-"""
+@dataclass(eq=False, repr=False)
+class UnaryExpression(SymbolicExpression, ABC):
+    """
+    A unary expression is a symbolic expression that takes a single argument (i.e., has a single child expression).
+    The results of the child expression are the inputs to this expression.
+    """
+
+    _child_: SymbolicExpression
+    """
+    The child expression of this symbolic expression.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self._update_child_()
+
+    def _update_child_(
+        self,
+        child: Optional[SymbolicExpression] = None,
+    ):
+        """
+        Update the child expression of this symbolic expression by correctly attaching its node in the graph to this
+         expression node and updating the child attribute reference.
+
+        :param child: The new child expression of this symbolic expression. If None, use the current child expression.
+        """
+        child = child or self._child_
+        self._child_ = self._update_children_(child)[0]
+
+    @cached_property
+    def _all_variable_instances_(self) -> List[Selectable]:
+        return self._child_._all_variable_instances_
+
+    @property
+    def _name_(self) -> str:
+        return self.__class__.__name__
 
 
 @dataclass(eq=False, repr=False)
-class ConstraintSpecifier(SymbolicExpression[T], ABC):
+class ConstraintSpecifier(SymbolicExpression, ABC):
     """
     A constraint specifier is a symbolic expression that specifies the conditions that must be satisfied by the results
-    produced by a query.
+    produced by a query. The truth value of the constraint specifier is derived from the truth value of the conditions
+    expression.
     """
 
-    _child_: SymbolicExpression[T]
-    """
-    The conditions expression which generate the valid bindings that satisfy the constraints.
-    """
-
-    @cached_property
+    @property
+    @abstractmethod
     def conditions(self) -> SymbolicExpression:
         """
-        The conditions expression.
+        The conditions expression which generate the valid bindings that satisfy the constraints.
         """
+        ...
+
+    def get_and_update_truth_value(self) -> bool:
+        self._is_false_ = self.conditions._is_false_
+        return self._is_false_
+
+
+@dataclass(eq=False, repr=False)
+class Where(UnaryExpression, ConstraintSpecifier):
+    """
+    A symbolic expression that represents the `where()` statement of `QueryObjectDescriptor`, it is a unary expression
+    and a constraint specifier. The conditions expression is the child of this expression.
+    """
+
+    @property
+    def conditions(self) -> SymbolicExpression:
         return self._child_
 
     def _evaluate__(
@@ -495,36 +580,16 @@ class ConstraintSpecifier(SymbolicExpression[T], ABC):
         sources: Bindings,
     ) -> Iterator[OperationResult]:
 
-        yield from self._child_._evaluate_(sources, self)
-
-    @property
-    def _is_false_(self) -> bool:
-        return self._child_._is_false_
-
-    @_is_false_.setter
-    def _is_false_(self, value: bool):
-        self._child_._is_false_ = value
-
-    @property
-    def _name_(self) -> str:
-        return self.__class__.__name__
-
-    @cached_property
-    def _all_variable_instances_(self) -> List[Variable]:
-        return self._child_._all_variable_instances_
+        yield from (
+            OperationResult(
+                child_result.bindings, self.get_and_update_truth_value(), self
+            )
+            for child_result in self.conditions._evaluate_(sources, self)
+        )
 
 
 @dataclass(eq=False, repr=False)
-class Where(ConstraintSpecifier[T]):
-    """
-    A symbolic expression that represents the `where()` statement of `QueryObjectDescriptor`.
-    """
-
-    ...
-
-
-@dataclass(eq=False, repr=False)
-class Selectable(SymbolicExpression[T], ABC):
+class Selectable(SymbolicExpression, Generic[T], ABC):
     _var_: Selectable[T] = field(init=False, default=None)
     """
     A variable that is used if the child class to this class want to provide a variable to be tracked other than 
@@ -543,13 +608,17 @@ class Selectable(SymbolicExpression[T], ABC):
     def _binding_id_(self) -> int:
         return (
             self._var_._binding_id_
-            if self._var_ and self._var_ is not self
+            if self._var_ is not None and self._var_ is not self
             else self._id_
         )
 
     @cached_property
     def _type__(self):
-        return self._var_._type_ if self._var_ and self._var_ is not self else None
+        return (
+            self._var_._type_
+            if self._var_ is not None and self._var_ is not self
+            else None
+        )
 
     def _process_result_(self, result: OperationResult) -> T:
         """
@@ -558,7 +627,7 @@ class Selectable(SymbolicExpression[T], ABC):
         :param result: The result to be mapped.
         :return: The mapped result.
         """
-        return result.value
+        return result[self._binding_id_]
 
     @property
     def _is_iterable_(self):
@@ -629,10 +698,6 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
     and comparison operations.
     """
 
-    _path_: List[ClassRelation] = field(init=False, default_factory=list)
-    """
-    The path of the variable in the symbol graph as a sequence of relation instances.
-    """
     _known_mappings_: Dict[DomainMappingCacheItem, DomainMapping] = field(
         init=False, default_factory=dict
     )
@@ -723,81 +788,15 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class ResultProcessor(CanBehaveLikeAVariable[T], ABC):
+class Aggregator(UnaryExpression, Selectable[T], ABC):
     """
-    Base class for processors that return concrete results from queries, including quantifiers
-    (e.g., An, The) and aggregators (e.g., Count, Sum, Max, Min).
-    """
-
-    _child_: SymbolicExpression[T]
-    """
-    The child expression of the processor where the results to be processed come from.
+    Base class for aggregators. Aggregators are unary selectable expressions that take a single expression
+     as a child.
+    They aggregate the results of the child expression and evaluate to either a single value or a set of aggregated
+     values for each group when `grouped_by()` is used.
     """
 
-    def __post_init__(self):
-        if isinstance(self._child_, QueryObjectDescriptor):
-            self._child_._build_()
-        super().__post_init__()
-
-    def tolist(self):
-        """
-        Evaluate and return the results as a list.
-        """
-        return list(self.evaluate())
-
-    @property
-    def _name_(self) -> str:
-        return f"{self.__class__.__name__}()"
-
-    def evaluate(
-        self,
-    ) -> Iterable[TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression[T]], T]]]:
-        """
-        Evaluate the query and map the results to the correct output data structure.
-        This is the exposed evaluation method for users.
-        """
-        SymbolGraph().remove_dead_instances()
-        yield from map(self._child_._process_result_, self._evaluate_())
-
-    def _process_result_(self, result: OperationResult) -> T:
-        return self._child_._process_result_(result)
-
-    @cached_property
-    def _all_variable_instances_(self) -> List[Variable]:
-        return self._child_._all_variable_instances_
-
-    def _invert_(self):
-        raise UnsupportedNegation(self.__class__)
-
-    def visualize(
-        self,
-        figsize=(35, 30),
-        node_size=7000,
-        font_size=25,
-        spacing_x: float = 4,
-        spacing_y: float = 4,
-        layout: str = "tidy",
-        edge_style: str = "orthogonal",
-        label_max_chars_per_line: Optional[int] = 13,
-    ):
-        """
-        Visualize the query graph, for arguments' documentation see `rustworkx_utils.RWXNode.visualize`.
-        """
-        self._node_.visualize(
-            figsize=figsize,
-            node_size=node_size,
-            font_size=font_size,
-            spacing_x=spacing_x,
-            spacing_y=spacing_y,
-            layout=layout,
-            edge_style=edge_style,
-            label_max_chars_per_line=label_max_chars_per_line,
-        )
-
-
-@dataclass(eq=False, repr=False)
-class Aggregator(ResultProcessor[T], ABC):
-    _default_value_: T = field(kw_only=True, default=None)
+    _default_value_: Optional[T] = field(kw_only=True, default=None)
     """
     The default value to be returned if the child results are empty.
     """
@@ -812,34 +811,21 @@ class Aggregator(ResultProcessor[T], ABC):
         super().__post_init__()
         self._var_ = self
 
-    def evaluate(self) -> Iterator[T]:
-        yield from An(_child_=Entity(_selected_variables=[self])).evaluate()
+    def evaluate(self, limit: Optional[int] = None) -> Iterator[T]:
+        """
+        Wrap the aggregator in an entity and evaluate it (i.e., make a query with this aggregator as the selected
+        expression and evaluate it.).
+
+        :param limit: The maximum number of results to return. If None, all results are returned.
+        :return: An iterator over the aggregator results.
+        """
+        return Entity(_selected_variables=(self,)).evaluate()
 
     def grouped_by(self, *variables: Variable) -> Entity[T]:
         """
         Group the results by the given variables.
         """
-        return Entity(_selected_variables=[self]).grouped_by(*variables)
-
-    def _process_result_(
-        self, result: OperationResult
-    ) -> TypingUnion[UnificationDict, Any]:
-        """
-        Map the result to the correct output data structure for user usage. This returns the selected variables only.
-        Return a dictionary with the selected variables as keys and the values as values.
-
-        :param result: The result to be mapped.
-        :return: The mapped result.
-        """
-        if (
-            isinstance(self._child_, QueryObjectDescriptor)
-            and self._child_._variables_to_group_by_
-        ):
-            return UnificationDict(
-                {self._id_expression_map_[id_]: v for id_, v in result.bindings.items()}
-            )
-        else:
-            return super()._process_result_(result)
+        return Entity(_selected_variables=(self,)).grouped_by(*variables)
 
     def _evaluate__(
         self,
@@ -847,13 +833,13 @@ class Aggregator(ResultProcessor[T], ABC):
     ) -> Iterable[OperationResult]:
 
         child_results = self._child_._evaluate_(sources, parent=self)
-        values = self._apply_aggregation_function_(child_results)
+        values = self._apply_aggregation_function_and_yield_bindings_(child_results)
 
         for value in values:
             yield OperationResult({**sources, **value}, False, self)
 
     @abstractmethod
-    def _apply_aggregation_function_(
+    def _apply_aggregation_function_and_yield_bindings_(
         self, child_results: Iterable[OperationResult]
     ) -> Iterator[Bindings]:
         """
@@ -880,12 +866,13 @@ class Count(Aggregator[T]):
     Count the number of child results.
     """
 
-    _child_: Optional[SymbolicExpression[T]] = None
+    _child_: Optional[SymbolicExpression] = None
     """
-    The child expression to be counted. If not given, the count of all results (by group) is returned.
+    The child expression to be counted. If not given, the count of all results (by group if `grouped_by()` is specified)
+     is returned.
     """
 
-    def _apply_aggregation_function_(
+    def _apply_aggregation_function_and_yield_bindings_(
         self, child_results: Iterable[OperationResult]
     ) -> Iterator[Bindings]:
         for res in child_results:
@@ -897,6 +884,11 @@ class Count(Aggregator[T]):
 
 @dataclass(eq=False, repr=False)
 class EntityAggregator(Aggregator[T], ABC):
+    """
+    Entity aggregators are aggregators where the child (the entity to be aggregated) is a selectable expression. Also,
+     If given, make use of the key function to extract the value to be aggregated from the child result.
+    """
+
     _child_: Selectable[T]
     """
     The child entity to be aggregated.
@@ -911,6 +903,26 @@ class EntityAggregator(Aggregator[T], ABC):
             raise InvalidChildType(type(self._child_), [Selectable])
         super().__post_init__()
 
+    def get_aggregation_result_from_child_result(self, result: OperationResult) -> Any:
+        """
+        :param result: The current operation result from the child.
+        :return: The aggregated result or the default value if the child result is empty.
+        """
+        if not result.has_value or len(result.value) == 0:
+            return self._default_value_
+        results = list(map(self._get_child_value_from_result_, result.value))
+        if self._distinct_:
+            results = set(results)
+        return self.aggregation_function(results)
+
+    @abstractmethod
+    def aggregation_function(self, result: Collection) -> Any:
+        """
+        :param result: The child result to be aggregated.
+        :return: The aggregated result.
+        """
+        ...
+
     def _get_child_value_from_result_(self, result: OperationResult) -> Any:
         """
         Extract the value of the child from the result dictionary.
@@ -921,45 +933,39 @@ class EntityAggregator(Aggregator[T], ABC):
         return result
 
 
-@dataclass(eq=False, repr=False)
-class Sum(EntityAggregator[T]):
-    """
-    Calculate the sum of the child results. If given, make use of the key function to extract the value to be summed.
-    """
-
-    def _apply_aggregation_function_(
-        self, child_results: Iterable[OperationResult]
-    ) -> Iterator[Bindings]:
-        for res in child_results:
-            if not res.has_value or len(res.value) == 0:
-                yield {self._binding_id_: self._default_value_}
-                continue
-            results = list(map(self._get_child_value_from_result_, res.value))
-            if self._distinct_:
-                results = set(results)
-            sum_val = sum(results)
-            yield {self._binding_id_: sum_val}
+Number = int | float
+"""
+A type representing a number, which can be either an integer or a float.
+"""
 
 
 @dataclass(eq=False, repr=False)
-class Average(EntityAggregator[T]):
+class Sum(EntityAggregator[Number]):
     """
-    Calculate the average of the child results. If given, make use of the key function to extract the value to be
-     averaged.
+    Calculate the sum of the child results.
     """
 
-    def _apply_aggregation_function_(
+    def _apply_aggregation_function_and_yield_bindings_(
         self, child_results: Iterable[OperationResult]
-    ) -> Iterator[Bindings]:
-        for res in child_results:
-            if not res.has_value:
-                yield {self._binding_id_: self._default_value_}
-                continue
-            results = list(map(self._get_child_value_from_result_, res.value))
-            if self._distinct_:
-                results = set(results)
-            sum_val = sum(results)
-            yield {self._binding_id_: sum_val / len(results)}
+    ) -> Iterator[Dict[int, Optional[Number]]]:
+        for result in child_results:
+            yield {
+                self._binding_id_: self.get_aggregation_result_from_child_result(result)
+            }
+
+    def aggregation_function(self, result: Collection[Number]) -> Number:
+        return sum(result)
+
+
+@dataclass(eq=False, repr=False)
+class Average(Sum):
+    """
+    Calculate the average of the child results.
+    """
+
+    def aggregation_function(self, result: Collection[Number]) -> Number:
+        sum_value = super().aggregation_function(result)
+        return sum_value / len(result)
 
 
 @dataclass(eq=False, repr=False)
@@ -975,27 +981,14 @@ class Extreme(EntityAggregator[T], CanBehaveLikeAVariable[T], ABC):
         )
         super().__post_init__()
 
-    def _apply_aggregation_function_(
+    def _apply_aggregation_function_and_yield_bindings_(
         self, child_results: Iterable[OperationResult]
     ) -> Iterator[Bindings]:
         for res in child_results:
-            try:
-                results = res.value
-                if self._distinct_:
-                    results = set(results)
-                extreme_val = self._extreme_function_(results, key=self._key_func_)
-                bindings = res.bindings.copy()
-                bindings[self._binding_id_] = extreme_val
-                yield bindings
-            except ValueError:
-                # Means that the child results were empty;
-                # the default value will be returned instead.
-                yield {self._binding_id_: self._default_value_} | res.bindings
-
-    @abstractmethod
-    def _extreme_function_(
-        self, values: Iterable, key: Optional[Callable[[Any], Any]] = None
-    ) -> Callable[[Any], Any]: ...
+            extreme_val = self.get_aggregation_result_from_child_result(res)
+            bindings = res.bindings.copy()
+            bindings[self._binding_id_] = extreme_val
+            yield bindings
 
 
 @dataclass(eq=False, repr=False)
@@ -1005,10 +998,8 @@ class Max(Extreme[T]):
      the value to be compared.
     """
 
-    def _extreme_function_(
-        self, values: Iterable, key: Optional[Callable[[Any], Any]] = None
-    ) -> Any:
-        return max(values, key=key)
+    def aggregation_function(self, values: Iterable) -> Any:
+        return max(values)
 
 
 @dataclass(eq=False, repr=False)
@@ -1018,20 +1009,18 @@ class Min(Extreme[T]):
      the value to be compared.
     """
 
-    def _extreme_function_(
-        self, values: Iterable, key: Optional[Callable[[Any], Any]] = None
-    ) -> Any:
-        return min(values, key=key)
+    def aggregation_function(self, values: Iterable) -> Any:
+        return min(values)
 
 
 @dataclass(eq=False)
-class ResultQuantifier(ResultProcessor[T], ABC):
+class ResultQuantifier(UnaryExpression, ABC):
     """
     Base for quantifiers that return concrete results from entity/set queries
     (e.g., An, The).
     """
 
-    _child_: QueryObjectDescriptor[T]
+    _child_: QueryObjectDescriptor
     """
     A child of a result quantifier. It must be a QueryObjectDescriptor.
     """
@@ -1044,13 +1033,10 @@ class ResultQuantifier(ResultProcessor[T], ABC):
         if not isinstance(self._child_, QueryObjectDescriptor):
             raise InvalidEntityType(type(self._child_), [QueryObjectDescriptor])
         super().__post_init__()
-        self._var_ = (
-            self._child_._var_ if isinstance(self._child_, Selectable) else None
-        )
         self._node_.wrap_subtree = True
 
-    def _distinct__(self, *on: Selectable):
-        self._child_.distinct(*on)
+    def _process_result_(self, result: OperationResult) -> Any:
+        return self._child_._process_result_(result)
 
     def _evaluate__(
         self,
@@ -1111,48 +1097,32 @@ class UnificationDict(UserDict):
 
 
 @dataclass(eq=False, repr=False)
-class An(ResultQuantifier[T]):
+class An(ResultQuantifier):
     """Quantifier that yields all matching results one by one."""
 
-    def evaluate(
-        self,
-        limit: Optional[int] = None,
-    ) -> Iterable[TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression[T]], T]]]:
-        """
-        Evaluate the query and map the results to the correct output data structure.
-        This is the exposed evaluation method for users.
-        """
-        results = super().evaluate()
-        if limit is None:
-            yield from results
-        elif not isinstance(limit, int) or limit <= 0:
-            raise NonPositiveLimitValue(limit)
-        else:
-            for res_num, result in enumerate(results, 1):
-                yield result
-                if res_num == limit:
-                    return
+    ...
 
 
 @dataclass(eq=False, repr=False)
-class The(ResultQuantifier[T]):
+class The(ResultQuantifier):
     """
-    Quantifier that expects exactly one result; raises MultipleSolutionFound if more.
+    Quantifier that expects exactly one result; raises MultipleSolutionFound if more, and NoSolutionFound if none.
     """
 
     _quantification_constraint_: ResultQuantificationConstraint = field(
         init=False, default_factory=lambda: Exactly(1)
     )
 
-    def evaluate(
-        self,
-    ) -> TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression[T]], T]]:
-        return list(super().evaluate())[0]
-
     def _evaluate__(
         self,
         sources: Bindings,
-    ) -> Iterable[TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression[T]], T]]]:
+    ) -> Iterable[TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression], T]]]:
+        """
+        Evaluates the query object descriptor with the given bindings and yields the results.
+
+        :raises MultipleSolutionFound: If more than one result is found.
+        :raises NoSolutionFound: If no result is found.
+        """
         try:
             yield from super()._evaluate__(sources)
         except LessThanExpectedNumberOfSolutions:
@@ -1188,20 +1158,27 @@ A dictionary for grouped bindings which maps a group key to its corresponding bi
 
 
 @dataclass(eq=False, repr=False)
-class GroupBy(SymbolicExpression[T]):
+class GroupBy(UnaryExpression):
     """
     Represents a group-by operation in the entity query language. This operation groups the results of a query by
     specific variables. This is useful for aggregating results separately for each group.
     """
 
-    query_descriptor: QueryObjectDescriptor[T]
+    _child_: QueryObjectDescriptor
     """
-    The query object descriptor that is being grouped.
+    The child of the group-by operation. It must be a QueryObjectDescriptor.
+    """
+    variables_to_group_by: Tuple[Selectable, ...] = ()
+    """
+    The variables to group the results by their values.
     """
 
-    def __post_init__(self):
-        self._child_ = self.query_descriptor._where_expression_
-        super().__post_init__()
+    @property
+    def query_descriptor(self) -> QueryObjectDescriptor:
+        """
+        The query object descriptor that is being grouped.
+        """
+        return self._child_
 
     def _evaluate__(self, sources: Bindings = None) -> Iterator[OperationResult]:
         """
@@ -1239,7 +1216,7 @@ class GroupBy(SymbolicExpression[T]):
         groups = defaultdict(lambda: OperationResult({}, False, self))
         group_key_count = defaultdict(lambda: 0)
 
-        for res in self.get_constrained_values(sources):
+        for res in self.query_descriptor._evaluate_(sources, parent=self):
 
             group_key = tuple(
                 ensure_hashable(res[var._binding_id_])
@@ -1283,155 +1260,65 @@ class GroupBy(SymbolicExpression[T]):
             and expression._child_._binding_id_ in self.ids_of_variables_to_group_by
         )
 
-    def get_constrained_values(self, sources: Bindings) -> Iterator[Bindings]:
-        """
-        :param sources: The current bindings.
-        :return: An iterator over the constrained value by the where clause, grouped by variables, and aggregated
-        variables of the group by expression.
-        """
-        constrained_values = self.evaluate_where_expression(sources)
-        constrained_values = self.evaluate_grouped_by_variables(constrained_values)
-        constrained_values = self.evaluate_aggregated_variables(constrained_values)
-        return constrained_values
-
-    @cached_property
-    def count_occurrences_of_each_group_key(self) -> bool:
-        """
-        :return: True if there are any aggregators of type Count in the selected variables of the query descriptor that
-         are counting values of variables that are in the grouped_by clause, False otherwise.
-        """
-        return len(self.aggregators_of_grouped_by_variables) > 0
-
-    def evaluate_where_expression(self, sources: Bindings) -> Iterator[Bindings]:
-        """
-        :param sources: The current bindings.
-        :return: An iterator of Bindings that satisfy the where expression of the query object descriptor.
-         If there is no where expression, it returns the input bindings as is.
-        """
-        if self.where_expression:
-            yield from (
-                res.bindings
-                for res in self.where_expression._evaluate_(sources, parent=self)
-                if res.is_true
-            )
-        else:
-            yield sources
-
-    def evaluate_aggregated_variables(
-        self, sources: Iterator[Bindings]
-    ) -> Iterator[Bindings]:
-        """
-        Evaluate the aggregated variables by generating combinations of values from their evaluation generators.
-
-        :param sources: The current bindings.
-        :return: An Iterable of Bindings for each combination of values.
-        """
-        for values in sources:
-            yield from QueryObjectDescriptor._chain_evaluate_variables(
-                self.aggregated_variables,
-                values,
-                parent=self,
-            )
-
-    @cached_property
-    def aggregated_variables(self):
-        """
-        :return: A list of the aggregated variables from the aggregators in the selected variables of the query descriptor.
-        """
-        return [var._child_ for var in self.aggregators if var._child_ is not None]
-
-    def aggregators_of_grouped_by_variables_that_are_not_count(
-        self,
-    ) -> Iterator[Aggregator]:
-        """
-        :return: Aggregators in the selected variables of the query descriptor that are aggregating over
-         expressions having variables that are in the grouped_by clause and are not Count.
-        """
-        yield from (
-            var
-            for var in self.aggregators_of_grouped_by_variables
-            if not isinstance(var, Count)
-        )
-
-    @cached_property
-    def aggregators_of_grouped_by_variables(self):
-        """
-        :return: A list of the aggregators in the selected variables of the query descriptor that are aggregating over
-         expressions having variables that are in the grouped_by clause.
-        """
-        return [
-            var
-            for var in self.aggregators
-            if (var._child_ is None)
-            or (var._child_._binding_id_ in self.ids_of_variables_to_group_by)
-        ]
-
-    @cached_property
-    def aggregators(self):
-        """
-        :return: A list of aggregators in the selected variables of the query descriptor.
-        """
-        return [
-            var
-            for var in self.query_descriptor._selected_variables
-            if isinstance(var, Aggregator)
-        ]
-
-    def evaluate_grouped_by_variables(
-        self, sources: Iterator[Bindings]
-    ) -> Iterator[Bindings]:
-        """
-        Evaluate the grouped_by variables by generating combinations of values from their evaluation generators.
-
-        :param sources: The current bindings.
-        :return: An Iterable of Bindings for each combination of values.
-        """
-        for values in sources:
-            yield from QueryObjectDescriptor._chain_evaluate_variables(
-                self.variables_to_group_by, values, parent=self
-            )
-
-    @property
-    def where_expression(self) -> Optional[SymbolicExpression[T]]:
-        return self._child_
-
     @cached_property
     def ids_of_variables_to_group_by(self) -> Tuple[int, ...]:
         return tuple(var._binding_id_ for var in self.variables_to_group_by)
-
-    @cached_property
-    def variables_to_group_by(self) -> Tuple[Selectable, ...]:
-        return tuple(self.query_descriptor._variables_to_group_by_)
 
     @property
     def _name_(self) -> str:
         return f"{self.__class__.__name__}({', '.join([var._name_ for var in self.variables_to_group_by])})"
 
-    @cached_property
-    def _all_variable_instances_(self) -> List[Selectable]:
-        return self.where_expression._all_variable_instances_ + list(
-            self.variables_to_group_by
-        )
+
+ResultMapping = Callable[[Iterable[Bindings]], Iterator[Bindings]]
+"""
+A function that maps the results of a query object descriptor to a new set of results.
+"""
+
+
+@dataclass
+class QuantifierBuilder:
+    type: Type[ResultQuantifier] = An
+    """
+    The type of the quantifier to be built.
+    """
+    quantification_constraint: Optional[ResultQuantificationConstraint] = None
+    """
+    The quantification constraint that must be satisfied by the result quantifier if present.
+    """
+
+    def __call__(self, child: QueryObjectDescriptor) -> ResultQuantifier:
+        """
+        Builds a result quantifier of the specified type with the given child and quantification constraint.
+
+        :param child: The child of the result quantifier.
+        """
+        if self.quantification_constraint:
+            return self.type(
+                child, _quantification_constraint_=self.quantification_constraint
+            )
+        else:
+            return self.type(child)
 
 
 @dataclass(eq=False, repr=False)
-class QueryObjectDescriptor(SymbolicExpression[T], ABC):
+class QueryObjectDescriptor(SymbolicExpression, ABC):
     """
     Describes the queried object(s), could be a query over a single variable or a set of variables,
     also describes the condition(s)/properties of the queried object(s).
     """
 
-    _child_: Optional[SymbolicExpression[T]] = field(default=None)
-    """
-    The child of the query object descriptor is the root of the conditions in the query/sub-query graph.
-    """
-    _selected_variables: List[Selectable[T]] = field(default_factory=list)
+    _selected_variables: Tuple[Selectable, ...]
     """
     The variables that are selected by the query object descriptor.
     """
-    _variables_to_group_by_: Tuple[Selectable, ...] = field(default=(), init=False)
+    _child_: Optional[SymbolicExpression] = field(default=None)
     """
-    The variables to group the results by.
+    The child of the query object descriptor is the root of the conditions in the query/sub-query graph.
+    """
+    _group_by_: Optional[GroupBy] = field(default=None, init=False)
+    """
+    The group-by operation of the query object descriptor if the results are grouped by specific variables.
+     It is built in the `_build_()` method when `grouped_by()` is called or aggregations are selected.
     """
     _order_by: Optional[OrderByParams] = field(default=None, init=False)
     """
@@ -1449,15 +1336,15 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
     """
     A set of seen results, used when distinct is called in the query object descriptor.
     """
-    _where_condition_list_: List[ConditionType] = field(
-        default_factory=list, init=False
-    )
+    _where_conditions_: Tuple[ConditionType, ...] = field(default=(), init=False)
     """
     The condition list of the query object descriptor.
     """
-    _having_condition_list_: List[ConditionType] = field(
-        default_factory=list, init=False
-    )
+    _where_expression_: Optional[Where] = field(default=None, init=False)
+    """
+    The where expression of the query object descriptor.
+    """
+    _having_conditions_: Tuple[ConditionType, ...] = field(default=(), init=False)
     """
     The condition list of the query object descriptor.
     """
@@ -1467,28 +1354,31 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
     """
     The having expression of the query object descriptor.
     """
-    _where_expression_: Optional[Where] = field(default=None, init=False)
+    _quantifier_builder_: QuantifierBuilder = field(
+        default_factory=QuantifierBuilder, init=False
+    )
     """
-    The where expression of the query object descriptor.
-    """
-    _limit_: Optional[int] = field(default=None, init=False)
-    """
-    The limit on the number of results returned by the query.
+    The quantifier of the query object descriptor. The default quantifier is `An` which yields all results.
     """
 
     def __post_init__(self):
         super().__post_init__()
-        if self._aggregated_and_non_aggregated_variables_in_selection_[0]:
-            self._group_ = True
         self._enclose_plotted_nodes_of_selected_variables_()
 
-    def tolist(self) -> List[T]:
+    def tolist(self) -> List:
         """
         Map the results of the query object descriptor to a list of the selected variable values.
 
         :return: A list of the selected variable values.
         """
-        return list(An(_child_=self).evaluate())
+        return list(self.evaluate())
+
+    def evaluate(self, limit: Optional[int] = None) -> Iterator:
+        """
+        Wrap the query object descriptor in a ResultQuantifier expression and evaluate it,
+         returning an iterator over the results.
+        """
+        return self._quantifier_builder_(self).evaluate(limit)
 
     def where(self, *conditions: ConditionType) -> Self:
         """
@@ -1498,16 +1388,12 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         :return: This query object descriptor.
         """
 
-        self._where_condition_list_ = list(conditions)
+        self._where_conditions_ = conditions
 
         self._assert_correct_where_conditions_()
 
         # Build the expression from the conditions
-        expression = (
-            chained_logic(AND, *self._where_condition_list_)
-            if len(self._where_condition_list_) > 1
-            else self._where_condition_list_[0]
-        )
+        expression = chained_logic(AND, *self._where_conditions_)
 
         self._where_expression_ = Where(expression)
         return self
@@ -1519,16 +1405,12 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         :param conditions: The conditions that describe the query object.
         :return: This query object descriptor.
         """
-        self._having_condition_list_ = list(conditions)
+        self._having_conditions_ = conditions
 
         self._assert_correct_having_conditions_()
 
         # Build the expression from the conditions
-        expression = (
-            chained_logic(AND, *self._having_condition_list_)
-            if len(self._having_condition_list_) > 1
-            else self._having_condition_list_[0]
-        )
+        expression = chained_logic(AND, *self._having_conditions_)
         self._having_conditions_expression_ = expression
         return self
 
@@ -1575,6 +1457,23 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         self._variables_to_group_by_ = tuple(variables)
         return self
 
+    def _quantify_(
+        self,
+        quantifier_type: Type[ResultQuantifier] = An,
+        quantification_constraint: Optional[ResultQuantificationConstraint] = None,
+    ) -> Self:
+        """
+        Specify the quantifier type and constraint for the query results.
+
+        :param quantifier_type: The type of the quantifier to be used.
+        :param quantification_constraint: The constraint to apply to the quantifier.
+        """
+        self._build_()
+        self._quantifier_builder_ = QuantifierBuilder(
+            quantifier_type, quantification_constraint
+        )
+        return self
+
     def _build_(self):
         """
         Build the query object descriptor by wiring the nodes together in the correct order of evaluation.
@@ -1582,17 +1481,29 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         group_by = None
         having = None
         if self._group_:
-            group_by = GroupBy(self)
+            aggregated_variables, non_aggregated_variables = (
+                self._aggregated_and_non_aggregated_variables_in_selection_
+            )
+            group_by_entity_selected_variables = non_aggregated_variables + [
+                var._child_ for var in aggregated_variables if var._child_ is not None
+            ]
+            group_by = GroupBy(
+                SetOf(
+                    _selected_variables=tuple(group_by_entity_selected_variables),
+                    _child_=self._where_expression_,
+                ),
+                self._variables_to_group_by_,
+            )
             if self._having_conditions_expression_:
                 having = Having(
-                    group_by=group_by, _child_=self._having_conditions_expression_
+                    left=group_by, right=self._having_conditions_expression_
                 )
         if having:
-            self._update_child_(having)
+            self._child_ = self._update_children_(having)[0]
         elif group_by:
-            self._update_child_(group_by)
-        elif self._where_expression_:
-            self._update_child_(self._where_expression_)
+            self._child_ = self._update_children_(group_by)[0]
+        elif self._where_expression_ is not None:
+            self._child_ = self._update_children_(self._where_expression_)[0]
 
     def _evaluate__(
         self,
@@ -1693,6 +1604,54 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
             var_value = self._distinct_on[i]._evaluate_(copy(res), parent=self)
             res[id_] = next(var_value).value
 
+    @cached_property
+    def count_occurrences_of_each_group_key(self) -> bool:
+        """
+        :return: True if there are any aggregators of type Count in the selected variables of the query descriptor that
+         are counting values of variables that are in the grouped_by clause, False otherwise.
+        """
+        return len(self.aggregators_of_grouped_by_variables) > 0
+
+    def aggregators_of_grouped_by_variables_that_are_not_count(
+        self,
+    ) -> Iterator[Aggregator]:
+        """
+        :return: Aggregators in the selected variables of the query descriptor that are aggregating over
+         expressions having variables that are in the grouped_by clause and are not Count.
+        """
+        yield from (
+            var
+            for var in self.aggregators_of_grouped_by_variables
+            if not isinstance(var, Count)
+        )
+
+    @cached_property
+    def aggregators_of_grouped_by_variables(self):
+        """
+        :return: A list of the aggregators in the selected variables of the query descriptor that are aggregating over
+         expressions having variables that are in the grouped_by clause.
+        """
+        return [
+            var
+            for var in self.aggregators
+            if (var._child_ is None)
+            or (var._child_._binding_id_ in self.ids_of_variables_to_group_by)
+        ]
+
+    @cached_property
+    def ids_of_variables_to_group_by(self) -> Tuple[int, ...]:
+        """
+        :return: A tuple of the binding IDs of the variables to group by.
+        """
+        return tuple(var._binding_id_ for var in self._variables_to_group_by_)
+
+    @cached_property
+    def aggregators(self):
+        """
+        :return: A list of aggregators in the selected variables of the query descriptor.
+        """
+        return [var for var in self._selected_variables if isinstance(var, Aggregator)]
+
     def _enclose_plotted_nodes_of_selected_variables_(self):
         """
         Enclose the selected variables in the query object descriptor.
@@ -1748,16 +1707,20 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         """
         :return: Whether the results should be grouped or not. Is true when an aggregator is selected.
         """
-        return len(self._aggregated_and_non_aggregated_variables_in_selection_[0]) > 0
+        return (
+            len(self._aggregated_and_non_aggregated_variables_in_selection_[0]) > 0
+            or self._group_by_ is not None
+        )
 
-    def _assert_correct_conditions_(self, conditions: List[ConditionType]):
+    def _assert_correct_conditions_(self, conditions: Tuple[ConditionType, ...]):
         """
         :param conditions: The conditions that describe the query object.
-        :raises UsageError: If the conditions are not valid.
+        :raises NoConditionsProvidedToWhereStatementOfDescriptor: If no conditions are provided.
+        :raises LiteralConditionError: If any of the conditions is a literal expression.
         """
         # If there are no conditions raise error.
         if len(conditions) == 0:
-            raise NoConditionsProvidedToWhereStatementOfDescriptor(self)
+            raise NoConditionsProvided(self)
 
         # If there's a constant condition raise error.
         literal_expressions = [
@@ -1772,12 +1735,10 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
         :raises UsageError: If the where conditions are not valid.
         """
-        if self._having_condition_list_:
-            raise HavingUsedBeforeWhereError(self)
-        self._assert_correct_conditions_(self._where_condition_list_)
+        self._assert_correct_conditions_(self._where_conditions_)
         aggregators, non_aggregators = (
             self._aggregators_and_non_aggregators_in_conditions_(
-                tuple(self._where_condition_list_)
+                tuple(self._where_conditions_)
             )
         )
         if aggregators:
@@ -1789,18 +1750,19 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
         :raises UsageError: If the having conditions are not valid.
         """
-        self._assert_correct_conditions_(self._having_condition_list_)
+        self._assert_correct_conditions_(self._having_conditions_)
         aggregators, non_aggregators = (
             self._aggregators_and_non_aggregators_in_conditions_(
-                tuple(self._having_condition_list_)
+                tuple(self._having_conditions_)
             )
         )
         if non_aggregators:
             raise NonAggregatorInHavingConditionsError(self, non_aggregators)
 
+    @lru_cache
     def _aggregators_and_non_aggregators_in_conditions_(
         self, conditions: Tuple[ConditionType, ...]
-    ) -> Tuple[List[Aggregator], List[Selectable]]:
+    ) -> Tuple[Tuple[Aggregator, ...], Tuple[Selectable, ...]]:
         """
         :param conditions: The conditions that describe the query object.
         :return: A tuple containing the aggregators and non-aggregators in the where condition.
@@ -1820,7 +1782,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
                     aggregators.append(var)
                 elif isinstance(var, Selectable) and not isinstance(var, Literal):
                     non_aggregators.append(var)
-        return aggregators, non_aggregators
+        return tuple(aggregators), tuple(non_aggregators)
 
     @staticmethod
     def _variable_is_inferred_(var: Selectable[T]) -> bool:
@@ -1877,7 +1839,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
         :param child_result: The result of the child operation.
         """
-        if not self._child_:
+        if self._child_ is None:
             return child_result
         for conclusion in self._child_._conclusion_:
             child_result = next(
@@ -1897,7 +1859,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
             yield sources
             return
 
-        for res in self._get_child_true_results__(sources):
+        for res in self._get_child_true_results_(sources):
 
             self._evaluate_conclusions_and_update_bindings_(res.bindings)
 
@@ -1906,7 +1868,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
             yield res.bindings
 
-    def _get_child_true_results__(self, sources: Bindings) -> Iterator[OperationResult]:
+    def _get_child_true_results_(self, sources: Bindings) -> Iterator[OperationResult]:
         """
         :param sources: The current bindings.
         :return: An iterator of child results that are true.
@@ -1948,7 +1910,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
     @staticmethod
     def _chain_evaluate_variables(
-        variables: Iterable[SymbolicExpression[T]],
+        variables: Iterable[SymbolicExpression],
         sources: Bindings,
         parent: Optional[SymbolicExpression] = None,
     ) -> Iterator[Bindings]:
@@ -2007,7 +1969,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class SetOf(QueryObjectDescriptor[T]):
+class SetOf(QueryObjectDescriptor):
     """
     A query over a set of variables.
     """
@@ -2043,7 +2005,7 @@ class SetOfSelectable(CanBehaveLikeAVariable[T]):
     A selected variable from the SetOf operation selected variables.
     """
 
-    _set_of_: SetOf[T]
+    _set_of_: SetOf
     """
     The SetOf operation from which `_selected_var_` was selected.
     """
@@ -2073,12 +2035,12 @@ class SetOfSelectable(CanBehaveLikeAVariable[T]):
         return f"{self._set_of_._name_}.{self._selected_var_._name_}"
 
     @cached_property
-    def _all_variable_instances_(self) -> List[Variable]:
+    def _all_variable_instances_(self) -> List[Selectable]:
         return self._set_of_._all_variable_instances_
 
 
 @dataclass(eq=False, repr=False)
-class Entity(QueryObjectDescriptor[T], CanBehaveLikeAVariable[T]):
+class Entity(QueryObjectDescriptor, CanBehaveLikeAVariable[T]):
     """
     A query over a single variable.
     """
@@ -2611,7 +2573,6 @@ class Flatten(DomainMapping):
         if not isinstance(self._child_, SymbolicExpression):
             self._child_ = Literal(self._child_)
         super().__post_init__()
-        self._path_ = self._child_._path_
 
     def _apply_mapping_(self, value: Iterable[Any]) -> Iterable[Any]:
         yield from value
@@ -2629,7 +2590,7 @@ class Flatten(DomainMapping):
 
 
 @dataclass(eq=False, repr=False)
-class BinaryOperator(SymbolicExpression, ABC):
+class BinaryExpression(SymbolicExpression, ABC):
     """
     A base class for binary operators that can be used to combine symbolic expressions.
     """
@@ -2648,7 +2609,7 @@ class BinaryOperator(SymbolicExpression, ABC):
         self.left, self.right = self._update_children_(self.left, self.right)
 
     @cached_property
-    def _all_variable_instances_(self) -> List[Variable]:
+    def _all_variable_instances_(self) -> List[Selectable]:
         """
         Get the leaf instances of the symbolic expression.
         This is useful for accessing the leaves of the symbolic expression tree.
@@ -2657,21 +2618,29 @@ class BinaryOperator(SymbolicExpression, ABC):
 
 
 @dataclass(eq=False, repr=False)
-class Having(ConstraintSpecifier[T]):
+class Having(BinaryExpression, ConstraintSpecifier):
     """
     A symbolic having expression that can be used to filter the grouped results of a query. Is constructed through
     the `QueryObjectDescriptor` using the `having()` method.
     """
 
-    group_by: GroupBy
+    left: GroupBy
     """
     The group by expression that is used to group the results of the query. This is a child of the Having expression.
     As the results need to be grouped before filtering.
     """
+    right: SymbolicExpression
+    """
+    The constraint expression that is used to filter the grouped results of the query.
+    """
 
-    def __post_init__(self):
-        super().__post_init__()
-        self._update_children_(self.group_by)
+    @property
+    def conditions(self) -> SymbolicExpression:
+        return self.right
+
+    @property
+    def group_by(self) -> GroupBy:
+        return self.left
 
     def _evaluate__(
         self,
@@ -2680,29 +2649,19 @@ class Having(ConstraintSpecifier[T]):
 
         yield from (
             OperationResult(
-                condition_result.bindings,
-                self.get_and_update_truth_value(condition_result),
+                filtered_result.bindings,
+                self.get_and_update_truth_value(),
                 self,
             )
-            for grouped_result in self.group_by._evaluate_(sources, parent=self)
-            for condition_result in self.conditions._evaluate_(
-                grouped_result.bindings, parent=self
+            for grouping_result in self.group_by._evaluate_(sources, parent=self)
+            for filtered_result in self.conditions._evaluate_(
+                grouping_result.bindings, parent=self
             )
         )
 
-    def get_and_update_truth_value(self, result: OperationResult) -> bool:
-        """
-        Retrieves and updates the truth value of the given operation result.
-
-        :param result: The operation result to process.
-        :return: The truth value of the operation result.
-        """
-        self.is_false = result.is_false
-        return result.is_false
-
-    @cached_property
-    def _all_variable_instances_(self) -> List[Selectable]:
-        return self.group_by._all_variable_instances_ + super()._all_variable_instances_
+    @property
+    def _name_(self):
+        return self.__class__.__name__
 
 
 def not_contains(container, item) -> bool:
@@ -2717,13 +2676,13 @@ def not_contains(container, item) -> bool:
 
 
 @dataclass(eq=False, repr=False)
-class Comparator(BinaryOperator):
+class Comparator(BinaryExpression):
     """
     A symbolic equality check that can be used to compare symbolic variables using a provided comparison operation.
     """
 
-    left: CanBehaveLikeAVariable
-    right: CanBehaveLikeAVariable
+    left: Selectable
+    right: Selectable
     operation: Callable[[Any, Any], bool]
     operation_name_map: ClassVar[Dict[Any, str]] = {
         operator.eq: "==",
@@ -2799,7 +2758,7 @@ class Comparator(BinaryOperator):
 
 
 @dataclass(eq=False, repr=False)
-class LogicalOperator(SymbolicExpression[T], ABC):
+class LogicalOperator(SymbolicExpression, ABC):
     """
     A symbolic operation that can be used to combine multiple symbolic expressions using logical constraints on their
     truth values. Examples are conjunction (AND), disjunction (OR), negation (NOT), and conditional quantification
@@ -2816,13 +2775,11 @@ class LogicalOperator(SymbolicExpression[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class Not(LogicalOperator[T]):
+class Not(LogicalOperator, UnaryExpression):
     """
     The logical negation of a symbolic expression. Its truth value is the opposite of its child's truth value. This is
     used when you want bindings that satisfy the negated condition (i.e., that doesn't satisfy the original condition).
     """
-
-    _child_: SymbolicExpression[T]
 
     def __post_init__(self):
         if isinstance(self._child_, ResultQuantifier):
@@ -2838,13 +2795,9 @@ class Not(LogicalOperator[T]):
             self._is_false_ = v.is_true
             yield OperationResult(v.bindings, self._is_false_, self)
 
-    @property
-    def _all_variable_instances_(self) -> List[Variable]:
-        return self._child_._all_variable_instances_
-
 
 @dataclass(eq=False, repr=False)
-class LogicalBinaryOperator(LogicalOperator[T], BinaryOperator, ABC):
+class LogicalBinaryOperator(LogicalOperator, BinaryExpression, ABC):
     def __post_init__(self):
         if isinstance(self.left, ResultQuantifier):
             raise UnSupportedOperand(self.__class__, self.left)
