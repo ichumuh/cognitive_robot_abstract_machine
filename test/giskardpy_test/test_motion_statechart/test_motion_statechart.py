@@ -2615,8 +2615,8 @@ class TestCollisionAvoidance:
                 AvoidCollisionBetweenGroups(
                     buffer_zone_distance=0.05,
                     violated_distance=0.0,
-                    body_group1=[tip],
-                    body_group2=[env1],
+                    body_group_a=[tip],
+                    body_group_b=[env1],
                 ),
             ]
         )

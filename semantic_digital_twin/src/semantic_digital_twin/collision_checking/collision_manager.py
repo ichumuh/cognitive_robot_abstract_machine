@@ -41,6 +41,9 @@ class CollisionGroup:
     def __repr__(self) -> str:
         return f"CollisionGroup(root={self.root.name}, bodies={[b.name for b in self.bodies]})"
 
+    def __str__(self) -> str:
+        return str(self.root.name)
+
     def __eq__(self, other) -> bool:
         return self.root == other.root
 

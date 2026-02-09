@@ -16,6 +16,7 @@ from krrood.ontomatic.property_descriptor.attribute_introspector import (
 from krrood.utils import recursive_subclasses
 from pycram.datastructures.dataclasses import Context  # type: ignore
 from semantic_digital_twin.adapters.mesh import STLParser
+from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import AbstractRobot
@@ -177,7 +178,7 @@ def self_collision_bot_world():
     world = World()
     with world.modify_world():
         robot = Body(
-            name=PrefixedName("base_footprint"),
+            name=PrefixedName("map"),
             collision=ShapeCollection(shapes=[Sphere(radius=0.1)]),
             visual=ShapeCollection(shapes=[Sphere(radius=0.1)]),
         )
@@ -191,6 +192,11 @@ def self_collision_bot_world():
             collision=ShapeCollection(shapes=[Sphere(radius=0.1)]),
             visual=ShapeCollection(shapes=[Sphere(radius=0.1)]),
         )
+        l_thumb = Body(
+            name=PrefixedName("l_thumb"),
+            collision=ShapeCollection(shapes=[Sphere(radius=0.1)]),
+            visual=ShapeCollection(shapes=[Sphere(radius=0.1)]),
+        )
         r_shoulder = Body(
             name=PrefixedName("r_shoulder"),
             collision=ShapeCollection(shapes=[Sphere(radius=0.1)]),
@@ -201,12 +207,20 @@ def self_collision_bot_world():
             collision=ShapeCollection(shapes=[Sphere(radius=0.1)]),
             visual=ShapeCollection(shapes=[Sphere(radius=0.1)]),
         )
+        r_thumb = Body(
+            name=PrefixedName("r_thumb"),
+            collision=ShapeCollection(shapes=[Sphere(radius=0.1)]),
+            visual=ShapeCollection(shapes=[Sphere(radius=0.1)]),
+        )
 
         world.add_connection(
             RevoluteConnection.create_with_dofs(
                 parent=robot,
                 child=l_shoulder,
                 axis=Vector3.Z(),
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.2, y=0.2
+                ),
                 world=world,
             )
         )
@@ -215,7 +229,19 @@ def self_collision_bot_world():
                 parent=l_shoulder,
                 child=l_tip,
                 axis=Vector3.Z(),
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.2
+                ),
                 world=world,
+            )
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=l_tip,
+                child=l_thumb,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    y=-0.05, z=0.1
+                ),
             )
         )
 
@@ -224,6 +250,10 @@ def self_collision_bot_world():
                 parent=robot,
                 child=r_shoulder,
                 axis=Vector3.Z(),
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.2,
+                    y=-0.2,
+                ),
                 world=world,
             )
         )
@@ -232,7 +262,19 @@ def self_collision_bot_world():
                 parent=r_shoulder,
                 child=r_tip,
                 axis=Vector3.Z(),
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.2
+                ),
                 world=world,
+            )
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=r_tip,
+                child=r_thumb,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    y=0.05, z=0.1
+                ),
             )
         )
         MinimalRobot.from_world(world)

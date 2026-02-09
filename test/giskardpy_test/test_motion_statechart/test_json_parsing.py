@@ -81,8 +81,8 @@ def test_CollisionRequest(pr2_world_setup: World):
     collision_request_copy = CollisionRule.from_json(new_json_data, **kwargs)
     assert collision_request_copy.type_ == collision_request.type_
     assert collision_request_copy.distance == collision_request.distance
-    assert collision_request_copy.body_group1 == collision_request.body_group1
-    assert collision_request_copy.body_group2 == collision_request.body_group2
+    assert collision_request_copy.body_group_a == collision_request.body_group1
+    assert collision_request_copy.body_group_b == collision_request.body_group2
 
 
 def test_trinary_transition():

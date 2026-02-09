@@ -75,8 +75,8 @@ class TestCollisionRules:
         rule = AvoidCollisionBetweenGroups(
             buffer_zone_distance=0.05,
             violated_distance=0.0,
-            body_group1=pr2.left_arm.bodies,
-            body_group2=pr2.right_arm.bodies,
+            body_group_a=pr2.left_arm.bodies,
+            body_group_b=pr2.right_arm.bodies,
         )
 
         rule.apply_to_collision_matrix(collision_matrix)
@@ -97,14 +97,14 @@ class TestCollisionRules:
                 AvoidCollisionBetweenGroups(
                     buffer_zone_distance=10,
                     violated_distance=0.0,
-                    body_group1=[robot.root],
-                    body_group2=[env1],
+                    body_group_a=[robot.root],
+                    body_group_b=[env1],
                 ),
                 AvoidCollisionBetweenGroups(
                     buffer_zone_distance=15,
                     violated_distance=0.23,
-                    body_group1=[robot.root],
-                    body_group2=[env2],
+                    body_group_a=[robot.root],
+                    body_group_b=[env2],
                 ),
             ]
         )
@@ -122,11 +122,11 @@ class TestCollisionRules:
         rule1 = AvoidCollisionBetweenGroups(
             buffer_zone_distance=0.05,
             violated_distance=0,
-            body_group1=pr2.left_arm.bodies,
-            body_group2=pr2.right_arm.bodies,
+            body_group_a=pr2.left_arm.bodies,
+            body_group_b=pr2.right_arm.bodies,
         )
         rule2 = AllowCollisionBetweenGroups(
-            body_group1=pr2.left_arm.bodies, body_group2=pr2.right_arm.bodies
+            body_group_a=pr2.left_arm.bodies, body_group_b=pr2.right_arm.bodies
         )
 
         rule1.apply_to_collision_matrix(collision_matrix)

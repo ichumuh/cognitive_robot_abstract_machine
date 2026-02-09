@@ -58,21 +58,21 @@ class AvoidCollisionRule(CollisionRule):
 
 @dataclass
 class AvoidCollisionBetweenGroups(AvoidCollisionRule):
-    body_group1: List[Body] = field(default_factory=list)
-    body_group2: List[Body] = field(default_factory=list)
+    body_group_a: List[Body] = field(default_factory=list)
+    body_group_b: List[Body] = field(default_factory=list)
 
     def applies_to(self, body_a: Body, body_b: Body) -> bool:
         """
         Returns True if the body is a member of any group handled by this rule.
         """
-        return (body_a in self.body_group1 and body_b in self.body_group2) or (
-            body_a in self.body_group2 and body_b in self.body_group1
+        return (body_a in self.body_group_a and body_b in self.body_group_b) or (
+            body_a in self.body_group_b and body_b in self.body_group_a
         )
 
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
         collision_checks = set()
-        for body_a in self.body_group1:
-            for body_b in self.body_group2:
+        for body_a in self.body_group_a:
+            for body_b in self.body_group_b:
                 if body_a == body_b:
                     continue
                 collision_check = CollisionCheck.create_and_validate(
@@ -104,13 +104,13 @@ class AvoidAllCollisions(AvoidCollisionRule):
 
 @dataclass
 class AllowCollisionBetweenGroups(CollisionRule):
-    body_group1: List[Body] = field(default_factory=list)
-    body_group2: List[Body] = field(default_factory=list)
+    body_group_a: List[Body] = field(default_factory=list)
+    body_group_b: List[Body] = field(default_factory=list)
 
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
         collision_checks = set()
-        for body_a in self.body_group1:
-            for body_b in self.body_group2:
+        for body_a in self.body_group_a:
+            for body_b in self.body_group_b:
                 if body_a == body_b:
                     continue
                 collision_check = CollisionCheck.create_and_validate(
@@ -203,11 +203,11 @@ class SelfCollisionMatrixRule(HighPriorityAllowCollisionRule):
             if collision_request.all_bodies_for_group1():
                 view_1_bodies = world.bodies_with_collision
             else:
-                view_1_bodies = collision_request.body_group1
+                view_1_bodies = collision_request.body_group_a
             if collision_request.all_bodies_for_group2():
                 view2_bodies = world.bodies_with_collision
             else:
-                view2_bodies = collision_request.body_group2
+                view2_bodies = collision_request.body_group_b
             for body1 in view_1_bodies:
                 for body2 in view2_bodies:
                     collision_check = CollisionCheck.create_and_validate(
