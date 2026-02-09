@@ -180,7 +180,11 @@ class AllowCollisionForAdjacentPairs(HighPriorityAllowCollisionRule):
 
     def _update(self, world: World):
         for body_a, body_b in combinations(world.bodies_with_collision, 2):
-            if not world.is_controlled_connection_in_chain(body_a, body_b):
+            if (
+                not world.is_controlled_connection_in_chain(body_a, body_b)
+                or body_a == body_b.parent_kinematic_structure_entity
+                or body_b == body_a.parent_kinematic_structure_entity
+            ):
                 self.allowed_collision_pairs.add(
                     CollisionCheck.create_and_validate(body_a, body_b)
                 )
