@@ -2782,6 +2782,7 @@ class TestCollisionAvoidance:
             cylinder_bot_world.add_connection(env_connection)
 
         tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
+        robot = cylinder_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
         msc = MotionStatechart()
         msc.add_node(
@@ -2801,9 +2802,7 @@ class TestCollisionAvoidance:
                                     x=1, reference_frame=cylinder_bot_world.root
                                 ),
                             ),
-                            CollisionAvoidance(
-                                collision_rules=[CollisionRule.avoid_all_collision()],
-                            ),
+                            ExternalCollisionAvoidance(robot=robot),
                         ]
                     ),
                 ]
