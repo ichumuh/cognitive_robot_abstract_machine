@@ -434,10 +434,16 @@ class WorldModelModificationBlock(SubclassJSONSerializer):
     """
 
     def apply(self, world: World):
-        ...
         with world.modify_world():
             for modification in self.modifications:
                 modification.apply(world)
+
+    @classmethod
+    def apply_from_json(cls, world: World, data: Dict[str, Any], **kwargs) -> Self:
+        data = data["modifications"]
+
+        for modification in data:
+            WorldModelModification.from_json(modification, **kwargs).apply(world)
 
     def to_json(self):
         return {
