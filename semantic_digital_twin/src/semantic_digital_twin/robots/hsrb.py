@@ -185,8 +185,6 @@ class HSRB(AbstractRobot, HasArms, HasNeck):
 
         self.full_body_controlled = True
 
-        self._world.add_semantic_annotation(self)
-
     def _setup_collision_rules(self):
         srdf_path = os.path.join(
             resource_filename("semantic_digital_twin", "../../"),

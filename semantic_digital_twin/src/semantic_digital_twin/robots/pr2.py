@@ -12,6 +12,8 @@ from ..collision_checking.collision_matrix import MaxAvoidedCollisionsOverride
 from ..collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
     AvoidAllCollisions,
+    AvoidExternalCollisions,
+    AvoidSelfCollisions,
 )
 from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.joint_state import JointState
@@ -61,54 +63,52 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             SelfCollisionMatrixRule.from_collision_srdf(srdf_path, self._world)
         )
 
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
-                buffer_zone_distance=0.1,
-                violated_distance=0.0,
-                bodies=self.bodies_with_collision,
-            )
+        self._world.collision_manager.default_rules.extend(
+            [
+                AvoidExternalCollisions(
+                    buffer_zone_distance=0.1,
+                    violated_distance=0.0,
+                    bodies=self.bodies_with_collision,
+                    world=self._world,
+                ),
+                AvoidExternalCollisions(
+                    buffer_zone_distance=0.05,
+                    violated_distance=0.0,
+                    bodies=self.left_arm.bodies_with_collision
+                    + self.right_arm.bodies_with_collision,
+                    world=self._world,
+                ),
+                AvoidExternalCollisions(
+                    buffer_zone_distance=0.2,
+                    violated_distance=0.05,
+                    bodies=[self._world.get_body_by_name("base_link")],
+                    world=self._world,
+                ),
+                AvoidSelfCollisions(
+                    buffer_zone_distance=0.05, violated_distance=0.0, robot=self
+                ),
+            ]
         )
 
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
-                buffer_zone_distance=0.05,
-                violated_distance=0.0,
-                bodies=[self.left_arm.bodies_with_collision],
-            )
-        )
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
-                buffer_zone_distance=0.05,
-                violated_distance=0.0,
-                bodies=[self.right_arm.bodies_with_collision],
-            )
-        )
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
-                buffer_zone_distance=0.2,
-                violated_distance=0.05,
-                bodies=[self._world.get_body_by_name("base_link")],
-            )
-        )
-        self._world.collision_manager.max_avoided_bodies_rules.append(
-            MaxAvoidedCollisionsOverride(
-                2, bodies={self._world.get_body_by_name("base_link")}
-            )
-        )
-        self._world.collision_manager.max_avoided_bodies_rules.append(
-            MaxAvoidedCollisionsOverride(
-                4,
-                bodies=set(
-                    self._world.get_direct_child_bodies_with_collision(
-                        self._world.get_body_by_name("r_wrist_roll_link")
-                    )
-                )
-                | set(
-                    self._world.get_direct_child_bodies_with_collision(
-                        self._world.get_body_by_name("l_wrist_roll_link")
-                    )
+        self._world.collision_manager.max_avoided_bodies_rules.extend(
+            [
+                MaxAvoidedCollisionsOverride(
+                    2, bodies={self._world.get_body_by_name("base_link")}
                 ),
-            )
+                MaxAvoidedCollisionsOverride(
+                    4,
+                    bodies=set(
+                        self._world.get_direct_child_bodies_with_collision(
+                            self._world.get_body_by_name("r_wrist_roll_link")
+                        )
+                    )
+                    | set(
+                        self._world.get_direct_child_bodies_with_collision(
+                            self._world.get_body_by_name("l_wrist_roll_link")
+                        )
+                    ),
+                ),
+            ]
         )
 
     def _setup_semantic_annotations(self):
@@ -220,8 +220,6 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
         )
 
         self.add_base(base)
-
-        self._world.add_semantic_annotation(self)
 
     def _setup_joint_states(self):
         right_arm_park = JointState.from_mapping(

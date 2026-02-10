@@ -2,6 +2,10 @@ from copy import deepcopy
 
 import numpy as np
 
+from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.reasoning.predicates import (
     contact,
     visible,
@@ -351,7 +355,9 @@ def test_is_body_in_gripper(
     assert is_body_in_gripper(test_box, left_gripper) == 0
 
 
-def test_reachable(pr2_world_state_reset):
+def test_reachable(pr2_world_state_reset, rclpy_node):
+    TFPublisher(pr2_world_state_reset, rclpy_node)
+    VizMarkerPublisher(pr2_world_state_reset, rclpy_node)
     pr2: PR2 = PR2.from_world(pr2_world_state_reset)
 
     tool_frame_T_reachable_goal = HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -413,22 +419,17 @@ def test_blocking(pr2_world_state_reset):
     obstacle = Body(name=PrefixedName("obstacle"))
     collision = Box(
         scale=Scale(3.0, 1.0, 1.0),
-        origin=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.0, z=0.5),
+        origin=HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=1.0, z=0.5, reference_frame=obstacle
+        ),
     )
     obstacle.collision = ShapeCollection([collision])
+    obstacle.visual = ShapeCollection([collision])
 
     with pr2_world_state_reset.modify_world():
-        new_root = Body(name=PrefixedName("new_root"))
         pr2_world_state_reset.add_connection(
             Connection6DoF.create_with_dofs(
-                parent=new_root,
-                child=pr2_world_state_reset.root,
-                world=pr2_world_state_reset,
-            )
-        )
-        pr2_world_state_reset.add_connection(
-            Connection6DoF.create_with_dofs(
-                parent=new_root,
+                parent=pr2_world_state_reset.root,
                 child=obstacle,
                 world=pr2_world_state_reset,
             )

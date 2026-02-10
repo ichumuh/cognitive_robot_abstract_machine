@@ -527,13 +527,14 @@ class SemanticAnnotation(WorldEntityWithID):
         return hash(self) == hash(other)
 
     def _kinematic_structure_entities(
-        self, visited: Set[int], aggregation_type: Type[GenericKinematicStructureEntity]
+        self, aggregation_type: Type[GenericKinematicStructureEntity]
     ) -> Set[GenericKinematicStructureEntity]:
         """
         Recursively collects all entities that are part of this semantic annotation.
         """
         stack: Deque[object] = deque([self])
         entities: Set[aggregation_type] = set()
+        visited: Set[int] = set()
 
         while stack:
             obj = stack.pop()
@@ -576,7 +577,7 @@ class SemanticAnnotation(WorldEntityWithID):
         through the properties and fields of this semantic annotation, recursively.
         If this behaviour is not desired for a specific semantic annotation, it can be overridden by implementing the `KinematicStructureEntity` property.
         """
-        return self._kinematic_structure_entities(set(), KinematicStructureEntity)
+        return self._kinematic_structure_entities(KinematicStructureEntity)
 
     @property
     def bodies(self) -> Iterable[Body]:
@@ -585,7 +586,7 @@ class SemanticAnnotation(WorldEntityWithID):
         through the properties and fields of this semantic annotation, recursively.
         If this behaviour is not desired for a specific semantic annotation, it can be overridden by implementing the `bodies` property.
         """
-        return self._kinematic_structure_entities(set(), Body)
+        return self._kinematic_structure_entities(Body)
 
     @property
     def regions(self) -> Iterable[Region]:
@@ -594,7 +595,7 @@ class SemanticAnnotation(WorldEntityWithID):
         through the properties and fields of this semantic annotation, recursively.
         If this behaviour is not desired for a specific semantic annotation, it can be overridden by implementing the `regions` property.
         """
-        return self._kinematic_structure_entities(set(), Region)
+        return self._kinematic_structure_entities(Region)
 
     def as_bounding_box_collection_at_origin(
         self, origin: HomogeneousTransformationMatrix
@@ -641,10 +642,6 @@ class RootedSemanticAnnotation(SemanticAnnotation):
     @property
     def connections(self) -> List[Connection]:
         return self._world.get_connections_of_branch(self.root)
-
-    @property
-    def kinematic_structure_entities(self) -> List[KinematicStructureEntity]:
-        return self._world.get_kinematic_structure_entities_of_branch(self.root)
 
     @property
     def bodies(self) -> List[Body]:
@@ -983,6 +980,7 @@ def _attr_values(
         if name in {
             "kinematic_structure_entities",
             "bodies",
+            "bodies_with_collision",
             "regions",
         } or name.startswith("_"):
             continue

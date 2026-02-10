@@ -140,8 +140,6 @@ class Tracy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
         self.add_kinematic_chain(neck)
 
-        self._world.add_semantic_annotation(self)
-
     def _setup_collision_rules(self):
         srdf_path = os.path.join(
             resource_filename("semantic_digital_twin", "../../"),

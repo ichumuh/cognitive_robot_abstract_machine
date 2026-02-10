@@ -46,9 +46,7 @@ class Collision:
     root_V_n: np.ndarray
 
     def __str__(self):
-        return (
-            f"{self.original_body_a}|-|{self.original_body_b}: {self.contact_distance}"
-        )
+        return f"{self.body_a}|-|{self.body_b}: {self.contact_distance}"
 
     def __repr__(self):
         return str(self)
