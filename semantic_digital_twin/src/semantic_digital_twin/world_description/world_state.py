@@ -105,14 +105,18 @@ class WorldState(MutableMapping):
     Callbacks to be called when the state of the world changes.
     """
 
-    def _notify_state_change(self) -> None:
+    def _notify_state_change(self, publisher_id: UUID = None) -> None:
         """
         If you have changed the state of the world, call this function to trigger necessary events and increase
         the state version.
+
+        :param publisher_id: The publisher ID of the model change.
+            If None, the change will just be applied normally
+            If not None, the change may be skipped if the a synchronizer receives its own message
         """
         self.version += 1
         for callback in self.state_change_callbacks:
-            callback.notify()
+            callback.notify(publisher_id=publisher_id)
 
     def _add_dof(self, uuid: UUID) -> None:
         idx = len(self._ids)

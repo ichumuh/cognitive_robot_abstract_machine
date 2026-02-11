@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -10,7 +11,7 @@ import numpy as np
 import rclpy  # type: ignore
 import std_msgs.msg
 from krrood.ormatic.dao import to_dao
-from krrood.adapters.json_serializer import SubclassJSONSerializer
+from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json
 from rclpy.node import Node as RosNode
 from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
@@ -62,6 +63,11 @@ class Synchronizer(ABC):
     The type of the message that is sent and received.
     """
 
+    _id: UUID = field(default_factory=uuid.uuid4, init=False)
+    """
+    The id of this synchronizer. This is used to identify messages that were published by the same synchronizer.
+    """
+
     def __post_init__(self):
         self.publisher = self.node.create_publisher(
             std_msgs.msg.String, topic=self.topic_name, qos_profile=10
@@ -79,7 +85,9 @@ class Synchronizer(ABC):
         The metadata of the synchronizer which can be used to compare origins of messages.
         """
         return MetaData(
-            node_name=self.node.get_name(), process_id=os.getpid(), object_id=id(self)
+            node_name=self.node.get_name(),
+            process_id=os.getpid(),
+            publisher_id=self._id,
         )
 
     def subscription_callback(self, msg: std_msgs.msg.String):
@@ -87,12 +95,15 @@ class Synchronizer(ABC):
         Wrap the origin subscription callback by self-skipping and disabling the next world callback.
         """
         tracker = WorldEntityWithIDKwargsTracker.from_world(self.world)
+        json_msg = json.loads(msg.data)
+        publisher_id = from_json(json_msg["meta_data"]["publisher_id"])
+        if publisher_id == self._id:
+            return
         msg = self.message_type.from_json(
             json.loads(msg.data), **tracker.create_kwargs()
         )
         if msg.meta_data == self.meta_data:
             return
-        self._skip_next_world_callback = True
         self._subscription_callback(msg)
 
     @abstractmethod
@@ -128,28 +139,18 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
     Additionally, ensures that the callback is cleaned up on close.
     """
 
-    _skip_next_world_callback: bool = False
-    """
-    Flag to indicate if the next world callback should be skipped.
-    
-    An incoming message from some other world might trigger a change in this world that produces a notify callback that 
-    will try to send a message. 
-    If the callback is triggered by a message, this synchronizer should not republish the change.
-    """
-
     missed_messages: List = field(default_factory=list, init=False, repr=False)
     """
     The messages that the callback did not trigger due to being paused.
     """
 
-    def _notify(self):
+    def _notify(self, publisher_id: UUID = None):
         """
         Wrapper method around world_callback that checks if this time the callback should be triggered.
         """
-        if self._skip_next_world_callback:
-            self._skip_next_world_callback = False
-        else:
-            self.world_callback()
+        if publisher_id == self._id:
+            return
+        self.world_callback(publisher_id=publisher_id)
 
     def _subscription_callback(self, msg):
         if self._is_paused:
@@ -165,7 +166,7 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def world_callback(self):
+    def world_callback(self, publisher_id: UUID = None):
         """
         Called when the world notifies and update that is not caused by this synchronizer.
         """
@@ -175,7 +176,6 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
         """
         Applies the missed messages to the world.
         """
-        self._skip_next_world_callback = True
         with self.world.modify_world():
             for msg in self.missed_messages:
                 self.apply_message(msg)
@@ -209,12 +209,15 @@ class StateSynchronizer(StateChangeCallback, SynchronizerOnCallback):
         if indices:
             self.world.state.data[0, indices] = np.asarray(msg.states, dtype=float)
             self.update_previous_world_state()
-            self.world.notify_state_change()
+            self.world.notify_state_change(publisher_id=msg.meta_data.publisher_id)
 
-    def world_callback(self):
+    def world_callback(self, publisher_id: UUID = None):
         """
         Publish the current world state to the ROS topic.
         """
+        if publisher_id is not None:
+            return
+
         changes = self.compute_state_changes()
 
         if not changes:
@@ -277,11 +280,15 @@ class ModelSynchronizer(
         ]
         for callback in running_callbacks:
             callback.pause()
-        msg.modifications.apply(self.world)
+        with self.world.modify_world(publisher_id=msg.meta_data.publisher_id):
+            msg.modifications.apply(self.world)
         for callback in running_callbacks:
             callback.resume()
 
-    def world_callback(self):
+    def world_callback(self, publisher_id: UUID = None):
+        if publisher_id is not None:
+            return
+
         msg = ModificationBlock(
             meta_data=self.meta_data,
             modifications=self.world.get_world_model_manager().model_modification_blocks[

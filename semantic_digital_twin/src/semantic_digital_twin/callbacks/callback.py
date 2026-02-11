@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from typing_extensions import TYPE_CHECKING, Callable, Dict
+from uuid import UUID
 
 from ..datastructures.prefixed_name import PrefixedName
 
@@ -37,17 +38,17 @@ class Callback(ABC):
     Flag that indicates if the callback is paused.
     """
 
-    def notify(self):
+    def notify(self, publisher_id: UUID = None):
         """
         Notify the callback of a change in the world.
         """
         if self._is_paused:
             pass
         else:
-            self._notify()
+            self._notify(publisher_id=publisher_id)
 
     @abstractmethod
-    def _notify(self):
+    def _notify(self, publisher_id: UUID = None):
         """
         Notify the callback of a change in the world.
         Override this method to implement custom behaviors.
