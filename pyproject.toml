@@ -17,7 +17,6 @@ dependencies = [
   "giskardpy",
   "semantic_digital_twin",
   "krrood",
-  "random_events",
   "probabilistic_model",
 ]
 
@@ -27,7 +26,6 @@ members = [
   "giskardpy",
   "semantic_digital_twin",
   "krrood",
-  "random_events",
   "probabilistic_model",
 ]
 
@@ -36,7 +34,6 @@ pycram-robotics       = { workspace = true }
 giskardpy             = { workspace = true }
 semantic_digital_twin = { workspace = true }
 krrood                = { workspace = true }
-random_events         = { workspace = true }
 probabilistic_model   = { workspace = true }
 
 [tool.setuptools]
