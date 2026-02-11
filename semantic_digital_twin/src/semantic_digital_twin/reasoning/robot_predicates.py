@@ -16,7 +16,10 @@ from krrood.entity_query_language.entity_result_processors import an, the
 
 from ..collision_checking.collision_detector import Collision, CollisionCheck
 from ..collision_checking.collision_matrix import CollisionMatrix
-from ..collision_checking.collision_rules import AllowCollisionBetweenGroups
+from ..collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
+    AvoidExternalCollisions,
+)
 from ..collision_checking.trimesh_collision_detector import TrimeshCollisionDetector
 from ..robots.abstract_robot import AbstractRobot, ParallelGripper
 from ..spatial_computations.raytracer import RayTracer
@@ -41,22 +44,23 @@ def robot_in_collision(
     if ignore_collision_with is None:
         ignore_collision_with = []
 
-    robot._world.collision_manager.reset_temporary_rules()
-    robot._world.collision_manager.temporary_rules.append(
-        AllowCollisionBetweenGroups(
-            body_group_a=robot.bodies, body_group_b=ignore_collision_with
-        )
+    collision_matrix = CollisionMatrix()
+    AvoidExternalCollisions(
+        buffer_zone_distance=threshold,
+        bodies=robot.bodies_with_collision,
+        world=robot._world,
+    ).apply_to_collision_matrix(collision_matrix)
+    AllowCollisionBetweenGroups(
+        body_group_a=robot.bodies, body_group_b=ignore_collision_with
+    ).apply_to_collision_matrix(collision_matrix)
+    for rule in robot._world.collision_manager.ignore_collision_rules:
+        rule.apply_to_collision_matrix(collision_matrix)
+
+    collisions = robot._world.collision_manager.collision_checker.check_collisions(
+        collision_matrix
     )
 
-    collisions = robot._world.collision_manager.compute_collisions(0.0)
-
-    robot._world.collision_manager.reset_temporary_rules()
-
-    return [
-        contact
-        for contact in collisions.contacts
-        if contact.contact_distance > threshold
-    ]
+    return collisions.contacts
 
 
 def robot_holds_body(robot: AbstractRobot, body: Body) -> bool:
