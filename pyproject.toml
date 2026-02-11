@@ -19,6 +19,7 @@ dependencies = [
   "krrood",
   "random-events",
   "probabilistic_model",
+  "multiverse_simulators"
 ]
 
 [tool.uv.workspace]
