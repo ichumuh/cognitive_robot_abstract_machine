@@ -509,11 +509,9 @@ class SemanticAnnotation(WorldEntityWithID):
     def __post_init__(self):
         if self.name is None:
             self.name = PrefixedName(
-                name=f"{self.__class__.__name__}_{id_generator(self)}",
+                name=f"{self.__class__.__name__}",
                 prefix=self._world.name if self._world is not None else None,
             )
-        for entity in self.kinematic_structure_entities:
-            entity._semantic_annotations.add(self)
 
     def __hash__(self):
         return hash(
@@ -528,9 +526,10 @@ class SemanticAnnotation(WorldEntityWithID):
 
     def _kinematic_structure_entities(
         self, aggregation_type: Type[GenericKinematicStructureEntity]
-    ) -> Set[GenericKinematicStructureEntity]:
+    ) -> list[GenericKinematicStructureEntity]:
         """
         Recursively collects all entities that are part of this semantic annotation.
+        .. note: NP=P
         """
         stack: Deque[object] = deque([self])
         entities: Set[aggregation_type] = set()
@@ -568,30 +567,35 @@ class SemanticAnnotation(WorldEntityWithID):
                         )
                     )
 
-        return entities
+        for entity in list(entities):
+            entities.update(
+                self._world.get_kinematic_structure_entities_of_branch(entity)
+            )
+
+        return list(entities)
 
     @property
-    def kinematic_structure_entities(self) -> Iterable[KinematicStructureEntity]:
+    def kinematic_structure_entities(self) -> list[KinematicStructureEntity]:
         """
-        Returns a Iterable of all relevant KinematicStructureEntity in this semantic annotation. The default behaviour is to aggregate all KinematicStructureEntity that are accessible
+        Returns a list of all relevant KinematicStructureEntity in this semantic annotation. The default behaviour is to aggregate all KinematicStructureEntity that are accessible
         through the properties and fields of this semantic annotation, recursively.
         If this behaviour is not desired for a specific semantic annotation, it can be overridden by implementing the `KinematicStructureEntity` property.
         """
         return self._kinematic_structure_entities(KinematicStructureEntity)
 
     @property
-    def bodies(self) -> Iterable[Body]:
+    def bodies(self) -> list[Body]:
         """
-        Returns an Iterable of all relevant bodies in this semantic annotation. The default behaviour is to aggregate all bodies that are accessible
+        Returns an list of all relevant bodies in this semantic annotation. The default behaviour is to aggregate all bodies that are accessible
         through the properties and fields of this semantic annotation, recursively.
         If this behaviour is not desired for a specific semantic annotation, it can be overridden by implementing the `bodies` property.
         """
         return self._kinematic_structure_entities(Body)
 
     @property
-    def regions(self) -> Iterable[Region]:
+    def regions(self) -> list[Region]:
         """
-        Returns an Iterable of all relevant regions in this semantic annotation. The default behaviour is to aggregate all regions that are accessible
+        Returns an list of all relevant regions in this semantic annotation. The default behaviour is to aggregate all regions that are accessible
         through the properties and fields of this semantic annotation, recursively.
         If this behaviour is not desired for a specific semantic annotation, it can be overridden by implementing the `regions` property.
         """

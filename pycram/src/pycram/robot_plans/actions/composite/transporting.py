@@ -6,6 +6,8 @@ from typing import List
 
 import numpy as np
 
+from krrood.entity_query_language.entity import entity, variable
+from krrood.entity_query_language.entity_result_processors import an, the
 from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer
 from semantic_digital_twin.world_description.world_entity import Body
@@ -78,7 +80,13 @@ class TransportAction(ActionDescription):
     def execute(self) -> None:
         if containers := self.inside_container():
             for container in containers:
-                sem_anno = container.get_semantic_annotations_by_type(Drawer)
+                sem_anno = an(
+                    entity(
+                        drawer := variable(
+                            Drawer, domain=self.world.semantic_annotations
+                        )
+                    ).where(drawer.root == container)
+                ).evaluate()
                 if sem_anno:
                     SequentialPlan(
                         self.context,

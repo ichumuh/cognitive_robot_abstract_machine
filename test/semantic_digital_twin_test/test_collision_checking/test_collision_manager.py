@@ -14,6 +14,7 @@ from semantic_digital_twin.collision_checking.collision_matrix import (
 from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidCollisionBetweenGroups,
     AvoidAllCollisions,
+    AvoidSelfCollisions,
 )
 from semantic_digital_twin.collision_checking.collision_variable_managers import (
     ExternalCollisionVariableManager,
@@ -147,10 +148,10 @@ class TestSelfCollisionExpressionManager:
         collision_manager = self_collision_bot_world.collision_manager
         collision_manager.temporary_rules.extend(
             [
-                AvoidAllCollisions(
+                AvoidSelfCollisions(
                     buffer_zone_distance=10,
                     violated_distance=0.23,
-                    bodies=self_collision_bot_world.bodies_with_collision,
+                    robot=robot,
                 ),
             ]
         )

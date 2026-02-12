@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Self
 
 from ..datastructures.prefixed_name import PrefixedName
@@ -10,6 +10,7 @@ from ..robots.abstract_robot import (
 )
 from ..world import World
 from ..world_description.connections import OmniDrive, ActiveConnection
+from ..world_description.world_entity import KinematicStructureEntity
 
 
 @dataclass
@@ -18,6 +19,8 @@ class MinimalRobot(AbstractRobot):
     Creates the bare minimum semantic annotation.
     Used when you only care that there is a robot.
     """
+
+    bodies_of_branch: list[KinematicStructureEntity] = field(default_factory=list)
 
     def __hash__(self):
         return hash(
@@ -35,6 +38,7 @@ class MinimalRobot(AbstractRobot):
             name=PrefixedName(name="generic_robot", prefix=world.name),
             root=world.root,
             _world=world,
+            bodies_of_branch=world.get_kinematic_structure_entities_of_branch(world.root)
         )
 
     def _setup_collision_rules(self):

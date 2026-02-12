@@ -54,9 +54,9 @@ import semantic_digital_twin.orm.model
 import semantic_digital_twin.reasoning.predicates
 import semantic_digital_twin.robots.abstract_robot
 import semantic_digital_twin.robots.hsrb
+import semantic_digital_twin.robots.pr2
 import semantic_digital_twin.semantic_annotations.mixins
 import semantic_digital_twin.semantic_annotations.semantic_annotations
-import semantic_digital_twin.world
 import semantic_digital_twin.world_description.connections
 import semantic_digital_twin.world_description.degree_of_freedom
 import semantic_digital_twin.world_description.geometry
@@ -302,6 +302,12 @@ hsrbdao_arms_association = Table(
     Column("source_hsrbdao_id", ForeignKey("HSRBDAO.database_id")),
     Column("target_armdao_id", ForeignKey("ArmDAO.database_id")),
 )
+pr2dao_arms_association = Table(
+    "pr2dao_arms_association",
+    Base.metadata,
+    Column("source_pr2dao_id", ForeignKey("PR2DAO.database_id")),
+    Column("target_armdao_id", ForeignKey("ArmDAO.database_id")),
+)
 semanticrobotannotationdao_joint_states_association = Table(
     "semanticrobotannotationdao_joint_states_association",
     Base.metadata,
@@ -421,50 +427,6 @@ class CallbackDAO(
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "CallbackDAO",
     }
-
-
-class CollisionCheckingConfigDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.world_entity.CollisionCheckingConfig
-    ],
-):
-
-    __tablename__ = "CollisionCheckingConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    buffer_zone_distance: Mapped[typing.Optional[builtins.float]] = mapped_column(
-        use_existing_column=True
-    )
-    violated_distance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    disabled: Mapped[typing.Optional[builtins.bool]] = mapped_column(
-        use_existing_column=True
-    )
-    max_avoided_bodies: Mapped[builtins.int] = mapped_column(use_existing_column=True)
-
-
-class CollisionPairManagerDAO(
-    Base, DataAccessObject[semantic_digital_twin.world.CollisionPairManager]
-):
-
-    __tablename__ = "CollisionPairManagerDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    world_id: Mapped[int] = mapped_column(
-        ForeignKey("WorldMappingDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    world: Mapped[WorldMappingDAO] = relationship(
-        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
-    )
 
 
 class ColorDAO(
@@ -3907,10 +3869,6 @@ class ActiveConnectionDAO(
         use_existing_column=True,
     )
 
-    frozen_for_collision_avoidance: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-
     __mapper_args__ = {
         "polymorphic_identity": "ActiveConnectionDAO",
         "inherit_condition": database_id == ConnectionDAO.database_id,
@@ -4260,16 +4218,6 @@ class BodyDAO(
         nullable=True,
         use_existing_column=True,
     )
-    collision_config_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("CollisionCheckingConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    temp_collision_config_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
-        ForeignKey("CollisionCheckingConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     visual: Mapped[ShapeCollectionDAO] = relationship(
         "ShapeCollectionDAO", uselist=False, foreign_keys=[visual_id], post_update=True
@@ -4278,18 +4226,6 @@ class BodyDAO(
         "ShapeCollectionDAO",
         uselist=False,
         foreign_keys=[collision_id],
-        post_update=True,
-    )
-    collision_config: Mapped[CollisionCheckingConfigDAO] = relationship(
-        "CollisionCheckingConfigDAO",
-        uselist=False,
-        foreign_keys=[collision_config_id],
-        post_update=True,
-    )
-    temp_collision_config: Mapped[CollisionCheckingConfigDAO] = relationship(
-        "CollisionCheckingConfigDAO",
-        uselist=False,
-        foreign_keys=[temp_collision_config_id],
         post_update=True,
     )
 
@@ -6744,13 +6680,16 @@ class RootedSemanticAnnotationDAO(
     )
 
     root_id: Mapped[int] = mapped_column(
-        ForeignKey("BodyDAO.database_id", use_alter=True),
+        ForeignKey("KinematicStructureEntityDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
 
-    root: Mapped[BodyDAO] = relationship(
-        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
+    root: Mapped[KinematicStructureEntityDAO] = relationship(
+        "KinematicStructureEntityDAO",
+        uselist=False,
+        foreign_keys=[root_id],
+        post_update=True,
     )
 
     __mapper_args__ = {
@@ -6803,11 +6742,6 @@ class AbstractRobotDAO(
         nullable=True,
         use_existing_column=True,
     )
-    default_collision_config_id: Mapped[int] = mapped_column(
-        ForeignKey("CollisionCheckingConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     torso: Mapped[TorsoDAO] = relationship(
         "TorsoDAO", uselist=False, foreign_keys=[torso_id], post_update=True
@@ -6842,12 +6776,6 @@ class AbstractRobotDAO(
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_sensor_chains_association.c.source_abstractrobotdao_id",
         secondaryjoin="KinematicChainDAO.database_id == abstractrobotdao_sensor_chains_association.c.target_kinematicchaindao_id",
         cascade="save-update, merge",
-    )
-    default_collision_config: Mapped[CollisionCheckingConfigDAO] = relationship(
-        "CollisionCheckingConfigDAO",
-        uselist=False,
-        foreign_keys=[default_collision_config_id],
-        post_update=True,
     )
 
     __mapper_args__ = {
@@ -6887,6 +6815,39 @@ class HSRBDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "HSRBDAO",
+        "inherit_condition": database_id == AbstractRobotDAO.database_id,
+    }
+
+
+class PR2DAO(AbstractRobotDAO, DataAccessObject[semantic_digital_twin.robots.pr2.PR2]):
+
+    __tablename__ = "PR2DAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(AbstractRobotDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    neck_id: Mapped[int] = mapped_column(
+        ForeignKey("NeckDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    neck: Mapped[NeckDAO] = relationship(
+        "NeckDAO", uselist=False, foreign_keys=[neck_id], post_update=True
+    )
+    arms: Mapped[builtins.list[ArmDAO]] = relationship(
+        "ArmDAO",
+        secondary="pr2dao_arms_association",
+        primaryjoin="PR2DAO.database_id == pr2dao_arms_association.c.source_pr2dao_id",
+        secondaryjoin="ArmDAO.database_id == pr2dao_arms_association.c.target_armdao_id",
+        cascade="save-update, merge",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "PR2DAO",
         "inherit_condition": database_id == AbstractRobotDAO.database_id,
     }
 
