@@ -17,7 +17,7 @@ from ...dataset.semantic_world_like_classes import (
 )
 
 
-def test_generate_drawers(handles_and_containers_world):
+def test_generate_drawers_from_direct_condition(handles_and_containers_world):
     world = handles_and_containers_world
     container = variable(Container, domain=world.bodies)
     handle = variable(Handle, domain=world.bodies)
@@ -46,6 +46,37 @@ def test_generate_drawers(handles_and_containers_world):
     assert all_solutions[0][drawers].container.name == "Container3"
     assert all_solutions[1][drawers].handle.name == "Handle1"
     assert all_solutions[1][drawers].container.name == "Container1"
+
+
+def test_generate_drawers_from_query(handles_and_containers_world):
+    world = handles_and_containers_world
+    container = variable(Container, domain=world.bodies)
+    handle = variable(Handle, domain=world.bodies)
+    fixed_connection = variable(FixedConnection, domain=world.connections)
+    prismatic_connection = variable(PrismaticConnection, domain=world.connections)
+    drawers = variable(Drawer, domain=None, inferred=True)
+    condition = an(entity(drawers).where(
+            container == fixed_connection.parent,
+            handle == fixed_connection.child,
+            container == prismatic_connection.child,
+        ))
+
+    with condition:
+        Add(drawers, inference(Drawer)(handle=handle, container=container))
+
+    condition.visualize()
+
+    solutions = condition.evaluate()
+    all_solutions = list(solutions)
+
+    assert (
+        len(all_solutions) == 2
+    ), "Should generate components for two possible drawer."
+    assert all(isinstance(d, Drawer) for d in all_solutions)
+    assert all_solutions[0].handle.name == "Handle3"
+    assert all_solutions[0].container.name == "Container3"
+    assert all_solutions[1].handle.name == "Handle1"
+    assert all_solutions[1].container.name == "Container1"
 
 
 def test_rule_tree_with_a_refinement(doors_and_drawers_world):

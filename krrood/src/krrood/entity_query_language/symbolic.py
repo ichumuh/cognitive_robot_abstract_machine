@@ -353,9 +353,27 @@ class SymbolicExpression(ABC):
             if self._binding_id_ in sources:
                 yield OperationResult(sources, self._is_false_, self)
                 return
-            yield from self._evaluate__(sources)
+            yield from map(self._evaluate_conclusions_and_update_bindings_, self._evaluate__(sources))
         finally:
             self._eval_parent_ = previous_parent
+
+    def _evaluate_conclusions_and_update_bindings_(
+            self, current_result: OperationResult
+    ) -> OperationResult:
+        """
+        Update the bindings of the results by evaluating the conclusions using the received bindings.
+
+        :param current_result: The current result of this expression.
+        """
+        # Only evaluate the conclusions at the root condition expression (i.e. after all conditions have been evaluated)
+        # and when the result truth value is True.
+        if not (self._conditions_root_ is self) or current_result.is_false:
+            return current_result
+        for conclusion in self._conclusion_:
+            current_result.bindings = next(
+                conclusion._evaluate_(current_result.bindings, parent=self)
+            ).bindings
+        return current_result
 
     @cached_property
     def _binding_id_(self) -> int:
@@ -408,16 +426,18 @@ class SymbolicExpression(ABC):
             value._child_ = self
 
     @cached_property
-    def _conditions_root_(self) -> SymbolicExpression:
+    def _conditions_root_(self) -> Optional[SymbolicExpression]:
         """
-        :return: The root of the symbolic expression graph that contains conditions.
+        :return: The root of the symbolic expression graph that contains conditions, or None if no conditions found.
         """
-        conditions_root = self._root_
-        while not isinstance(conditions_root, LogicalOperator) and conditions_root._child_ is not None:
-            conditions_root = conditions_root._child_
-            if isinstance(conditions_root._parent_, QueryObjectDescriptor):
-                break
-        return conditions_root
+        condition_root = self._root_
+        if isinstance(condition_root, (LogicalOperator, DomainMapping, Variable)):
+            return condition_root
+        while condition_root._children_:
+            condition_root = condition_root._children_[0]
+            if isinstance(condition_root, (LogicalOperator, DomainMapping, Variable)):
+                return condition_root
+        return None
 
     @property
     def _root_(self) -> SymbolicExpression:
@@ -668,7 +688,7 @@ class AbstractDataSource(SymbolicExpression, ABC):
 
 
 @dataclass(eq=False, repr=False)
-class BindingProductGenerator(AbstractDataSource, MultiArityExpression):
+class Product(AbstractDataSource, MultiArityExpression):
     """
     A symbolic operation that evaluates its children in nested sequence, passing bindings from one to the next such that
     each binding has a value from each child expression. It represents a cartesian product of all child expressions.
@@ -676,7 +696,7 @@ class BindingProductGenerator(AbstractDataSource, MultiArityExpression):
 
     @property
     def _name_(self) -> str:
-        return f"BPG({', '.join(child._name_ for child in self.children)})"
+        return f"Product()"
 
     def _evaluate__(self, sources: Bindings) -> Iterator[OperationResult]:
         """
@@ -712,6 +732,23 @@ class Filter(AbstractDataSource, DerivedExpression, ABC):
     def _name_(self):
         return self.__class__.__name__
 
+    def evaluate_conclusions_and_update_bindings(
+            self, condition_result: OperationResult
+    ) -> OperationResult:
+        """
+        Update the bindings of the results by evaluating the conclusions using the received bindings from the condition
+         expression as sources.
+
+        :param condition_result: The result of the condition expression.
+        """
+        if condition_result.is_false:
+            return condition_result
+        for conclusion in self.condition._conclusion_:
+            condition_result.bindings = next(
+                conclusion._evaluate_(condition_result.bindings, parent=self)
+            ).bindings
+        return condition_result
+
 
 @dataclass(eq=False, repr=False)
 class Where(Filter, UnaryExpression):
@@ -725,7 +762,8 @@ class Where(Filter, UnaryExpression):
         return self._child_
 
     def _evaluate__(self, sources: Bindings) -> Iterator[OperationResult]:
-        yield from (result for result in self._child_._evaluate_(sources, parent=self) if result.is_true)
+        yield from (result for result in
+                    self._child_._evaluate_(sources, parent=self) if result.is_true)
 
 
 @dataclass(eq=False, repr=False)
@@ -1668,7 +1706,7 @@ class GroupedByBuilder(ExpressionBuilder):
             children.append(where)
         children.extend(group_by_entity_selected_variables)
         return GroupedBy(
-            _child_=BindingProductGenerator(tuple(children)),
+            _child_=Product(tuple(children)),
             aggregators=tuple(self.aggregators),
             variables_to_group_by=tuple(self.variables_to_group_by),
         )
@@ -1783,7 +1821,7 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
     also describes the condition(s)/properties of the queried object(s).
     """
 
-    _child_: BindingProductGenerator = field(default_factory=BindingProductGenerator)
+    _child_: Product = field(default_factory=Product)
     """
     The child of the query object descriptor is the root of the conditions in the query/sub-query graph.
     """
@@ -2202,23 +2240,6 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
             return True
         return False
 
-    def _evaluate_conclusions_and_update_bindings_(
-            self, child_result: Bindings
-    ) -> Bindings:
-        """
-        Update the bindings of the results by evaluating the conclusions using the received bindings from the child as
-        sources.
-
-        :param child_result: The result of the child operation.
-        """
-        if self._child_ is None:
-            return child_result
-        for conclusion in self._child_._conclusion_:
-            child_result = next(
-                conclusion._evaluate_(child_result, parent=self)
-            ).bindings
-        return child_result
-
     def _get_constrained_values_(self, sources: Bindings) -> Iterator[Bindings]:
         """
         Evaluate the child (i.e., the conditions that constrain the domain of the selected variables).
@@ -2232,8 +2253,6 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
             return
 
         for result in self._child_._evaluate_(sources, parent=self):
-
-            self._evaluate_conclusions_and_update_bindings_(result.bindings)
 
             if self._any_selected_variable_is_inferred_and_unbound_(result.bindings):
                 continue

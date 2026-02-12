@@ -20,7 +20,7 @@ class ColorLegend:
 # ---- rustworkx-backed node wrapper to mimic needed anytree.Node API ----
 @dataclass
 class RWXNode:
-    name: str
+    _name: str
     weight: str = field(default="")
     data: Optional[Any] = field(default=None)
     _primary_parent_id: Optional[int] = None
@@ -39,6 +39,13 @@ class RWXNode:
     def __post_init__(self):
         # store self as node data to keep a 1:1 mapping
         self.id: int = self._graph.add_node(self)
+
+    @property
+    def name(self) -> str:
+        if self.data is not None:
+            return self.data._name_
+        else:
+            return self._name
 
     # Non-primary connect: add edge without changing primary parent pointer
     def add_parent(self, parent: RWXNode, edge_weight=None):

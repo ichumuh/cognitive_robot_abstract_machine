@@ -42,7 +42,7 @@ from krrood.entity_query_language.result_quantification_constraint import (
     AtMost,
     Range,
 )
-from krrood.entity_query_language.symbolic import BindingProductGenerator
+from krrood.entity_query_language.symbolic import Product
 from krrood.entity_query_language.utils import chain_evaluate_variables
 from ...dataset.example_classes import VectorsWithProperty
 from ...dataset.semantic_world_like_classes import (
@@ -1150,4 +1150,4 @@ def test_chain_evaluate_variables():
     for val in chain_evaluate_variables((var1, var2), {}):
         values.append(tuple(val.values()))
     assert values == [(1, 3), (1, 4), (2, 3), (2, 4)]
-    assert values == [(v[var1], v[var2]) for v in BindingProductGenerator((var1, var2)).evaluate()]
+    assert values == [(v[var1], v[var2]) for v in Product((var1, var2)).evaluate()]
