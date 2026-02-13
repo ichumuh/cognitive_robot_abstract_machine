@@ -98,7 +98,7 @@ class CollisionDetectorModelUpdater(ModelChangeCallback):
         self.world = self.collision_detector.world
         super().__post_init__()
 
-    def _notify(self):
+    def _notify(self, **kwargs):
         if self.world.is_empty():
             return
         self.collision_detector.sync_world_model()
@@ -140,7 +140,7 @@ class CollisionDetectorStateUpdater(StateChangeCallback):
         self.world = self.collision_detector.world
         super().__post_init__()
 
-    def _notify(self):
+    def _notify(self, **kwargs):
         if self.world.is_empty():
             return
         self.collision_detector.world_model_updater.compiled_collision_fks.evaluate()

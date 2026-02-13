@@ -126,7 +126,7 @@ class CollisionManager(ModelChangeCallback):
         super().__post_init__()
         self._notify()
 
-    def _notify(self):
+    def _notify(self, **kwargs):
         if self.world.is_empty():
             return
         for rule in self.rules:

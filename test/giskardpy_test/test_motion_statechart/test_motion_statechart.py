@@ -2602,9 +2602,7 @@ class TestOpenClose:
 
 
 class TestCollisionAvoidance:
-    def test_external_collision_avoidance(self, cylinder_bot_world: World, rclpy_node):
-        TFPublisher(world=cylinder_bot_world, node=rclpy_node)
-        VizMarkerPublisher(world=cylinder_bot_world, node=rclpy_node, use_visuals=False)
+    def test_external_collision_avoidance(self, cylinder_bot_world: World):
         robot = cylinder_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
         tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
         env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
@@ -2660,14 +2658,8 @@ class TestCollisionAvoidance:
         assert len(collisions.contacts) == 1
         assert collisions.contacts[0].distance > 0.049
 
-    def test_self_collision_avoidance(
-        self, self_collision_bot_world: World, rclpy_node
-    ):
+    def test_self_collision_avoidance(self, self_collision_bot_world: World):
         sleep(10)
-        TFPublisher(world=self_collision_bot_world, node=rclpy_node)
-        VizMarkerPublisher(
-            world=self_collision_bot_world, node=rclpy_node, use_visuals=False
-        )
         robot = self_collision_bot_world.get_semantic_annotations_by_type(
             AbstractRobot
         )[0]
@@ -2724,9 +2716,7 @@ class TestCollisionAvoidance:
         for contact in collisions.contacts:
             assert contact.distance > 0.249
 
-    def test_hard_constraints_violated(self, cylinder_bot_world: World, rclpy_node):
-        TFPublisher(world=cylinder_bot_world, node=rclpy_node)
-        VizMarkerPublisher(world=cylinder_bot_world, node=rclpy_node, use_visuals=False)
+    def test_hard_constraints_violated(self, cylinder_bot_world: World):
         root = cylinder_bot_world.root
         with cylinder_bot_world.modify_world():
             env2 = Body(
