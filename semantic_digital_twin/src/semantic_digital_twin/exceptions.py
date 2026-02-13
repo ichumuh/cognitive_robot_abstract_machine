@@ -254,6 +254,14 @@ class AddingAnExistingSemanticAnnotationError(UsageError):
 
 
 @dataclass
+class SemanticAnnotationNotInWorldError(UsageError):
+    semantic_annotation: SemanticAnnotation
+
+    def __post_init__(self):
+        self.message = f"Semantic annotation {self.semantic_annotation} does not belong to a world."
+
+
+@dataclass
 class MissingWorldModificationContextError(UsageError):
     function: Callable
 

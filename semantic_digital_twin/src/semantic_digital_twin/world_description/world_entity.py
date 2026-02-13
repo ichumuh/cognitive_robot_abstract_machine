@@ -44,6 +44,7 @@ from ..adapters.world_entity_kwargs_tracker import (
 from ..datastructures.prefixed_name import PrefixedName
 from ..exceptions import (
     ReferenceFrameMismatchError,
+    SemanticAnnotationNotInWorldError,
 )
 from ..spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -514,6 +515,8 @@ class SemanticAnnotation(WorldEntityWithID):
             )
 
     def __hash__(self):
+        if self._world is None:
+            raise SemanticAnnotationNotInWorldError(self)
         return hash(
             tuple(
                 [self.__class__]

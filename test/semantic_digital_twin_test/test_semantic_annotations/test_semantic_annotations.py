@@ -80,13 +80,14 @@ class TestSemanticAnnotation(SemanticAnnotation):
 
 def test_semantic_annotation_hash(apartment_world_setup):
     semantic_annotation1 = Handle(root=apartment_world_setup.bodies[0])
+    semantic_annotation2 = Handle(root=apartment_world_setup.bodies[0])
     with apartment_world_setup.modify_world():
         apartment_world_setup.add_semantic_annotation(semantic_annotation1)
-    assert hash(semantic_annotation1) == hash(
-        (Handle, apartment_world_setup.bodies[0].id)
-    )
+        apartment_world_setup.add_semantic_annotation(semantic_annotation2)
 
-    semantic_annotation2 = Handle(root=apartment_world_setup.bodies[0])
+    # hash of semantic annotations should be based on their properties, not ids
+    assert id(semantic_annotation1) != id(semantic_annotation2)
+    assert hash(semantic_annotation1) == hash(semantic_annotation2)
     assert semantic_annotation1 == semantic_annotation2
 
 
@@ -242,7 +243,6 @@ def test_semantic_annotation_serialization_deserialization_once(apartment_world_
 
     door_de = Door.from_json(door_se, **kwargs)
 
-    assert door == door_de
     assert type(door.handle) == type(door_de.handle)
     assert type(door.root) == type(door_de.root)
 

@@ -10,6 +10,8 @@ from pkg_resources import resource_filename
 from ..collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
     AvoidAllCollisions,
+    AvoidExternalCollisions,
+    AvoidSelfCollisions,
 )
 from ..datastructures.definitions import StaticJointState, GripperState
 from ..datastructures.joint_state import JointState
@@ -151,11 +153,19 @@ class Tracy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             SelfCollisionMatrixRule.from_collision_srdf(srdf_path, self._world)
         )
 
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
-                buffer_zone_distance=0.03,
+        self._world.collision_manager.add_default_rule(
+            AvoidExternalCollisions(
+                buffer_zone_distance=0.05,
                 violated_distance=0.0,
                 bodies=self.bodies_with_collision,
+                world=self._world,
+            )
+        )
+        self._world.collision_manager.add_default_rule(
+            AvoidSelfCollisions(
+                buffer_zone_distance=0.03,
+                violated_distance=0.0,
+                robot=self,
             )
         )
 

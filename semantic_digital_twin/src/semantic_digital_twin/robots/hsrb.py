@@ -21,6 +21,8 @@ from ..collision_checking.collision_matrix import MaxAvoidedCollisionsOverride
 from ..collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
     AvoidAllCollisions,
+    AvoidExternalCollisions,
+    AvoidSelfCollisions,
 )
 from ..datastructures.definitions import StaticJointState, GripperState, TorsoState
 from ..datastructures.joint_state import JointState
@@ -187,26 +189,28 @@ class HSRB(AbstractRobot, HasArms, HasNeck):
         self._world.collision_manager.ignore_collision_rules.append(
             SelfCollisionMatrixRule.from_collision_srdf(srdf_path, self._world)
         )
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
+        self._world.collision_manager.add_default_rule(
+            AvoidExternalCollisions(
                 buffer_zone_distance=0.5,
                 violated_distance=0.0,
                 bodies=self.bodies_with_collision,
+                world=self._world,
             )
         )
 
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
+        self._world.collision_manager.add_default_rule(
+            AvoidExternalCollisions(
                 buffer_zone_distance=0.1,
                 violated_distance=0.03,
                 bodies=[self._world.get_body_by_name("base_link")],
+                world=self._world,
             )
         )
-        self._world.collision_manager.default_rules.append(
-            AvoidAllCollisions(
+        self._world.collision_manager.add_default_rule(
+            AvoidSelfCollisions(
                 buffer_zone_distance=0.03,
                 violated_distance=0.0,
-                bodies=[self._world.get_body_by_name("head_tilt_link")],
+                robot=self,
             )
         )
 
