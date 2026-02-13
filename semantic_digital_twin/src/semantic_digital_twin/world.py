@@ -43,7 +43,7 @@ from .exceptions import (
     MissingWorldModificationContextError,
     WorldEntityWithIDNotFoundError,
     MissingReferenceFrameError,
-    MismatchingSynchronizationPolicies,
+    MismatchingPublishChangesAttribute,
 )
 from .mixin import HasSimulatorProperties
 from .robots.abstract_robot import AbstractRobot
@@ -150,7 +150,7 @@ class WorldModelUpdateContextManager:
 
     publish_changes: bool = True
     """
-    The world id of the world before entering this context. Should only be set by synchronizers
+    Whether to publish the changes made to the world after exiting the context.
     """
 
     world: World = field(kw_only=True, repr=False)
@@ -164,8 +164,8 @@ class WorldModelUpdateContextManager:
     """
 
     def __enter__(self):
+        self.world._model_manager._world_lock.acquire()
         model_manager = self.world._model_manager
-        model_manager._world_lock.acquire()
         if model_manager._current_modifications_will_be_published is None:
             model_manager._current_modifications_will_be_published = (
                 self.publish_changes
@@ -175,7 +175,7 @@ class WorldModelUpdateContextManager:
             not model_manager._current_modifications_will_be_published
             == self.publish_changes
         ):
-            raise MismatchingSynchronizationPolicies(
+            raise MismatchingPublishChangesAttribute(
                 model_manager._current_modifications_will_be_published,
                 self.publish_changes,
             )

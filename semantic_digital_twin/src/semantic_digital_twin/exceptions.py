@@ -262,7 +262,7 @@ class MissingWorldModificationContextError(UsageError):
 
 
 @dataclass
-class MismatchingSynchronizationPolicies(UsageError):
+class MismatchingPublishChangesAttribute(UsageError):
     """
     Raised when trying to enter a world modification context with a different publish_changes policy than the currently active world modification context.
     """

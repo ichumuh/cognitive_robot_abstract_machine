@@ -4,7 +4,7 @@ import time
 import unittest
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Set, Tuple
 from uuid import uuid4
 
 import numpy as np
@@ -24,7 +24,7 @@ from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     MissingWorldModificationContextError,
-    MismatchingSynchronizationPolicies,
+    MismatchingPublishChangesAttribute,
 )
 from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -104,7 +104,19 @@ def create_dummy_world(w: Optional[World] = None) -> World:
     return w
 
 
-def wait_for_sync_kse(w1, w2, timeout=5.0, interval=0.05):
+def wait_for_sync_kse_and_return_ids(
+    w1: World, w2: World, timeout: float = 5.0, interval: float = 0.05
+) -> Tuple[Set[uuid.UUID], Set[uuid.UUID]]:
+    """
+    Waits until the sets of kinematic structure entity IDs in both worlds are identical, or until the timeout is reached.
+
+    :param w1: The first world.
+    :param w2: The second world.
+    :param timeout: The maximum time to wait for synchronization, in seconds. Defaults to 5.0.
+    :param interval: The time interval between checks, in seconds. Defaults to 0.05.
+
+    :return: A tuple containing the sets of kinematic structure entity IDs in both worlds.
+    """
     start = time.time()
     while time.time() - start < timeout:
         body_ids_1 = {body.id for body in w1.kinematic_structure_entities}
@@ -767,7 +779,7 @@ def test_world_simultaneous_synchronization_stress_test(
         new_body = Body(name=PrefixedName("b3"))
         w1.add_kinematic_structure_entity(new_body)
 
-    w1_ids, w2_ids = wait_for_sync_kse(w1, w2)
+    w1_ids, w2_ids = wait_for_sync_kse_and_return_ids(w1, w2)
 
     with w1.modify_world():
         # Create handles before nested context
@@ -783,7 +795,7 @@ def test_world_simultaneous_synchronization_stress_test(
         for _ in range(after_w2):
             Handle.create_with_new_body_in_world(PrefixedName("handle"), w1)
 
-    w1_ids, w2_ids = wait_for_sync_kse(w1, w2)
+    w1_ids, w2_ids = wait_for_sync_kse_and_return_ids(w1, w2)
     assert len(w1.kinematic_structure_entities) == len(w2.kinematic_structure_entities)
     assert w1_ids == w2_ids
 
@@ -812,7 +824,7 @@ def test_nested_modify_world_publish_changes_true_false(rclpy_node):
 
     assert len(w1.kinematic_structure_entities) == len(w2.kinematic_structure_entities)
 
-    with pytest.raises(MismatchingSynchronizationPolicies):
+    with pytest.raises(MismatchingPublishChangesAttribute):
         with w1.modify_world():
             handle = Handle.create_with_new_body_in_world(PrefixedName("handle"), w1)
 
@@ -821,7 +833,7 @@ def test_nested_modify_world_publish_changes_true_false(rclpy_node):
                     PrefixedName("handle"), w1
                 )
 
-    with pytest.raises(MismatchingSynchronizationPolicies):
+    with pytest.raises(MismatchingPublishChangesAttribute):
         with w1.modify_world(publish_changes=False):
             handle = Handle.create_with_new_body_in_world(PrefixedName("handle"), w1)
 
