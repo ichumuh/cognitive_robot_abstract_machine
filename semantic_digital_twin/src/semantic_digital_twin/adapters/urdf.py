@@ -356,18 +356,12 @@ class URDFParser:
 
                 package_path = get_package_share_directory(package_name)
             except (ImportError, LookupError):
-                if self.package_resolver:
-                    if package_name in self.package_resolver:
-                        package_path = self.package_resolver[package_name]
-                    else:
-                        raise ParsingError(
-                            message=f"Package '{package_name}' not found in package resolver and "
-                            f"ROS is not installed."
-                        )
+                if self.package_resolver and package_name in self.package_resolver:
+                    package_path = self.package_resolver[package_name]
                 else:
                     raise ParsingError(
-                        message="No ROS install found while the URDF file contains references to "
-                        "ROS packages."
+                        message=f"Package '{package_name}' not found in package resolver and "
+                        f"ROS is not installed."
                     )
             file_path = file_path.replace("package://" + package_name, package_path)
         if "file://" in file_path:

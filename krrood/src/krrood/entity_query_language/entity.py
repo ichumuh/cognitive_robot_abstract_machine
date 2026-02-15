@@ -95,7 +95,13 @@ def variable(
     :param inferred: Whether the variable is inferred or not.
     :return: A Variable that can be queried for.
     """
-    domain_source = _get_domain_source_from_domain_and_type_values(domain, type_)
+    # Determine the domain source
+    if is_iterable(domain):
+        domain_source = filter(lambda x: isinstance(x, type_), domain)
+    elif domain is None and not inferred and issubclass(type_, Symbol):
+        domain_source = SymbolGraph().get_instances_of_type(type_)
+    else:
+        domain_source = domain
 
     if name is None:
         name = type_.__name__
@@ -144,23 +150,6 @@ def concatenate(
     Concatenation of two or more variables.
     """
     return Concatenate(_operation_children_=variables)
-
-
-def _get_domain_source_from_domain_and_type_values(
-    domain: DomainType, type_: Type
-) -> Optional[DomainType]:
-    """
-    Get the domain source from the domain and the type values.
-
-    :param domain: The domain value.
-    :param type_: The type of the variable.
-    :return: The domain source as a From object.
-    """
-    if is_iterable(domain):
-        domain = filter(lambda x: isinstance(x, type_), domain)
-    elif domain is None and issubclass(type_, Symbol):
-        domain = SymbolGraph().get_instances_of_type(type_)
-    return domain
 
 
 def and_(*conditions: ConditionType):
@@ -274,5 +263,9 @@ def inference(
     :return: The factory function for creating a new variable.
     """
     return lambda **kwargs: Variable(
-        _type_=type_, _name__=type_.__name__, _kwargs_=kwargs, _is_inferred_=True
+        _type_=type_,
+        _name__=type_.__name__,
+        _kwargs_=kwargs,
+        _is_inferred_=True,
+        _is_instantiated_=True,
     )

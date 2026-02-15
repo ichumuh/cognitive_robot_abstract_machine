@@ -95,8 +95,6 @@ class Add(Conclusion):
         sources: Bindings,
     ) -> Iterable[OperationResult]:
 
-        v = next(iter(self.value._evaluate_(sources, parent=self)))[
-            self.value._binding_id_
-        ]
+        v = next(self.value._evaluate_(sources, parent=self)).value
         sources[self.variable._binding_id_] = v
         yield OperationResult(sources, False, self)

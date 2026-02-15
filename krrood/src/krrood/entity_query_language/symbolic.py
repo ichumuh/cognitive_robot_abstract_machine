@@ -1541,7 +1541,7 @@ class GroupedBy(UnaryExpression):
         return f"{self.__class__.__name__}({', '.join([var._name_ for var in self.variables_to_group_by])})"
 
 
-ResultMapping = Callable[[Iterable[Bindings]], Iterator[Bindings]]
+ResultMapping = Callable[[Iterator[OperationResult]], Iterator[OperationResult]]
 """
 A function that maps the results of a query object descriptor to a new set of results.
 """
@@ -2074,7 +2074,7 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
         elif self._where_builder_ is not None:
             children.append(self._where_builder_.expression)
 
-        children.extend(self._selected_not_inferred_variables_)
+        children.extend(self._selected_variables_)
 
         self._child_.update_children(*children)
 
@@ -2094,14 +2094,6 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
     def _ordered_by_expression_(self) -> Optional[OrderedByBuilder]:
         return (
             self._ordered_by_builder_.expression if self._ordered_by_builder_ else None
-        )
-
-    @cached_property
-    def _selected_not_inferred_variables_(self) -> Tuple[SymbolicExpression, ...]:
-        return tuple(
-            var
-            for var in self._selected_variables_
-            if not (isinstance(var, Variable) and var._is_inferred_)
         )
 
     def _evaluate__(
@@ -2157,9 +2149,9 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
         """
         # First evaluate the constraint (if any) and handle conclusions
         yield from (
-            OperationResult(result, False, self)
+            OperationResult(result.bindings, self._is_false_, self)
             for result in self._apply_results_mapping_(
-                self._get_constrained_values_(sources)
+                self._child_._evaluate_(sources, parent=self)
             )
         )
 
@@ -2171,20 +2163,21 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
         return tuple(k._binding_id_ for k in self._distinct_on)
 
     def _get_distinct_results_(
-        self, results_gen: Iterable[Dict[int, Any]]
-    ) -> Iterator[Dict[int, Any]]:
+        self, results_gen: Iterator[OperationResult]
+    ) -> Iterator[OperationResult]:
         """
         Apply distinctness constraint to the query object descriptor results.
 
-        :param results_gen: Generator of result dictionaries.
-        :return: Generator of distinct result dictionaries.
+        :param results_gen: Generator of results.
+        :return: Generator of distinct results.
         """
-        for res in results_gen:
-            self._update_res_with_distinct_on_variables_(res)
-            if self._seen_results.check(res):
+        for result in results_gen:
+            bindings = copy(result.bindings)
+            self._update_res_with_distinct_on_variables_(bindings)
+            if self._seen_results.check(bindings):
                 continue
-            self._seen_results.add(res)
-            yield res
+            self._seen_results.add(bindings)
+            yield result
 
     def _update_res_with_distinct_on_variables_(self, res: Dict[int, Any]):
         """
@@ -2223,70 +2216,9 @@ class QueryObjectDescriptor(UnaryExpression, ABC):
                 non_aggregated_variables.append(variable)
         return aggregated_variables, non_aggregated_variables
 
-    @staticmethod
-    def _variable_is_inferred_(var: Selectable[T]) -> bool:
-        """
-        Whether the variable is inferred or not.
-
-        :param var: The variable.
-        :return: True if the variable is inferred, otherwise False.
-        """
-        return isinstance(var, Variable) and var._is_inferred_
-
-    def _any_selected_variable_is_inferred_and_unbound_(self, values: Bindings) -> bool:
-        """
-        Check if any of the selected variables is inferred and is not bound.
-
-        :param values: The current result with the current bindings.
-        :return: True if any of the selected variables is inferred and is not bound, otherwise False.
-        """
-        return any(
-            not self._variable_is_bound_or_its_children_are_bound_(
-                var, tuple(values.keys())
-            )
-            for var in self._selected_variables_
-            if self._variable_is_inferred_(var)
-        )
-
-    @lru_cache
-    def _variable_is_bound_or_its_children_are_bound_(
-        self, var: Selectable[T], result: Tuple[int, ...]
-    ) -> bool:
-        """
-        Whether the variable is directly bound or all its children are bound.
-
-        :param var: The variable.
-        :param result: The current result containing the current bindings.
-        :return: True if the variable is bound, otherwise False.
-        """
-        if var._binding_id_ in result:
-            return True
-        unique_vars = [uv for uv in var._unique_variables_ if uv is not var]
-        if unique_vars and all(
-            self._variable_is_bound_or_its_children_are_bound_(uv, result)
-            for uv in unique_vars
-        ):
-            return True
-        return False
-
-    def _get_constrained_values_(self, sources: Bindings) -> Iterator[Bindings]:
-        """
-        Evaluate the child (i.e., the conditions that constrain the domain of the selected variables).
-
-        :param sources: The current bindings.
-        :return: The bindings after applying the constraints of the child.
-        """
-
-        for result in self._child_._evaluate_(sources, parent=self):
-
-            if self._any_selected_variable_is_inferred_and_unbound_(result.bindings):
-                continue
-
-            yield result.bindings
-
     def _apply_results_mapping_(
-        self, results: Iterator[Bindings]
-    ) -> Iterable[Bindings]:
+        self, results: Iterator[OperationResult]
+    ) -> Iterable[OperationResult]:
         """
         Process and transform an iterable of results based on predefined mappings and ordering.
 
@@ -2409,17 +2341,14 @@ class Variable(CanBehaveLikeAVariable[T]):
     """
     The result type of the variable. (The value of `T`)
     """
-
     _name__: str
     """
     The name of the variable.
     """
-
     _kwargs_: Dict[str, Any] = field(default_factory=dict)
     """
     The properties of the variable as keyword arguments.
     """
-
     _domain_source_: Optional[DomainType] = field(
         default=None, kw_only=True, repr=False
     )
@@ -2442,6 +2371,10 @@ class Variable(CanBehaveLikeAVariable[T]):
     """
     Whether this variable should be inferred.
     """
+    _is_instantiated_: bool = field(default=False, repr=False)
+    """
+    Whether this variable should be instantiated from it's type.
+    """
     _child_vars_: Optional[Dict[str, SymbolicExpression]] = field(
         default_factory=dict, init=False, repr=False
     )
@@ -2452,12 +2385,15 @@ class Variable(CanBehaveLikeAVariable[T]):
     def __post_init__(self):
         self._child_ = None
 
-        if self._domain_source_:
+        if self._domain_source_ is not None:
             self._update_domain_(self._domain_source_)
 
         self._var_ = self
 
         self._update_child_vars_from_kwargs_()
+
+        if self._child_vars_ or self._predicate_type_:
+            self._is_instantiated_ = True
 
     def _update_domain_(self, domain):
         """
@@ -2503,8 +2439,11 @@ class Variable(CanBehaveLikeAVariable[T]):
 
         if self._domain_source_ is not None:
             yield from self._iterator_over_domain_values_(sources)
-        elif self._is_inferred_ or self._predicate_type_:
+        elif self._is_instantiated_:
             yield from self._instantiate_using_child_vars_and_yield_results_(sources)
+        elif self._is_inferred_:
+            # Means that the variable gets its values from conclusions only.
+            return
         else:
             raise VariableCannotBeEvaluated(self)
 

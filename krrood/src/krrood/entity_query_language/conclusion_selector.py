@@ -21,41 +21,8 @@ from .symbolic import (
 @dataclass(eq=False)
 class ConclusionSelector(LogicalBinaryOperator, ABC):
     """
-    Base class for logical operators that may carry and select conclusions.
-
-    Tracks whether certain conclusion-combinations were already produced so
-    they are not duplicated across truth branches.
+    Base class for logical operators that selects the conclusions to pass through from it's operands' conclusions.
     """
-
-    concluded_before: Dict[bool, SeenSet] = field(
-        default_factory=lambda: {True: SeenSet(), False: SeenSet()}, init=False
-    )
-
-    def update_conclusion(
-        self, output: OperationResult, conclusions: typing.Set[Conclusion]
-    ) -> None:
-        """
-        Update conclusions if this combination hasn't been seen before.
-
-        Uses canonical tuple keys for stable deduplication.
-        """
-        if not conclusions:
-            return
-        required_var_ids = set()
-        for conclusion in conclusions:
-            vars_ = {
-                v._binding_id_
-                for v in conclusion._unique_variables_
-                if not isinstance(v, Literal)
-            }
-            required_var_ids.update(vars_)
-        required_output = {
-            k: v for k, v in output.bindings.items() if k in required_var_ids
-        }
-
-        if not self.concluded_before[not self._is_false_].check(required_output):
-            self._conclusion_.update(conclusions)
-            self.concluded_before[not self._is_false_].add(required_output)
 
 
 @dataclass(eq=False)
@@ -100,7 +67,7 @@ class ExceptIf(ConclusionSelector):
     def yield_and_update_conclusion(
         self, result: OperationResult, conclusion: typing.Set[Conclusion]
     ) -> Iterable[OperationResult]:
-        self.update_conclusion(result, conclusion)
+        self._conclusion_.update(conclusion)
         yield OperationResult(result.bindings, self._is_false_, self)
         self._conclusion_.clear()
 
@@ -111,9 +78,6 @@ class Alternative(ElseIf, ConclusionSelector):
     A conditional branch that behaves like an "else if" clause where the left branch
     is selected if it is true, otherwise the right branch is selected if it is true else
     none of the branches are selected.
-
-    Uses both variable-based deduplication (from base class via projection) and
-    conclusion-based deduplication (via update_conclusion).
     """
 
     def _evaluate__(
@@ -124,9 +88,9 @@ class Alternative(ElseIf, ConclusionSelector):
         for output in outputs:
             # Only yield if conclusions were successfully added (not duplicates)
             if not self.left._is_false_:
-                self.update_conclusion(output, self.left._conclusion_)
+                self._conclusion_.update(self.left._conclusion_)
             elif not self.right._is_false_:
-                self.update_conclusion(output, self.right._conclusion_)
+                self._conclusion_.update(self.right._conclusion_)
             yield OperationResult(output.bindings, self._is_false_, self)
             self._conclusion_.clear()
 
@@ -144,8 +108,8 @@ class Next(EQLUnion, ConclusionSelector):
         outputs = super()._evaluate__(sources)
         for output in outputs:
             if self.left_evaluated:
-                self.update_conclusion(output, self.left._conclusion_)
+                self._conclusion_.update(self.left._conclusion_)
             if self.right_evaluated:
-                self.update_conclusion(output, self.right._conclusion_)
+                self._conclusion_.update(self.right._conclusion_)
             yield OperationResult(output.bindings, self._is_false_, self)
             self._conclusion_.clear()

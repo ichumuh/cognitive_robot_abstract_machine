@@ -182,22 +182,23 @@ class ColorLegend:
                 color = "#9467bd"
             case QueryObjectDescriptor():
                 color = "#d62728"
-            case Variable():
-                color = "cornflowerblue"
             case Literal():
                 color = "#949292"
+            case Variable():
+                color = "cornflowerblue"
             case Concatenate():
                 color = "#949292"
             case DomainMapping():
+                name = "DomainMapping"
                 color = "#8FC7B8"
             case Comparator():
                 color = "#ff7f0e"
+            case ConclusionSelector():
+                color = "#eded18"
             case LogicalOperator():
                 color = "#2ca02c"
             case Conclusion():
                 color = "#8cf2ff"
-            case ConclusionSelector():
-                color = "#eded18"
         return cls(name=name, color=color)
 
 

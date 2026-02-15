@@ -7,6 +7,7 @@ from numpy.ma.testutils import (
     assert_equal,
 )  # You could replace this with numpy's regular assert for better compatibility
 
+from krrood.entity_query_language.query_graph import QueryGraph
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -147,7 +148,6 @@ def test_handle_semantic_annotation_eql(apartment_world_setup):
             in_("handle", body.name.name.lower())
         )
     )
-
     handles = list(query.evaluate())
     assert len(handles) > 0
 

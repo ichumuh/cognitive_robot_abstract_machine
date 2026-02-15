@@ -167,10 +167,12 @@ def test_rule_tree_with_an_alternative(doors_and_drawers_world):
     revolute_connection = variable(RevoluteConnection, domain=world.connections)
     views = variable(View, domain=None, inferred=True)
     query = an(
-        entity(views).where(
+        entity(views)
+        .where(
             body == fixed_connection.parent,
             handle == fixed_connection.child,
         )
+        .distinct()
     )
 
     with query:
@@ -208,11 +210,13 @@ def test_rule_tree_with_multiple_alternatives(doors_and_drawers_world):
     revolute_connection = variable(RevoluteConnection, domain=world.connections)
     views = variable(View, domain=None, inferred=True)
     query = an(
-        entity(views).where(
+        entity(views)
+        .where(
             body == fixed_connection.parent,
             handle == fixed_connection.child,
             body == prismatic_connection.child,
         )
+        .distinct()
     )
 
     with query:
@@ -257,10 +261,12 @@ def test_rule_tree_with_multiple_alternatives_optimized(doors_and_drawers_world)
     revolute_connection = variable(RevoluteConnection, domain=world.connections)
     views = variable(View, domain=None, inferred=True)
     query = an(
-        entity(views).where(
+        entity(views)
+        .where(
             HasType(fixed_connection.child, Handle),
             fixed_connection.parent == prismatic_connection.child,
         )
+        .distinct()
     )
 
     with query:
@@ -319,10 +325,12 @@ def test_rule_tree_with_multiple_alternatives_better_rule_tree(doors_and_drawers
     revolute_connection = variable(RevoluteConnection, domain=world.connections)
     views = variable(View, domain=None, inferred=True)
     query = an(
-        entity(views).where(
+        entity(views)
+        .where(
             body == fixed_connection.parent,
             handle == fixed_connection.child,
         )
+        .distinct()
     )
 
     with query:
@@ -368,9 +376,11 @@ def test_rule_tree_with_multiple_alternatives_better_rule_tree_optimized(
     revolute_connection = variable(RevoluteConnection, domain=world.connections)
     views = variable(View, domain=None, inferred=True)
     query = an(
-        entity(views).where(
+        entity(views)
+        .where(
             HasType(fixed_connection.child, Handle),
         )
+        .distinct()
     )
 
     with query:
