@@ -177,7 +177,9 @@ def collision_check(
     """
     collision_matrix = create_collision_matrix(allowed_collision, world, robot)
 
-    return world.collision_detector.check_collisions(collision_matrix)
+    return world.collision_manager.collision_detector.check_collisions(
+        collision_matrix
+    ).contacts
 
 
 def create_collision_matrix(
