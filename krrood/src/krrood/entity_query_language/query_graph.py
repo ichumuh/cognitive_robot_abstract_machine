@@ -165,27 +165,35 @@ class ColorLegend(RXUtilsColorLegend):
             case Product() | Filter() | OrderedBy() | GroupedBy():
                 color = "#17becf"
             case Aggregator():
+                name = "Aggregator"
                 color = "#F54927"
             case ResultQuantifier():
+                name = "ResultQuantifier"
                 color = "#9467bd"
             case QueryObjectDescriptor():
+                name = "QueryObjectDescriptor"
                 color = "#d62728"
             case Literal():
                 color = "#949292"
             case Variable():
                 color = "cornflowerblue"
             case Concatenate():
+                name = "Union"
                 color = "#949292"
             case DomainMapping():
                 name = "DomainMapping"
                 color = "#8FC7B8"
             case Comparator():
+                name = "Comparator"
                 color = "#ff7f0e"
             case ConclusionSelector():
+                name = "ConclusionSelector"
                 color = "#eded18"
             case LogicalOperator():
+                name = "LogicalOperator"
                 color = "#2ca02c"
             case Conclusion():
+                name = "Conclusion"
                 color = "#8cf2ff"
         return cls(name=name, color=color)
 

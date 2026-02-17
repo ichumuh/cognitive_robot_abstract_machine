@@ -107,30 +107,31 @@ def make_set(value: Any) -> Set:
     return set(value) if is_iterable(value) else {value}
 
 
-def chain_evaluate_variables(
-    variables: Iterable[SymbolicExpression],
+def cartesian_product_evaluation_of_expressions_while_passing_the_bindings_around(
+    expressions: Iterable[SymbolicExpression],
     sources: Bindings,
     parent: Optional[SymbolicExpression] = None,
 ) -> Iterator[Bindings]:
     """
-    Evaluate the symbolic expressions by generating combinations of values from their evaluation generators.
+    Evaluate the symbolic expressions by generating combinations of values from their evaluation generators while
+    passing the bindings from the previous evaluated generator to the next.
 
-    :param variables: The symbolic expressions to evaluate.
+    :param expressions: The symbolic expressions to evaluate.
     :param sources: The current bindings.
     :param parent: The parent expression.
     :return: An Iterable of Bindings for each combination of values.
     """
-    var_val_gen = [
+    expression_evaluation_generators = [
         (
-            lambda bindings, inner_generator_var=var: (
+            lambda bindings, inner_expression=expression: (
                 bindings | result.bindings
-                for result in inner_generator_var._evaluate_(copy(bindings), parent=parent)
+                for result in inner_expression._evaluate_(copy(bindings), parent=parent)
             )
         )
-        for var in variables
+        for expression in expressions
     ]
 
-    yield from chain_stages(var_val_gen, sources)
+    yield from chain_stages(expression_evaluation_generators, sources)
 
 
 T = TypeVar("T")

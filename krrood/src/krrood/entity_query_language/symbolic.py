@@ -75,7 +75,7 @@ from .utils import (
     merge_args_and_kwargs,
     convert_args_and_kwargs_into_a_hashable_key,
     ensure_hashable,
-    chain_evaluate_variables,
+    cartesian_product_evaluation_of_expressions_while_passing_the_bindings_around,
 )
 from ..class_diagrams.class_diagram import WrappedClass
 from ..class_diagrams.failures import ClassIsUnMappedInClassDiagram
@@ -734,7 +734,7 @@ class Product(MultiArityExpression):
         """
         yield from (
             OperationResult(bindings, False, self)
-            for bindings in chain_evaluate_variables(
+            for bindings in cartesian_product_evaluation_of_expressions_while_passing_the_bindings_around(
                 self._operation_children_, sources, parent=self
             )
         )
@@ -2913,7 +2913,7 @@ class Comparator(BinaryExpression):
 
         yield from (
             self.get_operation_result(bindings)
-            for bindings in chain_evaluate_variables(
+            for bindings in cartesian_product_evaluation_of_expressions_while_passing_the_bindings_around(
                 [first_operand, second_operand], sources, parent=self
             )
         )
@@ -3080,11 +3080,15 @@ class Union(MultiArityExpression):
     ) -> Iterable[OperationResult]:
 
         yield from (
-            OperationResult(result.bindings, result.is_false, self, result)
-            for result in itertools.chain(
+            self.get_result_and_update_truth_value(child_result)
+            for child_result in itertools.chain(
                 *(var._evaluate_(sources, self) for var in self._operation_children_)
             )
         )
+
+    def get_result_and_update_truth_value(self, child_result: OperationResult) -> OperationResult:
+        self._is_false_ = child_result.is_false
+        return OperationResult(child_result.bindings, self._is_false_, self, child_result)
 
 
 @dataclass(eq=False, repr=False)
