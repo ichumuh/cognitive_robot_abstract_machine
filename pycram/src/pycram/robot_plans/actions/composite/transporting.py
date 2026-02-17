@@ -8,6 +8,7 @@ import numpy as np
 
 from krrood.entity_query_language.entity import entity, variable
 from krrood.entity_query_language.entity_result_processors import an, the
+from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer
 from semantic_digital_twin.world_description.world_entity import Body
@@ -20,6 +21,7 @@ from ..core import (
     PickUpActionDescription,
     PlaceActionDescription,
     OpenActionDescription,
+    MoveTorsoActionDescription,
 )
 from ....config.action_conf import ActionConfig
 from ....datastructures.enums import Arms, Grasp, VerticalAlignment
@@ -115,6 +117,7 @@ class TransportAction(ActionDescription):
                 grasp_description=pickup_pose.grasp_description,
             ),
             ParkArmsActionDescription(Arms.BOTH),
+            MoveTorsoActionDescription(TorsoState.HIGH),
             NavigateActionDescription(
                 CostmapLocation(
                     target=self.target_location,

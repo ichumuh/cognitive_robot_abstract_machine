@@ -35,6 +35,10 @@ from random_events.interval import closed
 from random_events.polytope import Polytope, NoOptimalSolutionError
 from random_events.product_algebra import Event, SimpleEvent
 from random_events.variable import Continuous
+from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.robots.abstract_robot import AbstractRobot
 from semantic_digital_twin.spatial_types import Point3
@@ -241,6 +245,8 @@ class CostmapLocation(LocationDesignatorDescription):
         for params in self.generate_permutations():
             test_world = deepcopy(self.world)
             test_world.name = "Test World"
+            TFPublisher(world=test_world, node=self.plan.context.ros_node)
+            VizMarkerPublisher(world=test_world, node=self.plan.context.ros_node)
 
             params_box = Box(params)
             # Target is either a pose or an object since the object is later needed for the visibility validator
@@ -289,6 +295,7 @@ class CostmapLocation(LocationDesignatorDescription):
                 )
 
                 collisions = collision_check(
+                    robot=test_robot,
                     world=test_world,
                 )
 
@@ -548,7 +555,7 @@ class AccessingLocation(LocationDesignatorDescription):
                     pose_candidate.to_spatial_type()
                 )
                 try:
-                    collision_check(test_world)
+                    collision_check(test_robot, test_world)
                 except RobotInCollision:
                     continue
 
@@ -1093,7 +1100,7 @@ class ProbabilisticSemanticLocation(LocationDesignatorDescription):
                 # for example with the arms
                 test_robot.root.parent_connection.origin = nav_pose.to_spatial_type()
                 try:
-                    collision_check(test_world)
+                    collision_check(test_robot, test_world)
                 except RobotInCollision:
                     continue
 
@@ -1476,7 +1483,7 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
                 )
 
                 try:
-                    collision_check(self.test_world)
+                    collision_check(test_robot, self.test_world)
                 except RobotInCollision:
                     continue
 

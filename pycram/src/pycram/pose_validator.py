@@ -19,6 +19,8 @@ from semantic_digital_twin.collision_checking.collision_matrix import (
 from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidExternalCollisions,
     AllowCollisionBetweenGroups,
+    AvoidSelfCollisions,
+    AllowSelfCollisions,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import AbstractRobot
@@ -159,7 +161,7 @@ def pose_sequence_reachability_validator(
     return True
 
 
-def collision_check(world: World) -> List[ClosestPoints]:
+def collision_check(robot: AbstractRobot, world: World) -> List[ClosestPoints]:
     """
     This method checks if a given robot collides with any object within the world
     which it is not allowed to collide with.
@@ -174,5 +176,10 @@ def collision_check(world: World) -> List[ClosestPoints]:
     :raises: RobotInCollision if the robot collides with an object it is not allowed to collide with.
     """
     world.collision_manager.clear_temporary_rules()
+    world.collision_manager.add_temporary_rule(AllowSelfCollisions(robot=robot))
     world.collision_manager.update_collision_matrix(buffer=0.0)
-    return world.collision_manager.compute_collisions().contacts
+    return [
+        contact
+        for contact in world.collision_manager.compute_collisions().contacts
+        if contact.distance <= 0.0
+    ]

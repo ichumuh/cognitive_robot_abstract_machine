@@ -237,6 +237,14 @@ class AllowNonRobotCollisions(AllowCollisionRule):
 
 
 @dataclass
+class AllowSelfCollisions(AllowCollisionRule):
+    robot: AbstractRobot = field(kw_only=True)
+
+    def _update(self, world: World):
+        self.allowed_collision_bodies = self.robot.bodies_with_collision
+
+
+@dataclass
 class AllowCollisionForAdjacentPairs(AllowCollisionRule):
 
     def _update(self, world: World):
