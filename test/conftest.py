@@ -665,7 +665,7 @@ def pr2_world_state_reset(pr2_world_setup):
     PR2.from_world(world)
     state = deepcopy(world.state.data)
     yield world
-    world.state.data = state
+    world.state.data[:] = state
 
 
 ###############################

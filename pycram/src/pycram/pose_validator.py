@@ -154,7 +154,7 @@ def pose_sequence_reachability_validator(
         logger.debug(f"Timeout while executing pose sequence: {target_sequence}")
         return False
     finally:
-        world.state.data = old_state
+        world.state.data[:] = old_state
         world.notify_state_change()
     return True
 
