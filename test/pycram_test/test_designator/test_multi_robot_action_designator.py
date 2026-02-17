@@ -11,6 +11,7 @@ from giskardpy.utils.utils_for_tests import compare_axis_angle, compare_orientat
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import (
     Arms,
+    AxisIdentifier,
     ApproachDirection,
     VerticalAlignment,
     DetectionTechnique,
@@ -260,19 +261,31 @@ def test_reach_action_multi(immutable_multiple_robot_apartment):
     compare_orientations(manipulator_orientation, target_orientation, decimal=2)
 
 
-def test_move_tcp_follows_sine_waypoints_multi(immutable_multiple_robot_apartment):
-    world, view, context = immutable_multiple_robot_apartment
-    frame = world.root
-    anchor = PoseStamped.from_list([2.2, 2, 0.9], frame=frame)
-    anchor_T = anchor.to_spatial_type()
-    offset_T = HomogeneousTransformationMatrix.from_xyz_axis_angle(
-        z=-0.03,
-        axis=(0, 1, 0),
-        angle=np.pi/2,
-        reference_frame=world.root,
+def test_follow_tcp_path_multi(immutable_multiple_robot_apartment):
+    world, robot_view, context = immutable_multiple_robot_apartment
+    if isinstance(robot_view, (Stretch, Tiago)):
+        pytest.skip("FollowTCPPathAction currently unsupported for Stretch/Tiago")
+    left_arm = ViewManager.get_arm_view(Arms.LEFT, robot_view)
+
+    front_axis = tuple(
+        int(v) for v in left_arm.manipulator.front_facing_axis.to_np()[:3]
     )
-    target_pose = PoseStamped.from_spatial_type(anchor_T @ offset_T)
-    # waypoints = _make_sine_scan_poses(target_pose, lane_axis="z")
+    grasp_axis = AxisIdentifier.from_tuple(front_axis)
+
+    pose = PoseStamped.from_list([2.37, 2, 1], frame=world.root)
+    pose_T = pose.to_spatial_type()
+    if grasp_axis == AxisIdentifier.X:
+        target_pose = pose
+    elif grasp_axis == AxisIdentifier.Z:
+        offset_T = HomogeneousTransformationMatrix.from_xyz_axis_angle(
+            axis=AxisIdentifier.Y.value,
+            angle=np.pi / 2,
+            reference_frame=world.root,
+        )
+        target_pose = PoseStamped.from_spatial_type(pose_T @ offset_T)
+    else:
+        target_pose = pose
+
     waypoints = [target_pose]
     plan = SequentialPlan(
         context,
@@ -281,7 +294,10 @@ def test_move_tcp_follows_sine_waypoints_multi(immutable_multiple_robot_apartmen
     with simulated_robot:
         plan.perform()
 
-    dist = np.linalg.norm(anchor.to_spatial_type().to_np()[3, :3])
+    tip_pose = left_arm.manipulator.tool_frame.global_pose
+    dist = np.linalg.norm(
+        tip_pose.to_position().to_np()[:3] - np.array(target_pose.position.to_list())
+    )
     assert dist < 0.01
 
 
