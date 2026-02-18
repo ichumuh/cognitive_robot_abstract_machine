@@ -40,7 +40,7 @@ from typing_extensions import (
 )
 
 if TYPE_CHECKING:
-    from .symbolic import Bindings, SymbolicExpression, OperationResult
+    from .base_expressions import Bindings, OperationResult, SymbolicExpression
 
 
 class IDGenerator:

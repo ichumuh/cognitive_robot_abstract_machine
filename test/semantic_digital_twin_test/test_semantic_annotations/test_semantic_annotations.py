@@ -1,14 +1,10 @@
 import logging
-from copy import deepcopy
-from dataclasses import field
 
-from krrood.entity_query_language.entity_result_processors import an
-from krrood.entity_query_language.entity import entity, variable, in_, inference
+from krrood.entity_query_language.factories import entity, variable, in_, inference, an
 from numpy.ma.testutils import (
     assert_equal,
 )  # You could replace this with numpy's regular assert for better compatibility
 
-from krrood.entity_query_language.query_graph import QueryGraph
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )

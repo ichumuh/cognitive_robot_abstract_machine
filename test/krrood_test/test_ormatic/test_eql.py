@@ -20,15 +20,7 @@ from ..dataset.ormatic_interface import (
     PrismaticConnectionDAO,
     BodyDAO,
 )
-from krrood.entity_query_language.entity import (
-    variable,
-    entity,
-    contains,
-    and_,
-    or_,
-    in_,
-)
-from krrood.entity_query_language.entity_result_processors import an, the
+from krrood.entity_query_language.factories import entity, variable, and_, or_, contains, in_, an, the
 from krrood.ormatic.dao import to_dao
 from krrood.ormatic.eql_interface import eql_to_sql
 

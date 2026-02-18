@@ -12,17 +12,16 @@ from typing_extensions import TYPE_CHECKING, Type, Any, List, Tuple, Optional
 from ..utils import DataclassException
 
 if TYPE_CHECKING:
-    from .symbolic import (
-        SymbolicExpression,
-        ResultQuantifier,
-        Variable,
-        Selectable,
+    from krrood.entity_query_language.query.query_descriptor import (
         QueryObjectDescriptor,
-        Aggregator,
-        GroupedBy,
-        GroupedByBuilder,
     )
-    from .match import Match
+    from krrood.entity_query_language.query.query_descriptor_operations import GroupedBy
+    from krrood.entity_query_language.query.result_quantifiers import ResultQuantifier
+    from krrood.entity_query_language.operators.aggregators import Aggregator
+    from krrood.entity_query_language.query.query_builders import GroupedByBuilder
+    from .base_expressions import SymbolicExpression
+    from .variable import Selectable, Variable
+    from krrood.entity_query_language.query.match import Match
 
 
 @dataclass

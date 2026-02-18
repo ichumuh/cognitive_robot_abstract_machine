@@ -10,23 +10,17 @@ from typing_extensions import (
     Any,
     Type,
     Tuple,
-    ClassVar, Iterable, Sized,
+    ClassVar, Sized,
 )
 
 from .enums import PredicateType
-from .symbol_graph import (
-    WrappedInstance,
-    SymbolGraph,
-)
-from .symbolic import (
-    Variable,
-    _any_of_the_kwargs_is_a_variable,
-)
 from .utils import T, merge_args_and_kwargs
+from .variable import Variable, _any_of_the_kwargs_is_a_variable
+from ..symbol_graph.symbol_graph import Symbol
 
 
 def symbolic_function(
-    function: Callable[..., T],
+        function: Callable[..., T],
 ) -> Callable[..., Variable[T]]:
     """
     Function decorator that constructs a symbolic expression representing the function call
@@ -55,22 +49,15 @@ def symbolic_function(
 
 
 @dataclass(eq=False)
-class Symbol:
-    """Base class for things that can be cached in the symbol graph."""
-
-    def __new__(cls, *args, **kwargs):
-        instance = super().__new__(cls)
-        update_cache(instance)
-        return instance
-
-
-@dataclass(eq=False)
 class Predicate(Symbol, ABC):
     """
     The super predicate class that represents a filtration operation or asserts a relation.
     """
 
-    is_expensive: ClassVar[bool] = False
+    _cache_instances_: ClassVar[bool] = False
+    """
+    Predicates should not be cached for now as they are not persisting.
+    """
 
     def __new__(cls, *args, **kwargs):
         all_kwargs = merge_args_and_kwargs(
@@ -92,6 +79,9 @@ class Predicate(Symbol, ABC):
         """
 
     def __bool__(self):
+        """
+        Bool casting a predicate evaluates it.
+        """
         return bool(self.__call__())
 
 
@@ -143,13 +133,3 @@ def length(iterable: Sized) -> int:
     :return: The length of the iterable.
     """
     return len(iterable)
-
-
-def update_cache(instance: Symbol):
-    """
-    Updates the cache with the given instance of a symbolic type.
-
-    :param instance: The symbolic instance to be cached.
-    """
-    if not isinstance(instance, Predicate):
-        SymbolGraph().add_node(WrappedInstance(instance))

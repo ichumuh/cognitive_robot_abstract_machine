@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy import select, inspect
 
+from krrood.entity_query_language import factories
 from krrood.ormatic.alternative_mappings import FunctionMapping, UncallableFunction
 from krrood.ormatic.dao import (
     to_dao,
@@ -314,7 +315,7 @@ def test_entity_association(session, database):
     session.commit()
 
     queried_association = session.scalars(select(EntityAssociationDAO)).one()
-    assert queried_association.entity.overwritten_name == entity.name
+    assert factories.entity.overwritten_name == entity.name
     reconstructed = queried_association.from_dao()
     assert reconstructed == association
 

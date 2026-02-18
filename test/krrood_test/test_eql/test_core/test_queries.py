@@ -4,24 +4,11 @@ from math import factorial
 
 import pytest
 
-import krrood.entity_query_language.entity as eql
-from krrood.entity_query_language.entity import (
-    and_,
-    not_,
-    contains,
-    in_,
-    entity,
-    set_of,
-    variable,
-    or_,
-    exists,
-    flatten,
-    variable_from,
-    concatenate,
-    for_all,
-    distinct,
-)
-from krrood.entity_query_language.entity_result_processors import an, a, the
+import krrood.entity_query_language.factories.entity as eql
+
+from krrood.entity_query_language import factories
+from krrood.entity_query_language.factories import aggregators, entity, set_of, variable, variable_from, distinct, \
+    concatenate, and_, or_, not_, contains, in_, flatten, for_all, exists, an, a, the
 from krrood.entity_query_language.failures import (
     MultipleSolutionFound,
     UnsupportedNegation,
@@ -37,7 +24,7 @@ from krrood.entity_query_language.predicate import (
     symbolic_function,
     Predicate,
 )
-from krrood.entity_query_language.result_quantification_constraint import (
+from krrood.entity_query_language.query.result_quantifiers import (
     ResultQuantificationConstraint,
     Exactly,
     AtLeast,
@@ -45,7 +32,6 @@ from krrood.entity_query_language.result_quantification_constraint import (
     Range,
 )
 from krrood.entity_query_language.query_graph import QueryGraph
-from krrood.entity_query_language.symbolic import Union
 from krrood.entity_query_language.utils import cartesian_product_while_passing_the_bindings_around
 from ...dataset.example_classes import VectorsWithProperty
 from ...dataset.semantic_world_like_classes import (
@@ -1139,7 +1125,7 @@ def test_chain_evaluate_variables():
 
 def test_subquery_independence():
     var1 = variable(int, [1, 2, 4, 3])
-    count = entity(eql.count(var1))
+    count = entity(factories.count(var1))
     assert count.tolist() == [4]
 
     query = the(entity(var1).where(count == var1))

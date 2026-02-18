@@ -8,20 +8,16 @@ import sqlalchemy.inspection
 from sqlalchemy import and_, or_, select, Select, func, literal, not_ as sa_not
 from sqlalchemy.orm import Session
 
-from ..entity_query_language.symbolic import (
-    SymbolicExpression,
-    Attribute,
-    Comparator,
-    AND,
-    OR,
-    An,
-    The,
-    Variable,
-    Literal,
-    Where,
+from ..entity_query_language import factories
+from krrood.entity_query_language.query.query_descriptor import (
     QueryObjectDescriptor,
-    ResultQuantifier,
 )
+from krrood.entity_query_language.query.query_descriptor_operations import Where
+from krrood.entity_query_language.query.result_quantifiers import ResultQuantifier, An, The
+from krrood.entity_query_language.operators.core_logical_operators import AND, OR
+from ..entity_query_language.base_expressions import SymbolicExpression
+from ..entity_query_language.variable import Variable, Literal, Attribute
+from krrood.entity_query_language.operators.comparator import Comparator
 
 from .dao import get_dao_class
 
@@ -205,14 +201,14 @@ class OperatorMapper:
         is_negated = operator_name == "not_contains"
 
         if isinstance(left, (list, tuple, set)):
-            expression = right.in_(left)
+            expression = factories.in_(left)
         elif isinstance(right, (list, tuple, set)):
-            expression = left.in_(right)
+            expression = factories.in_(right)
         elif isinstance(left, str) and not isinstance(right, str):
             expression = func.instr(literal(left), right) > 0
         elif not isinstance(left, str) and isinstance(right, str):
             if hasattr(left, "contains"):
-                expression = left.contains(right)
+                expression = factories.contains(right)
             else:
                 expression = left.like("%" + right + "%")
         elif isinstance(left, str) and isinstance(right, str):
@@ -647,7 +643,7 @@ class EQLTranslator:
 
             if len(values) != 1 or (values and not isinstance(values[0], str)):
                 column = self.translate_attribute(query.right)
-                expression = column.in_(values)
+                expression = factories.in_(values)
                 return sa_not(expression) if is_negated else expression
 
         mapper = OperatorMapper()
@@ -728,7 +724,7 @@ class EQLTranslator:
                     return getattr(current_dao, local_column.key)
 
                 alias = self._apply_relationship_join(current_dao, name, relationship)
-                current_dao = alias or relationship.entity.class_
+                current_dao = alias or factories.entity.class_
                 continue
 
             if index != len(names) - 1:
@@ -767,7 +763,7 @@ class EQLTranslator:
             return self.join_manager.get_alias_for_path(dao_class, attribute_name)
 
         # Resolve target DAO class and create a dedicated alias for this path
-        target_dao = relationship.entity.class_
+        target_dao = factories.entity.class_
         from sqlalchemy.orm import aliased
 
         aliased_target = aliased(target_dao, flat=True)

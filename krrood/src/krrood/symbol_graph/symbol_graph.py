@@ -5,6 +5,7 @@ import os
 import weakref
 from collections import defaultdict
 from dataclasses import dataclass, field, InitVar
+from typing import ClassVar
 
 from rustworkx import PyDiGraph
 from typing_extensions import (
@@ -19,17 +20,17 @@ from typing_extensions import (
     Callable,
 )
 
-from .. import logger
-from ..class_diagrams import ClassDiagram
-from ..class_diagrams.wrapped_field import WrappedField
-from ..ontomatic.property_descriptor.attribute_introspector import (
+from krrood import logger
+from krrood.class_diagrams import ClassDiagram
+from krrood.class_diagrams.wrapped_field import WrappedField
+from krrood.ontomatic.property_descriptor.attribute_introspector import (
     DescriptorAwareIntrospector,
 )
-from ..singleton import SingletonMeta
-from ..utils import recursive_subclasses
+from krrood.singleton import SingletonMeta
+from krrood.utils import recursive_subclasses
 
 if TYPE_CHECKING:
-    from .predicate import Symbol
+    from krrood.entity_query_language.predicate import Symbol
 
 
 @dataclass(unsafe_hash=True)
@@ -197,8 +198,6 @@ class SymbolGraph(metaclass=SingletonMeta):
     def __post_init__(self):
         if self._class_diagram is None:
             # fetch all symbols and construct the graph
-            from .predicate import Symbol
-
             self._class_diagram = ClassDiagram(
                 list(recursive_subclasses(Symbol)),
                 introspector=DescriptorAwareIntrospector(),
@@ -448,3 +447,22 @@ class SymbolGraph(metaclass=SingletonMeta):
                 os.remove(tmp_filepath)
             except Exception as e:
                 logger.error(e)
+
+
+@dataclass(eq=False)
+class Symbol:
+    """Base class for things that can be cached in the symbol graph."""
+
+    _cache_instances_: ClassVar[bool] = True
+    """
+    Whether instances of this class should be cached or not in the symbol graph.
+    """
+
+    def __new__(cls, *args, **kwargs):
+        """
+        Updates the cache with the given instance of a symbolic type.
+        """
+        instance = super().__new__(cls)
+        if cls._cache_instances_:
+            SymbolGraph().add_node(WrappedInstance(instance))
+        return instance

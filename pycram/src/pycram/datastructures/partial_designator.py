@@ -5,6 +5,7 @@ from inspect import signature
 
 from typing_extensions import List, Tuple, Any, Dict, TypeVar, Iterator, Iterable, Type
 
+from krrood.entity_query_language import factories
 from ..plan import PlanNode
 from ..utils import is_iterable, lazy_product
 
@@ -147,7 +148,7 @@ class PartialDesignator(Iterable[T]):
             if self.kwargs[field_name] is not None:
                 if issubclass(field_type, HasParameters):
                     sub_obj = self.kwargs[field_name]
-                    result.extend(sub_obj.flatten())
+                    result.extend(factories.flatten())
                 else:
                     result.append(self.kwargs[field_name])
             else:

@@ -1,15 +1,9 @@
 import pytest
 
-from krrood.entity_query_language.entity import (
-    entity,
-    variable,
-    set_of,
-)
-from krrood.entity_query_language.entity_result_processors import the
+from krrood.entity_query_language.factories import entity, set_of, variable, the, match, match_variable
 from krrood.entity_query_language.failures import NoKwargsInMatchVar
-from krrood.entity_query_language.match import match_variable, match
 from krrood.entity_query_language.predicate import HasType
-from krrood.entity_query_language.symbolic import UnificationDict
+from krrood.entity_query_language.base_expressions import UnificationDict
 from ..dataset.semantic_world_like_classes import (
     FixedConnection,
     Container,

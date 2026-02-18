@@ -2,22 +2,13 @@ from __future__ import annotations
 
 import typing
 from abc import ABC
-from dataclasses import dataclass, field
-from typing_extensions import Dict, Optional, Iterable, Any, Self
+from dataclasses import dataclass
+from typing_extensions import Optional, Iterable
 
-from .cache_data import SeenSet
 from .conclusion import Conclusion
-from .symbolic import (
-    SymbolicExpression,
-    OR,
-    Union as EQLUnion,
-    Literal,
-    OperationResult,
-    LogicalBinaryOperator,
-    Bindings,
-    LogicalOperator,
-    BinaryExpression, Filter, TruthValueOperator,
-)
+from krrood.entity_query_language.operators.set_operations import Union as EQLUnion
+from krrood.entity_query_language.operators.core_logical_operators import LogicalBinaryOperator, OR
+from krrood.entity_query_language.base_expressions import Bindings, OperationResult, SymbolicExpression, TruthValueOperator
 
 
 @dataclass(eq=False)

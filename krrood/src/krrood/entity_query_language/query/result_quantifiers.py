@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional, Iterable, Union as TypingUnion, Dict
+
 from typing_extensions import TYPE_CHECKING
 
-from .failures import (
+from krrood.entity_query_language.base_expressions import UnaryExpression, DerivedExpression, SymbolicExpression, Bindings, OperationResult
+from krrood.entity_query_language.failures import (
     NegativeQuantificationError,
     QuantificationConsistencyError,
     GreaterThanExpectedNumberOfSolutions,
-    LessThanExpectedNumberOfSolutions,
+    LessThanExpectedNumberOfSolutions, UnsupportedNegation, NoSolutionFound, MultipleSolutionFound,
 )
+from krrood.entity_query_language.utils import T
 
 if TYPE_CHECKING:
-    from .symbolic import ResultQuantifier
+    pass
 
 
 @dataclass
@@ -141,3 +145,96 @@ class Range(ResultQuantificationConstraint):
 
     def __repr__(self):
         return f"{self.at_least}<=n<={self.at_most}"
+
+
+@dataclass(eq=False)
+class ResultQuantifier(UnaryExpression, DerivedExpression, ABC):
+    """
+    Base for quantifiers that return concrete results from entity/set queries
+    (e.g., An, The).
+    """
+
+    _quantification_constraint_: Optional[ResultQuantificationConstraint] = None
+    """
+    The quantification constraint that must be satisfied by the result quantifier if present.
+    """
+
+    @property
+    def _original_expression_(self) -> SymbolicExpression:
+        return self._child_
+
+    def _evaluate__(
+            self,
+            sources: Bindings,
+    ) -> Iterable[T]:
+
+        result_count = 0
+        values = self._child_._evaluate_(parent=self)
+        for value in values:
+            result_count += 1
+            self._assert_satisfaction_of_quantification_constraints_(
+                result_count, done=False
+            )
+            yield OperationResult(value.bindings, False, self)
+        self._assert_satisfaction_of_quantification_constraints_(
+            result_count, done=True
+        )
+
+    def _assert_satisfaction_of_quantification_constraints_(
+            self, result_count: int, done: bool
+    ):
+        """
+        Assert the satisfaction of quantification constraints.
+
+        :param result_count: The current count of results
+        :param done: Whether all results have been processed
+        :raises QuantificationNotSatisfiedError: If the quantification constraints are not satisfied.
+        """
+        if self._quantification_constraint_:
+            self._quantification_constraint_.assert_satisfaction(
+                result_count, self, done
+            )
+
+    def _invert_(self):
+        raise UnsupportedNegation(self.__class__)
+
+    def __repr__(self):
+        name = f"{self.__class__.__name__}"
+        if self._quantification_constraint_:
+            name += f"({self._quantification_constraint_})"
+        return name
+
+
+@dataclass(eq=False, repr=False)
+class An(ResultQuantifier):
+    """Quantifier that yields all matching results one by one."""
+
+    ...
+
+
+@dataclass(eq=False, repr=False)
+class The(ResultQuantifier):
+    """
+    Quantifier that expects exactly one result; raises MultipleSolutionFound if more, and NoSolutionFound if none.
+    """
+
+    _quantification_constraint_: ResultQuantificationConstraint = field(
+        init=False, default_factory=lambda: Exactly(1)
+    )
+
+    def _evaluate__(
+            self,
+            sources: Bindings,
+    ) -> Iterable[TypingUnion[T, Dict[TypingUnion[T, SymbolicExpression], T]]]:
+        """
+        Evaluates the query object descriptor with the given bindings and yields the results.
+
+        :raises MultipleSolutionFound: If more than one result is found.
+        :raises NoSolutionFound: If no result is found.
+        """
+        try:
+            yield from super()._evaluate__(sources)
+        except LessThanExpectedNumberOfSolutions:
+            raise NoSolutionFound(self)
+        except GreaterThanExpectedNumberOfSolutions:
+            raise MultipleSolutionFound(self)

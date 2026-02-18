@@ -1,28 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import cached_property
 
-from typing_extensions import ClassVar, Optional, List, Any, TYPE_CHECKING, Dict
+from typing_extensions import ClassVar, Optional, Dict
 
-from .conclusion import Conclusion
-from .conclusion_selector import ConclusionSelector
-from .symbolic import (
-    ResultQuantifier,
+from krrood.entity_query_language.rules.conclusion import Conclusion
+from krrood.entity_query_language.rules.conclusion_selector import ConclusionSelector
+from krrood.entity_query_language.query.query_descriptor import (
     QueryObjectDescriptor,
-    SymbolicExpression,
-    Filter,
-    Where,
-    OrderedBy,
-    Aggregator,
-    GroupedBy,
-    Variable,
-    Literal,
-    Concatenate,
-    DomainMapping,
-    Comparator,
-    LogicalOperator,
 )
+from krrood.entity_query_language.query.query_descriptor_operations import Filter, OrderedBy, GroupedBy
+from krrood.entity_query_language.query.result_quantifiers import ResultQuantifier
+from krrood.entity_query_language.operators.set_operations import Concatenate
+from krrood.entity_query_language.operators.aggregators import Aggregator
+from krrood.entity_query_language.operators.core_logical_operators import LogicalOperator
+from .base_expressions import SymbolicExpression
+from .variable import Variable, Literal, DomainMapping
+from krrood.entity_query_language.operators.comparator import Comparator
 
 try:
     from rustworkx_utils import (

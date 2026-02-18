@@ -21,17 +21,10 @@ from ..dataset.semantic_world_like_classes import (
     Door,
     Wardrobe,
 )
-from krrood.entity_query_language.entity import (
-    entity,
-    variable,
-    inference,
-    and_,
-)
-from krrood.entity_query_language.entity_result_processors import an
-from krrood.entity_query_language.conclusion import Add
+from krrood.entity_query_language.factories import entity, variable, and_, inference, an, alternative
+from krrood.entity_query_language.rules.conclusion import Add
 
 from krrood.entity_query_language.predicate import HasType
-from krrood.entity_query_language.rule import alternative
 
 
 @pytest.mark.skipif(GraphVisualizer is None, reason="requires rustworkx_utils")

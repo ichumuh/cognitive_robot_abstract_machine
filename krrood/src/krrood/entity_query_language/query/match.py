@@ -16,26 +16,17 @@ from typing_extensions import (
     Generic,
 )
 
-from .entity import (
-    ConditionType,
-    variable,
-    entity,
-)
-from .failures import (
+from krrood.entity_query_language.factories import ConditionType, entity, variable
+from krrood.entity_query_language.failures import (
     NoKwargsInMatchVar,
 )
-from .predicate import HasType
-from .symbolic import (
-    CanBehaveLikeAVariable,
-    Attribute,
-    Selectable,
-    Literal,
-    An,
-    Flatten,
-    DomainType,
+from krrood.entity_query_language.predicate import HasType
+from .query_descriptor import (
     Entity,
 )
-from .utils import T
+from .result_quantifiers import An
+from krrood.entity_query_language.variable import Selectable, CanBehaveLikeAVariable, Literal, Attribute, Flatten, DomainType
+from krrood.entity_query_language.utils import T
 
 
 @dataclass
@@ -363,30 +354,3 @@ class AttributeMatch(AbstractMatchExpression[T]):
 
     def __str__(self):
         return self.name
-
-
-def match(
-    type_: Optional[Union[Type[T], Selectable[T]]] = None,
-) -> Union[Type[T], CanBehaveLikeAVariable[T], Match[T]]:
-    """
-    Create a symbolic variable matching the type and the provided keyword arguments. This is used for easy variable
-     definitions when there are structural constraints.
-
-    :param type_: The type of the variable (i.e., The class you want to instantiate).
-    :return: The Match instance.
-    """
-    return Match(type_=type_)
-
-
-def match_variable(
-    type_: Union[Type[T], Selectable[T]], domain: DomainType
-) -> Union[Type[T], An[T], CanBehaveLikeAVariable[T], MatchVariable[T]]:
-    """
-    Same as :py:func:`krrood.entity_query_language.match.match` but with a domain to use for the variable created
-     by the match.
-
-    :param type_: The type of the variable (i.e., The class you want to instantiate).
-    :param domain: The domain used for the variable created by the match.
-    :return: The Match instance.
-    """
-    return MatchVariable(type_=type_, domain=domain)

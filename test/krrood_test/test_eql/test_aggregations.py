@@ -1,29 +1,21 @@
 from collections import defaultdict
-from dataclasses import dataclass, field
 
 import pytest
-from typing_extensions import List
 
-import krrood.entity_query_language.entity_result_processors as eql
+import krrood.entity_query_language.factories.result_quantifiers as eql
+
+from krrood.entity_query_language import factories
+from krrood.entity_query_language.factories import aggregators, entity, set_of, variable, variable_from, distinct, \
+    contains, an, a
 from krrood.entity_query_language.predicate import length
-from krrood.entity_query_language.query_graph import QueryGraph
 from ..dataset.example_classes import NamedNumbers
-from krrood.entity_query_language.entity import (
-    variable,
-    variable_from,
-    entity,
-    set_of,
-    contains,
-    distinct,
-)
-from krrood.entity_query_language.entity_result_processors import an, a
 from krrood.entity_query_language.failures import (
     NonAggregatedSelectedVariablesError,
     AggregatorInWhereConditionsError,
     NestedAggregationError,
     UnsupportedAggregationOfAGroupedByVariable,
 )
-from krrood.entity_query_language.symbolic import Having, GroupedBy
+from krrood.entity_query_language.query.query_descriptor_operations import GroupedBy
 from ..dataset.department_and_employee import Department, Employee
 from ..dataset.semantic_world_like_classes import Cabinet, Body, Container, Drawer
 
@@ -31,7 +23,7 @@ from ..dataset.semantic_world_like_classes import Cabinet, Body, Container, Draw
 def test_count(handles_and_containers_world):
     world = handles_and_containers_world
     body = variable(type_=Body, domain=world.bodies)
-    query = eql.count(
+    query = factories.count(
         entity(body).where(
             contains(body.name, "Handle"),
         )
@@ -42,20 +34,20 @@ def test_count(handles_and_containers_world):
 def test_sum(handles_and_containers_world):
     heights = [1, 2, 3, 4, 5]
     heights_var = variable(int, domain=heights)
-    query = an(entity(eql.sum(heights_var)))
+    query = an(entity(factories.sum(heights_var)))
     assert query.tolist()[0] == sum(heights)
-    assert eql.sum(heights_var).tolist()[0] == sum(heights)
+    assert factories.sum(heights_var).tolist()[0] == sum(heights)
 
 
 def test_aggregate_distinct(handles_and_containers_world):
     heights = [1, 2, 3, 4, 4, 5, 5]
     heights_var = variable(int, domain=heights)
-    assert eql.sum(heights_var, distinct=True).tolist()[0] == sum(set(heights))
-    assert eql.count(heights_var, distinct=True).tolist()[0] == len(set(heights))
-    assert eql.average(heights_var, distinct=True).tolist()[0] == sum(
+    assert factories.sum(heights_var, distinct=True).tolist()[0] == sum(set(heights))
+    assert factories.count(heights_var, distinct=True).tolist()[0] == len(set(heights))
+    assert factories.average(heights_var, distinct=True).tolist()[0] == sum(
         set(heights)
     ) / len(set(heights))
-    assert eql.max(heights_var, distinct=True).tolist()[0] == max(set(heights))
+    assert factories.max(heights_var, distinct=True).tolist()[0] == max(set(heights))
 
 
 @pytest.fixture
@@ -71,7 +63,7 @@ def test_numbers():
 def test_grouping_already_grouped_by_object_attribute(test_numbers):
     test_numbers_var = variable(NamedNumbers, domain=test_numbers)
 
-    assert eql.sum(test_numbers_var.numbers).grouped_by(test_numbers_var).tolist() == [
+    assert factories.sum(test_numbers_var.numbers).grouped_by(test_numbers_var).tolist() == [
         6,
         6,
         5,
@@ -82,32 +74,32 @@ def test_distinct_sum(test_numbers):
     test_numbers_var = variable(NamedNumbers, domain=test_numbers)
 
     assert distinct(
-        eql.sum(test_numbers_var.numbers).grouped_by(test_numbers_var)
+        factories.sum(test_numbers_var.numbers).grouped_by(test_numbers_var)
     ).tolist() == [6, 5]
 
 
 def test_average(handles_and_containers_world):
     heights = [1, 2, 3, 4, 5]
     heights_var = variable(int, domain=heights)
-    query = an(entity(eql.average(heights_var)))
+    query = an(entity(factories.average(heights_var)))
     assert list(query.evaluate())[0] == sum(heights) / len(heights)
-    assert eql.average(heights_var).tolist()[0] == sum(heights) / len(heights)
+    assert factories.average(heights_var).tolist()[0] == sum(heights) / len(heights)
 
 
 def test_sum_on_empty_list(handles_and_containers_world):
     empty_var = variable(int, domain=[])
-    query = an(entity(eql.sum(empty_var)))
+    query = an(entity(factories.sum(empty_var)))
     assert query.tolist()[0] is None
-    assert eql.sum(empty_var).tolist()[0] is None
-    assert eql.sum(empty_var, default=0).tolist()[0] == 0
+    assert factories.sum(empty_var).tolist()[0] is None
+    assert factories.sum(empty_var, default=0).tolist()[0] == 0
 
 
 def test_max_on_empty_list(handles_and_containers_world):
     empty_var = variable(int, domain=[])
-    query = an(entity(eql.max(empty_var)))
+    query = an(entity(factories.max(empty_var)))
     assert query.tolist()[0] is None
-    assert eql.max(empty_var).tolist()[0] is None
-    assert eql.max(empty_var, default=0).tolist()[0] == 0
+    assert factories.max(empty_var).tolist()[0] is None
+    assert factories.max(empty_var, default=0).tolist()[0] == 0
 
 
 def test_non_aggregated_selectables_with_aggregated_ones(handles_and_containers_world):
@@ -116,7 +108,7 @@ def test_non_aggregated_selectables_with_aggregated_ones(handles_and_containers_
     drawer = variable_from(cabinet.drawers)
     with pytest.raises(NonAggregatedSelectedVariablesError):
         query = a(
-            set_of(drawer, eql.max(drawer))
+            set_of(drawer, factories.max(drawer))
             .where(drawer.handle.name.startswith("H"))
             .grouped_by(cabinet)
         )
@@ -128,14 +120,14 @@ def test_non_aggregated_conditions_with_aggregated_ones(handles_and_containers_w
     cabinet = variable(Cabinet, domain=world.views)
     drawer = variable_from(cabinet.drawers)
     query = a(
-        set_of(cabinet, eql.max(drawer.handle.name))
+        set_of(cabinet, factories.max(drawer.handle.name))
         .where(cabinet.container.name.startswith("C"))
         .grouped_by(cabinet)
     )
     _ = list(query.evaluate())
     with pytest.raises(AggregatorInWhereConditionsError):
         query = a(
-            set_of(cabinet, max_handle_name := eql.max(drawer.handle.name))
+            set_of(cabinet, max_handle_name := factories.max(drawer.handle.name))
             .where(max_handle_name.startswith("H"))
             .grouped_by(cabinet)
         )
@@ -151,7 +143,7 @@ def test_max_grouped_by(handles_and_containers_world):
     # drawers_by_cabinet = variable_from(cabinet.drawers).grouped_by(cabinet)
     query = a(
         set_of(
-            cabinet, max_drawer := eql.max(drawer, key=lambda d: d.handle.name)
+            cabinet, max_drawer := factories.max(drawer, key=lambda d: d.handle.name)
         ).grouped_by(cabinet)
     )
     results = list(query.evaluate())
@@ -179,8 +171,8 @@ def test_having_with_max(handles_and_containers_world):
     query = a(
         set_of(
             cabinet,
-            drawer_count := eql.count(drawer),
-            eql.max(drawer, key=lambda d: d.handle.name),
+            drawer_count := factories.count(drawer),
+            factories.max(drawer, key=lambda d: d.handle.name),
         )
         .grouped_by(cabinet)
         .having(drawer_count > 1)
@@ -197,7 +189,7 @@ def test_multiple_grouped_variables(handles_and_containers_world):
 
     # Group by both cabinet and drawer (silly, but tests multiple variables)
     query = a(
-        set_of(cabinet, count := eql.count(drawer), drawer).grouped_by(cabinet, drawer)
+        set_of(cabinet, count := factories.count(drawer), drawer).grouped_by(cabinet, drawer)
     )
     results = list(query.evaluate())
 
@@ -217,7 +209,7 @@ def test_sum_grouped_by(handles_and_containers_world):
 
     query = a(
         set_of(
-            total_characters := eql.sum(length(drawer.handle.name)),
+            total_characters := factories.sum(length(drawer.handle.name)),
             cabinet,
         ).grouped_by(cabinet)
     )
@@ -236,13 +228,13 @@ def test_count_grouped_by(handles_and_containers_world):
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
     cabinet_drawers = variable_from(cabinet.drawers)
-    query = an(entity(eql.count(cabinet_drawers)).grouped_by(cabinet))
+    query = an(entity(factories.count(cabinet_drawers)).grouped_by(cabinet))
     result = list(query.evaluate())
     expected = [len(c.drawers) for c in world.views if isinstance(c, Cabinet)]
     assert result == expected
 
     # without grouped_by should be all drawers of all cabinets
-    query_all = an(entity(eql.count(cabinet_drawers)))
+    query_all = an(entity(factories.count(cabinet_drawers)))
     results = list(query_all.evaluate())
     assert len(results) == 1
     result_all = results[0]
@@ -253,7 +245,7 @@ def test_count_grouped_by(handles_and_containers_world):
 def test_count_all_or_without_a_specific_child(handles_and_containers_world):
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
-    query = a(set_of(count := eql.count(), cabinet).grouped_by(cabinet))
+    query = a(set_of(count := factories.count(), cabinet).grouped_by(cabinet))
     results = list(query.evaluate())
     expected = defaultdict(lambda: 0)
     for c in world.views:
@@ -266,7 +258,7 @@ def test_count_all_or_without_a_specific_child(handles_and_containers_world):
 def test_count_variable_in_grouped_by_variables(handles_and_containers_world):
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
-    query = set_of(count := eql.count(cabinet), cabinet).grouped_by(cabinet)
+    query = set_of(count := factories.count(cabinet), cabinet).grouped_by(cabinet)
     results = query.tolist()
     expected = defaultdict(lambda: 0)
     for c in world.views:
@@ -281,7 +273,7 @@ def test_non_count_aggregation_of_variable_in_grouped_by_variables(
 ):
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
-    query = set_of(avg := eql.average(cabinet), cabinet).grouped_by(cabinet)
+    query = set_of(avg := factories.average(cabinet), cabinet).grouped_by(cabinet)
     with pytest.raises(UnsupportedAggregationOfAGroupedByVariable):
         results = query.tolist()
 
@@ -291,7 +283,7 @@ def test_count_variable_in_grouped_by_variables_selectnig_only_the_count(
 ):
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
-    query = eql.count(cabinet).grouped_by(cabinet)
+    query = factories.count(cabinet).grouped_by(cabinet)
     results = query.tolist()
     expected = defaultdict(lambda: 0)
     for c in world.views:
@@ -314,7 +306,7 @@ def test_count_with_duplicates(handles_and_containers_world):
     cabinet = variable(Cabinet, domain=world.views)
     cabinet_drawer = variable_from(cabinet.drawers)
     query = a(
-        set_of(count := eql.count(), cabinet, cabinet_drawer).grouped_by(
+        set_of(count := factories.count(), cabinet, cabinet_drawer).grouped_by(
             cabinet, cabinet_drawer
         )
     )
@@ -333,7 +325,7 @@ def test_max_count_grouped_by(handles_and_containers_world):
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
     cabinet_drawers = variable_from(cabinet.drawers)
-    query = eql.max(entity(eql.count(cabinet_drawers)).grouped_by(cabinet))
+    query = factories.max(entity(factories.count(cabinet_drawers)).grouped_by(cabinet))
     result = query.tolist()
     assert len(result) == 1
     result_max = result[0]
@@ -348,7 +340,7 @@ def test_max_count_grouped_by_without_explicit_entity(handles_and_containers_wor
     world = handles_and_containers_world
     cabinet = variable(Cabinet, domain=world.views)
     cabinet_drawers = variable_from(cabinet.drawers)
-    query = eql.max(eql.count(cabinet_drawers).grouped_by(cabinet))
+    query = factories.max(factories.count(cabinet_drawers).grouped_by(cabinet))
     result = query.tolist()
     assert len(result) == 1
     result_max = result[0]
@@ -364,17 +356,17 @@ def test_max_count_grouped_by_wrong(handles_and_containers_world):
     cabinet = variable(Cabinet, domain=world.views)
     cabinet_drawers = variable_from(cabinet.drawers)
     with pytest.raises(NestedAggregationError):
-        query = eql.max(eql.count(cabinet_drawers))
+        query = factories.max(factories.count(cabinet_drawers))
 
 
 def test_max_min_no_variable():
     values = [2, 1, 3, 5, 4]
     value = variable(int, domain=values)
 
-    max_query = eql.max(entity(value))
+    max_query = factories.max(entity(value))
     assert max_query.tolist()[0] == max(values)
 
-    min_query = eql.min(entity(value))
+    min_query = factories.min(entity(value))
     assert min_query.tolist()[0] == min(values)
 
 
@@ -382,10 +374,10 @@ def test_max_min_without_entity():
     values = [2, 1, 3, 5, 4]
     value = variable(int, domain=values)
 
-    max_query = eql.max(value)
+    max_query = factories.max(value)
     assert max_query.tolist()[0] == max(values)
 
-    min_query = eql.min(value)
+    min_query = factories.min(value)
     assert min_query.tolist()[0] == min(values)
 
 
@@ -416,7 +408,7 @@ def test_average_with_condition(departments_and_employees):
 
     department = emp.department
     query = a(
-        set_of(department, avg_salary := eql.average(emp.salary))
+        set_of(department, avg_salary := factories.average(emp.salary))
         .where(department.name.startswith("F"))
         .grouped_by(department)
         .having(avg_salary > 20000)
@@ -436,8 +428,8 @@ def test_multiple_aggregations_per_group_on_different_variables(
 
     emp = variable(Employee, domain=None)
     department = emp.department
-    avg_salary = eql.average(emp.salary)
-    avg_starting_salary = eql.average(emp.starting_salary)
+    avg_salary = factories.average(emp.salary)
+    avg_starting_salary = factories.average(emp.starting_salary)
     query = a(
         set_of(avg_salary, avg_starting_salary, department)
         .grouped_by(department)
@@ -455,8 +447,8 @@ def test_multiple_aggregations_per_group_on_same_variable(departments_and_employ
 
     emp = variable(Employee, domain=None)
     department = emp.department
-    avg_salary = eql.average(emp.salary)
-    max_salary = eql.max(emp.salary)
+    avg_salary = factories.average(emp.salary)
+    max_salary = factories.max(emp.salary)
     query = a(
         set_of(avg_salary, max_salary, department)
         .grouped_by(department)
@@ -472,7 +464,7 @@ def test_having_node_hierarchy(departments_and_employees):
 
     emp = variable(Employee, domain=None)
     department = emp.department
-    avg_salary = eql.average(emp.salary)
+    avg_salary = factories.average(emp.salary)
 
     query = a(
         set_of(department, avg_salary).grouped_by(department).having(avg_salary > 20000)
@@ -490,7 +482,7 @@ def test_complex_having_success(departments_and_employees):
     departments, employees = departments_and_employees
     emp = variable(Employee, domain=None)
     department = emp.department
-    avg_salary = eql.average(emp.salary)
+    avg_salary = factories.average(emp.salary)
 
     query = a(
         set_of(department, avg_salary).grouped_by(department).having(avg_salary > 30000)
@@ -507,8 +499,8 @@ def test_recalling_having(departments_and_employees):
 
     emp = variable(Employee, domain=None)
     department = emp.department
-    avg_salary = eql.average(emp.salary)
-    max_salary = eql.max(emp.salary)
+    avg_salary = factories.average(emp.salary)
+    max_salary = factories.max(emp.salary)
     query = a(
         set_of(avg_salary, max_salary, department)
         .grouped_by(department)
@@ -562,7 +554,7 @@ def test_order_by_aggregation(handles_and_containers_world):
     query = an(
         entity(cabinet)
         .grouped_by(cabinet)
-        .ordered_by(eql.count(drawer), descending=True)
+        .ordered_by(factories.count(drawer), descending=True)
     )
     assert query.tolist() == sorted(
         cabinet.tolist(), key=lambda c: len(c.drawers), reverse=True
@@ -572,13 +564,13 @@ def test_order_by_aggregation(handles_and_containers_world):
 def test_where_with_aggregation_subquery_on_different_variable():
     var1 = variable(int, domain=[1, 2, 3])
     var2 = variable(int, domain=[1, 2, 3])
-    query = entity(var1).where(var1 == entity(eql.max(var2)))
+    query = entity(var1).where(var1 == entity(factories.max(var2)))
     # QueryGraph(query.build()).visualize()
     assert query.tolist() == [3]
 
 
 def test_where_with_aggregation_subquery_on_same_variable():
     var1 = variable(int, domain=[1, 2, 3])
-    query = entity(var1).where(var1 == entity(eql.max(var1)))
+    query = entity(var1).where(var1 == entity(factories.max(var1)))
     # QueryGraph(query.build()).visualize()
     assert query.tolist() == [3]
