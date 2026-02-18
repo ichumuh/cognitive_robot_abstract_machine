@@ -1,3 +1,4 @@
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -30,9 +31,9 @@ class MetaData(SubclassJSONSerializer):
     The id of the process that published this message
     """
 
-    object_id: int
+    world_id: UUID = field(default_factory=uuid.uuid4)
     """
-    The id of the object in the process that issues this publishing call
+    The id of the origin world. This is used to identify messages that were published by the same publisher.
     """
 
     @lru_cache(maxsize=None)
@@ -41,7 +42,7 @@ class MetaData(SubclassJSONSerializer):
             **super().to_json(),
             "node_name": self.node_name,
             "process_id": self.process_id,
-            "object_id": self.object_id,
+            "world_id": to_json(self.world_id),
         }
 
     @classmethod
@@ -49,11 +50,11 @@ class MetaData(SubclassJSONSerializer):
         return cls(
             node_name=data["node_name"],
             process_id=data["process_id"],
-            object_id=data["object_id"],
+            world_id=from_json(data["world_id"]),
         )
 
     def __hash__(self):
-        return hash((self.node_name, self.process_id, self.object_id))
+        return hash((self.node_name, self.process_id, self.world_id))
 
 
 @dataclass
