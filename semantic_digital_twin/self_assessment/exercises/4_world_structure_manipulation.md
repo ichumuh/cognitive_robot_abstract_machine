@@ -30,8 +30,7 @@ from semantic_digital_twin.world_description.connections import Connection6DoF, 
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.spatial_types import Vector3
-from krrood.entity_query_language.entity import entity, variable
-from krrood.entity_query_language.entity_result_processors import an, the
+from krrood.entity_query_language.factories import entity, variable, an, the
 ```
 
 ## 1. Create a simple kinematic structure
