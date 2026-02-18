@@ -120,10 +120,10 @@ class SelfCollisionMatrixInterface:
     def load_srdf(self, srdf_path: str): ...
 
     def add_body(self, body: Body):
-        self.collision_matrix.allowed_collision_bodies.add(body)
+        self.collision_matrix.allowed_collision_bodies.discard(body)
 
     def remove_body(self, body: Body):
-        self.collision_matrix.allowed_collision_bodies.discard(body)
+        self.collision_matrix.allowed_collision_bodies.add(body)
 
     def add_pair(self, body_a: Body, body_b: Body, reason: DisableCollisionReason):
         collision_check = CollisionCheck.create_and_validate(body_a, body_b)
@@ -535,14 +535,17 @@ class ClickableLabel(QLabel):
         self.parent().checkbox.click()
 
 
-class DisableLinksItem(QWidget):
-    def __init__(self, text: str, table: Table, parent=None):
-        super().__init__(parent)
-        self.text = text
-        self.table = table
+@dataclass
+class DisableBodyItem(QWidget):
+    body: Body
+    self_collision_matrix_interface: SelfCollisionMatrixInterface
+    parent: Optional[QWidget] = None
+
+    def __post_init__(self):
+        super().__init__(self.parent)
         self.checkbox = QCheckBox()
         self.checkbox.stateChanged.connect(self.checkbox_callback)
-        self.label = ClickableLabel(text, self)
+        self.label = ClickableLabel(self.text, self)
 
         layout = QHBoxLayout()
         layout.addWidget(self.checkbox)
@@ -550,12 +553,16 @@ class DisableLinksItem(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
+    @property
+    def text(self) -> str:
+        return self.body.name.name
+
     def checkbox_callback(self, state):
         if state == Qt.Checked:
-            self.table.disable_link(self.text)
+            self.self_collision_matrix_interface.remove_body(self.body)
         else:
-            self.table.enable_link(self.text)
-        self.table.dye_disabled_links()
+            self.self_collision_matrix_interface.add_body(self.body)
+        # self.table.dye_disabled_links()
 
     def set_checked(self, new_state: bool):
         self.checkbox.setChecked(new_state)
@@ -564,12 +571,13 @@ class DisableLinksItem(QWidget):
         return self.checkbox.isChecked()
 
 
-class DisableLinksDialog(QDialog):
-    def __init__(self, table: Table):
+@dataclass
+class DisableBodiesDialog(QDialog):
+    self_collision_matrix_interface: SelfCollisionMatrixInterface
+
+    def __post_init__(self):
         super().__init__()
-        self.table = table
-        self.links = self.table.bodies
-        self.setWindowTitle("Disable Links")
+        self.setWindowTitle("Disable Bodies")
         self.layout = QVBoxLayout(self)
 
         self.scrollArea = QScrollArea(self)
@@ -581,11 +589,15 @@ class DisableLinksDialog(QDialog):
         self.scrollLayout = QVBoxLayout(self.scrollAreaWidgetContents)
 
         self.checkbox_widgets = []
-        for link in self.links:
-            checkbox_widget = DisableLinksItem(link, self.table)
+        for body in self.self_collision_matrix_interface.bodies:
+            checkbox_widget = DisableBodyItem(
+                body, self.self_collision_matrix_interface
+            )
             self.checkbox_widgets.append(checkbox_widget)
             self.scrollLayout.addWidget(checkbox_widget)
-            checkbox_widget.set_checked(link not in self.table.enabled_bodies)
+            checkbox_widget.set_checked(
+                body not in self.self_collision_matrix_interface.enabled_bodies
+            )
 
         self.buttonBox = QDialogButtonBox(QDialogButtonBox.Ok)
         self.buttonBox.accepted.connect(self.accept)
@@ -714,7 +726,7 @@ class Application(QMainWindow):
             self.progress.set_progress(0, "Canceled collision checking")
 
     def _disable_bodies_button_callback(self):
-        dialog = DisableLinksDialog(self.table)
+        dialog = DisableBodiesDialog(self.self_collision_matrix_interface)
         dialog.exec_()
         self.table.synchronize()
 
