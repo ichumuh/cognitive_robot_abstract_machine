@@ -44,6 +44,14 @@ jobs:
           source /opt/ros/cram-env/bin/activate
           poetry install
 
+      - name: Cache .cache directory
+        uses: actions/cache@v4
+        with:
+          path: /github/home/.cache
+          key: ${{ runner.os }}-cache-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-cache-
+
       - name: Build ORM
         if: ${{inputs.lib == 'pycram' || inputs.lib == 'semantic_digital_twin'}}
         run: |
