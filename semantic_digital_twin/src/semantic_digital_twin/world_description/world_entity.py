@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import uuid
 from abc import ABC, abstractmethod
@@ -33,7 +34,9 @@ from krrood.adapters.json_serializer import (
 )
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.entity_query_language.predicate import Symbol
+from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math.symbolic_math import Matrix
+from krrood.utils import get_full_class_name
 from .geometry import TriangleMesh
 from .inertial_properties import Inertial
 from .shape_collection import ShapeCollection, BoundingBoxCollection
@@ -226,6 +229,26 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
             return state.get_world_entity_with_id(obj)
         else:
             return obj
+
+
+@dataclass(eq=False)
+class WorldEntityWithClassID(WorldEntityWithID):
+    """
+    A WorldEntity that has a unique identifier based on its class name.
+
+    ..warning::
+    """
+
+    id: UUID = field(init=False)
+    """
+    A unique identifier for this world entity.
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.id = uuid.UUID(
+            hex=hashlib.md5(get_full_class_name(cls).encode("utf-8")).hexdigest()
+        )
 
 
 @dataclass(eq=False)

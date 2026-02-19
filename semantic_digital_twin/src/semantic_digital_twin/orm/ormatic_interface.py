@@ -1965,59 +1965,6 @@ class WorldEntityWithIDDAO(
     }
 
 
-class CallbackDAO(
-    WorldEntityWithIDDAO,
-    DataAccessObject[semantic_digital_twin.callbacks.callback.Callback],
-):
-
-    __tablename__ = "CallbackDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldEntityWithIDDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "CallbackDAO",
-        "inherit_condition": database_id == WorldEntityWithIDDAO.database_id,
-    }
-
-
-class ModelChangeCallbackDAO(
-    CallbackDAO,
-    DataAccessObject[semantic_digital_twin.callbacks.callback.ModelChangeCallback],
-):
-
-    __tablename__ = "ModelChangeCallbackDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(CallbackDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ModelChangeCallbackDAO",
-        "inherit_condition": database_id == CallbackDAO.database_id,
-    }
-
-
-class StateChangeCallbackDAO(
-    CallbackDAO,
-    DataAccessObject[semantic_digital_twin.callbacks.callback.StateChangeCallback],
-):
-
-    __tablename__ = "StateChangeCallbackDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(CallbackDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "StateChangeCallbackDAO",
-        "inherit_condition": database_id == CallbackDAO.database_id,
-    }
-
-
 class DegreeOfFreedomDAO(
     WorldEntityWithIDDAO,
     DataAccessObject[
@@ -5320,6 +5267,80 @@ class RegionDAO(
     __mapper_args__ = {
         "polymorphic_identity": "RegionDAO",
         "inherit_condition": database_id == KinematicStructureEntityDAO.database_id,
+    }
+
+
+class WorldEntityWithClassIDDAO(
+    WorldEntityWithIDDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.world_entity.WorldEntityWithClassID
+    ],
+):
+
+    __tablename__ = "WorldEntityWithClassIDDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(WorldEntityWithIDDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "WorldEntityWithClassIDDAO",
+        "inherit_condition": database_id == WorldEntityWithIDDAO.database_id,
+    }
+
+
+class CallbackDAO(
+    WorldEntityWithClassIDDAO,
+    DataAccessObject[semantic_digital_twin.callbacks.callback.Callback],
+):
+
+    __tablename__ = "CallbackDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(WorldEntityWithClassIDDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "CallbackDAO",
+        "inherit_condition": database_id == WorldEntityWithClassIDDAO.database_id,
+    }
+
+
+class ModelChangeCallbackDAO(
+    CallbackDAO,
+    DataAccessObject[semantic_digital_twin.callbacks.callback.ModelChangeCallback],
+):
+
+    __tablename__ = "ModelChangeCallbackDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(CallbackDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ModelChangeCallbackDAO",
+        "inherit_condition": database_id == CallbackDAO.database_id,
+    }
+
+
+class StateChangeCallbackDAO(
+    CallbackDAO,
+    DataAccessObject[semantic_digital_twin.callbacks.callback.StateChangeCallback],
+):
+
+    __tablename__ = "StateChangeCallbackDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(CallbackDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "StateChangeCallbackDAO",
+        "inherit_condition": database_id == CallbackDAO.database_id,
     }
 
 

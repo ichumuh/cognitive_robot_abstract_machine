@@ -143,7 +143,7 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
         if not publish_changes:
             return
 
-        self._world_callback(publish_changes=publish_changes)
+        self.world_callback(publish_changes=publish_changes)
 
     def _subscription_callback(self, msg: Message):
         if self._is_paused:

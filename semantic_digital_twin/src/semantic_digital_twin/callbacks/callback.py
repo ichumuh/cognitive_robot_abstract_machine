@@ -3,21 +3,19 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, Any, Self
+from typing import Any, Self
 
 import numpy as np
-from typing_extensions import TYPE_CHECKING, Callable, Dict
-from uuid import UUID
+from typing_extensions import Dict
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer
-from ..datastructures.prefixed_name import PrefixedName
-from ..world_description.world_entity import WorldEntityWithID
+from ..world_description.world_entity import WorldEntityWithClassID
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(eq=False)
-class Callback(WorldEntityWithID, SubclassJSONSerializer, ABC):
+class Callback(WorldEntityWithClassID, SubclassJSONSerializer, ABC):
     """
     Callback is an abstract base class (ABC)
     reacting to changes in the associated `_world`.

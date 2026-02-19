@@ -222,19 +222,25 @@ def test_pr2_collision_rules(rclpy_node, pr2_world_state_reset):
     )
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=pr2_world_state_reset,
+        _world=pr2_world_state_reset,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=pr2_world_copy,
+        _world=pr2_world_copy,
     )
+
+    assert len(pr2_world_state_reset.collision_manager.rules) == len(
+        pr2_world_copy.collision_manager.rules
+    )
+
+    time.sleep(1)
 
     with pr2_world_state_reset.modify_world():
         pr2_world_state_reset.collision_manager.add_temporary_rule(
             AvoidExternalCollisions(robot=pr2)
         )
 
-    time.sleep(100)
+    time.sleep(1)
     assert len(pr2_world_state_reset.collision_manager.rules) == len(
         pr2_world_copy.collision_manager.rules
     )

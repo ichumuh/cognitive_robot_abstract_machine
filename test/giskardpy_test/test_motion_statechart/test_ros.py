@@ -1,4 +1,5 @@
 import json
+import time
 
 from giskardpy.executor import Executor
 from giskardpy.motion_statechart.context import MotionStatechartContext
@@ -49,6 +50,7 @@ def test_execute_collision_goal_in_fetched_world(rclpy_node, pr2_world_state_res
         rclpy_node,
     )
 
+    time.sleep(2)
     fetched_pr2 = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
 
     r_tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(

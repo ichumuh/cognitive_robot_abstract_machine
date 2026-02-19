@@ -73,7 +73,9 @@ class AllowCollisionRule(CollisionRule, ABC):
     Base class for collision rules that remove collision checks from the collision matrix.
     """
 
-    allowed_collision_pairs: set[CollisionCheck] = field(default_factory=set)
+    allowed_collision_pairs: set[CollisionCheck] = field(
+        default_factory=set, init=False
+    )
     """
     Set of collision checks that are allowed to occur.
     """
