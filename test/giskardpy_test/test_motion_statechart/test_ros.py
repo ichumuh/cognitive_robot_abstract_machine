@@ -13,21 +13,12 @@ from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
 )
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
 from semantic_digital_twin.adapters.ros.world_fetcher import (
     FetchWorldServer,
     fetch_world_from_service,
 )
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
-)
-from semantic_digital_twin.collision_checking.collision_matrix import (
-    MaxAvoidedCollisionsOverride,
-)
-from semantic_digital_twin.collision_checking.collision_rules import (
-    AvoidCollisionBetweenGroups,
 )
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.robots.pr2 import PR2
@@ -54,9 +45,6 @@ def test_execute_collision_goal_in_fetched_world(rclpy_node, pr2_world_state_res
     )
 
     time.sleep(2)
-
-    viz = VizMarkerPublisher(_world=pr2_world_copy, node=rclpy_node)
-    viz.with_tf_publisher()
 
     fetched_pr2 = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
 
@@ -104,9 +92,9 @@ def test_execute_collision_goal_in_fetched_world(rclpy_node, pr2_world_state_res
     msc.add_node(local_min := LocalMinimumReached())
     msc.add_node(EndMotion.when_true(local_min))
 
-    # msc_copy = to_and_from_json(msc, pr2_world_copy)
+    msc_copy = to_and_from_json(msc, pr2_world_copy)
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim = Executor(MotionStatechartContext(world=pr2_world_copy))
+    kin_sim.compile(motion_statechart=msc_copy)
 
     kin_sim.tick_until_end(500)
