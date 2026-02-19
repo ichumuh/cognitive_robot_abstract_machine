@@ -1,9 +1,7 @@
-import time
 from copy import deepcopy
 
 import numpy as np
 import pytest
-import rclpy
 from rustworkx.rustworkx import NoEdgeBetweenNodes
 from typing_extensions import Tuple, Generator
 
@@ -21,7 +19,6 @@ from pycram.datastructures.pose import PoseStamped
 from pycram.datastructures.trajectory import PoseTrajectory
 from pycram.language import SequentialPlan
 from pycram.motion_executor import simulated_robot
-from pycram.testing import _make_sine_scan_poses
 from pycram.view_manager import ViewManager
 from pycram.robot_plans import (
     MoveTorsoAction,
@@ -41,11 +38,7 @@ from pycram.robot_plans import (
     GraspingActionDescription,
     TransportActionDescription,
 )
-from semantic_digital_twin.adapters.ros.pose_publisher import PosePublisher
-from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
+
 from semantic_digital_twin.datastructures.definitions import (
     TorsoState,
     GripperState,
