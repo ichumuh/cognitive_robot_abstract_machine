@@ -117,7 +117,16 @@ class SelfCollisionMatrixInterface:
         self.collision_matrix = SelfCollisionMatrixRule()
         MinimalRobot.from_world(self.world)
 
-    def load_srdf(self, srdf_path: str): ...
+    def load_srdf(self, srdf_path: str):
+        self.collision_matrix = SelfCollisionMatrixRule.from_collision_srdf(
+            srdf_path, self.world
+        )
+        for collision_check in self.collision_matrix.allowed_collision_pairs:
+            self.set_reason_for_pair(
+                collision_check.body_a,
+                collision_check.body_b,
+                DisableCollisionReason.Unknown,
+            )
 
     def add_body(self, body: Body):
         self.collision_matrix.allowed_collision_bodies.discard(body)
