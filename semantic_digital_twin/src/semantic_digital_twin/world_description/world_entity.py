@@ -510,7 +510,7 @@ GenericWorldEntity = TypeVar("GenericWorldEntity", bound=WorldEntity)
 
 
 @dataclass(eq=False)
-class SemanticAnnotation(WorldEntityWithID):
+class SemanticAnnotation(SimulatedWorldEntity):
     """
     Represents a semantic annotation on a set of bodies in the world.
 
