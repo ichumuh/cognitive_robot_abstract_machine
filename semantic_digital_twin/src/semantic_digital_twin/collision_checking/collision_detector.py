@@ -15,7 +15,11 @@ from krrood.symbolic_math.symbolic_math import (
 from .collision_matrix import CollisionMatrix, CollisionCheck
 from ..callbacks.callback import ModelChangeCallback, StateChangeCallback
 from ..spatial_types import HomogeneousTransformationMatrix
-from ..world_description.world_entity import Body, WorldEntityWithID
+from ..world_description.world_entity import (
+    Body,
+    WorldEntityWithID,
+    WorldEntityWithClassBasedID,
+)
 
 
 @dataclass
@@ -168,7 +172,7 @@ class CollisionDetectorStateUpdater(StateChangeCallback):
 
 
 @dataclass(eq=False)
-class CollisionDetector(WorldEntityWithID, abc.ABC):
+class CollisionDetector(WorldEntityWithClassBasedID, abc.ABC):
     """
     Abstract class for collision detectors.
     """

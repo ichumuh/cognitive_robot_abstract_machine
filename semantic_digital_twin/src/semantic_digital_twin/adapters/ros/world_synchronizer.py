@@ -23,11 +23,13 @@ from ...callbacks.callback import Callback, StateChangeCallback, ModelChangeCall
 from ...exceptions import MissingPublishChangesKWARG
 from ...orm.ormatic_interface import *
 from ...world import World
-from ...world_description.world_entity import WorldEntityWithID
+from ...world_description.world_entity import (
+    WorldEntityWithClassBasedID,
+)
 
 
 @dataclass
-class Synchronizer(WorldEntityWithID):
+class Synchronizer(WorldEntityWithClassBasedID):
     """
     Abstract Synchronizer class to manage world synchronizations between processes running semantic digital twin.
     It manages publishers and subscribers, ensuring proper cleanup after use.

@@ -535,9 +535,7 @@ def synchronized_attribute_modification(func):
         result = func(self, *args, **kwargs)
         object_after_change = to_json(self)
 
-        world = self._world if hasattr(self, "_world") else self.world
-
-        tracker = WorldEntityWithIDKwargsTracker.from_world(world)
+        tracker = WorldEntityWithIDKwargsTracker.from_world(self._world)
         tracker_kwargs = tracker.create_kwargs()
 
         diff = shallow_diff_json(
@@ -545,9 +543,11 @@ def synchronized_attribute_modification(func):
         )
 
         current_model_modification_block = (
-            world.get_world_model_manager().current_model_modification_block
+            self._world.get_world_model_manager().current_model_modification_block
         )
-        if not world._model_manager._active_world_model_update_context_manager_ids:
+        if (
+            not self._world._model_manager._active_world_model_update_context_manager_ids
+        ):
             raise MissingWorldModificationContextError(func)
 
         current_model_modification_block.append(

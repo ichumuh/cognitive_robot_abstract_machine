@@ -9,13 +9,13 @@ import numpy as np
 from typing_extensions import Dict
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer
-from ..world_description.world_entity import WorldEntityWithClassID
+from ..world_description.world_entity import WorldEntityWithClassBasedID
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(eq=False)
-class Callback(WorldEntityWithClassID, SubclassJSONSerializer, ABC):
+class Callback(WorldEntityWithClassBasedID, SubclassJSONSerializer, ABC):
     """
     Callback is an abstract base class (ABC)
     reacting to changes in the associated `_world`.

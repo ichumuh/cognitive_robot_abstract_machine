@@ -5783,7 +5783,7 @@ class RegionDAO(
 class WorldEntityWithClassIDDAO(
     WorldEntityWithIDDAO,
     DataAccessObject[
-        semantic_digital_twin.world_description.world_entity.WorldEntityWithClassID
+        semantic_digital_twin.world_description.world_entity.WorldEntityWithClassBasedID
     ],
 ):
 

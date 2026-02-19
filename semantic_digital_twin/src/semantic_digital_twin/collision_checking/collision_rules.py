@@ -355,13 +355,11 @@ class SelfCollisionMatrixRule(AllowCollisionRule, SubclassJSONSerializer):
         return self
 
     def to_json(self) -> Dict[str, Any]:
-        """ """
-        ...
-        allowed_body_ids = {body.id for body in self.allowed_collision_bodies}
-
         return {
             **super().to_json(),
-            "allowed_body_ids": to_json(allowed_body_ids),
+            "allowed_body_ids": to_json(
+                {body.id for body in self.allowed_collision_bodies}
+            ),
             "allowed_collision_pairs": to_json(self.allowed_collision_pairs),
         }
 

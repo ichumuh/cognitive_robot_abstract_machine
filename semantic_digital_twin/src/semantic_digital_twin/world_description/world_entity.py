@@ -232,11 +232,10 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
 
 
 @dataclass(eq=False)
-class WorldEntityWithClassID(WorldEntityWithID):
+class WorldEntityWithClassBasedID(WorldEntityWithID):
     """
-    A WorldEntity that has a unique identifier based on its class name.
-
-    ..warning::
+    A WorldEntity that has a unique identifier based on its class name. As a consequence, all instances of a class will
+    have the same ID.
     """
 
     id: UUID = field(init=False)

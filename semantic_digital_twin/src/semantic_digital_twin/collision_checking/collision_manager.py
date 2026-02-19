@@ -3,12 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Dict, Any
+from typing import Dict, Any, Self
 
 from line_profiler.explicit_profiler import profile
 from typing_extensions import List, TYPE_CHECKING
 
-from krrood.adapters.json_serializer import to_json
+from krrood.adapters.json_serializer import to_json, from_json
 from .collision_detector import (
     CollisionMatrix,
     CollisionCheckingResult,
@@ -286,3 +286,15 @@ class CollisionManager(ModelChangeCallback):
             "ignore_collision_rules": to_json(self.ignore_collision_rules),
             "max_avoided_bodies_rules": to_json(self.max_avoided_bodies_rules),
         }
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        return cls(
+            collision_detector=BulletCollisionDetector(),
+            default_rules=from_json(data["default_rules"], **kwargs),
+            temporary_rules=from_json(data["temporary_rules"], **kwargs),
+            ignore_collision_rules=from_json(data["ignore_collision_rules"], **kwargs),
+            max_avoided_bodies_rules=from_json(
+                data["max_avoided_bodies_rules"], **kwargs
+            ),
+        )

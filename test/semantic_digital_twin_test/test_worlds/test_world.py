@@ -38,7 +38,7 @@ from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
     Actuator,
-    WorldEntityWithClassID,
+    WorldEntityWithClassBasedID,
 )
 from semantic_digital_twin.world_description.world_state import WorldStateTrajectory
 from semantic_digital_twin.world_description.world_state_trajectory_plotter import (
@@ -766,10 +766,10 @@ def test_copy_id(pr2_world_state_reset):
 
 def test_world_entity_with_class_id():
     @dataclass(eq=False)
-    class A(WorldEntityWithClassID): ...
+    class A(WorldEntityWithClassBasedID): ...
 
     @dataclass(eq=False)
-    class B(WorldEntityWithClassID): ...
+    class B(WorldEntityWithClassBasedID): ...
 
     a_1 = A()
     a_2 = A()
