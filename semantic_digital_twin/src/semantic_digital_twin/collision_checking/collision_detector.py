@@ -28,6 +28,9 @@ class CollisionCheckingResult:
     """
 
     contacts: list[ClosestPoints] = field(default_factory=list)
+    """
+    List of contacts detected during the collision checking operation.
+    """
 
     def any(self) -> bool:
         """
@@ -162,6 +165,9 @@ class CollisionDetectorStateUpdater(StateChangeCallback):
     """
 
     collision_detector: CollisionDetector
+    """
+    Reference to the collision detector that this updater belongs to.
+    """
     world: World = field(init=False)
 
     def __post_init__(self):
@@ -227,6 +233,13 @@ class CollisionDetector(abc.ABC):
     def check_collision_between_bodies(
         self, body_a: Body, body_b: Body, distance: float = 0.0
     ) -> ClosestPoints | None:
+        """
+        Checks for collisions between two bodies.
+        :param body_a: The first body to check for collisions.
+        :param body_b: The second body to check for collisions.
+        :param distance: The distance threshold for collision detection.
+        :return: The closest points of contact if a collision is detected, otherwise None.
+        """
         collision = self.check_collisions(
             CollisionMatrix(
                 {CollisionCheck.create_and_validate(body_a, body_b, distance)}

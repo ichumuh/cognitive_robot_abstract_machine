@@ -48,7 +48,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: /github/home/.cache
-          key: ${{ runner.os }}-cache-${{ github.ref_name }}
+          key: ${{ runner.os }}-cache-${{ github.ref_name }}-${{ inputs.lib }}
           restore-keys: |
             ${{ runner.os }}-cache-
 
@@ -71,4 +71,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: /github/home/.cache
-          key: ${{ runner.os }}-cache-${{ github.ref_name }}
+          key: ${{ runner.os }}-cache-${{ github.ref_name }}-${{ inputs.lib }}

@@ -73,6 +73,9 @@ class CollisionGroupConsumer(CollisionConsumer, ABC):
     """
 
     collision_groups: list[CollisionGroup] = field(default_factory=list, init=False)
+    """
+    Collision groups defined by this post processor.
+    """
 
     def on_world_model_update(self, world: World):
         self.update_collision_groups(world)
@@ -86,12 +89,12 @@ class CollisionGroupConsumer(CollisionConsumer, ABC):
         for parent, children in rustworkx.bfs_successors(
             world.kinematic_structure, world.root.index
         ):
-            collision_group = self.get_collision_group(parent)
             for child in children:
                 parent_C_child = world.get_connection(parent, child)
                 if parent_C_child.is_controlled:
                     self.collision_groups.append(CollisionGroup(child))
                 else:
+                    collision_group = self.get_collision_group(parent)
                     collision_group.bodies.add(child)
 
         for group in self.collision_groups:
