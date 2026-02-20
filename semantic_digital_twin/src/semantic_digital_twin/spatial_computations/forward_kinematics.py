@@ -38,24 +38,24 @@ class ForwardKinematicsManager(ModelChangeCallback):
     3. Efficient computation of forward kinematics as position and quaternion, useful for ROS tf.
     """
 
-    compiled_all_fks: CompiledFunction = field(init=False)
+    compiled_all_fks: CompiledFunction = field(init=False, repr=False)
 
-    forward_kinematics_for_all_bodies: np.ndarray = field(init=False)
+    forward_kinematics_for_all_bodies: np.ndarray = field(init=False, repr=False)
     """
     A 2D array containing the stacked forward kinematics expressions for all bodies in the world.
     Dimensions are ((number of bodies) * 4) x 4.
     They are computed in batch for efficiency.
     """
-    body_id_to_forward_kinematics_idx: Dict[UUID, int] = field(init=False)
+    body_id_to_forward_kinematics_idx: Dict[UUID, int] = field(init=False, repr=False)
     """
     Given a body id, returns the index of the first row in `forward_kinematics_for_all_bodies` that corresponds to that body.
     """
 
     root_T_kse_expression_cache: Dict[UUID, HomogeneousTransformationMatrix] = field(
-        init=False
+        init=False, repr=False
     )
 
-    body_id_to_all_fk_index: Dict[UUID, int] = field(init=False)
+    body_id_to_all_fk_index: Dict[UUID, int] = field(init=False, repr=False)
 
     def _notify(self, **kwargs):
         if len(self._world.kinematic_structure_entities) == 0:

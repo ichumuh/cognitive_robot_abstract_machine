@@ -1642,12 +1642,13 @@ class GiskardLocation(LocationDesignatorDescription):
                 for pose in pose_sequence
             ]
         )
-        world.collision_manager.clear_temporary_rules()
-        world.collision_manager.add_temporary_rule(
-            AvoidExternalCollisions(
-                robot=robot_view, buffer_zone_distance=0.1, violated_distance=0.0
+        with world.modify_world():
+            world.collision_manager.clear_temporary_rules()
+            world.collision_manager.add_temporary_rule(
+                AvoidExternalCollisions(
+                    robot=robot_view, buffer_zone_distance=0.1, violated_distance=0.0
+                )
             )
-        )
         msc = MotionStatechart()
         msc.add_nodes([pose_seq, ExternalCollisionAvoidance(robot=robot_view)])
         msc.add_node(EndMotion.when_true(pose_seq))
@@ -1679,7 +1680,8 @@ class GiskardLocation(LocationDesignatorDescription):
             test_ee = test_world._get_world_entity_by_hash(
                 hash(ee.manipulator.tool_frame)
             )
-            test_robot._setup_collision_rules()
+            with test_world.modify_world():
+                test_robot._setup_collision_rules()
 
             for candidate in reachability_map:
 
