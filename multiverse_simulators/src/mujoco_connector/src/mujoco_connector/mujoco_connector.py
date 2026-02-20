@@ -955,17 +955,20 @@ class MultiverseMujocoConnector(MultiverseSimulator):
                 mujoco.mju_mulMatVec3(res=vec[i], mat=body.xmat, vec=vec[i])
         geom_id = numpy.zeros(N, numpy.int32)
         dist = numpy.zeros(N, numpy.float64)
-        mujoco.mj_multiRay(m=self._mj_model,
-                           d=self._mj_data,
-                           pnt=pnt,
-                           vec=vec.flatten(),
-                           geomgroup=geomgroup,
-                           flg_static=1,
-                           bodyexclude=-1,
-                           geomid=geom_id,
-                           dist=dist,
-                           nray=N,
-                           cutoff=mujoco.mjMAXVAL)
+        if mujoco.mj_version() < 3005000:
+            mujoco.mj_multiRay(m=self._mj_model,
+                               d=self._mj_data,
+                               pnt=pnt,
+                               vec=vec.flatten(),
+                               geomgroup=geomgroup,
+                               flg_static=1,
+                               bodyexclude=-1,
+                               geomid=geom_id,
+                               dist=dist,
+                               nray=N,
+                               cutoff=mujoco.mjMAXVAL)
+        else:
+            raise NotImplementedError("mj_multiRay implementation for mujoco version >= 3.5.0 is not implemented yet")
         results = []
         for i in range(N):
             if geom_id[i] < 0:
