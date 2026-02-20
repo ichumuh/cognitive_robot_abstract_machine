@@ -74,7 +74,7 @@ reason_color_map = {
     DisableCollisionReason.AlmostAlways: (233, 163, 231),  # purple
     DisableCollisionReason.Default: (233, 231, 163),  # yellow
     DisableCollisionReason.Unknown: (153, 76, 0),  # brown
-    None: (0, 255, 0),
+    None: (100, 255, 100),
 }
 
 
@@ -189,17 +189,26 @@ class SelfCollisionMatrixInterface:
 
     def remove_pair(self, body_a: Body, body_b: Body):
         collision_check = CollisionCheck.create_and_validate(body_a, body_b)
-        self.collision_matrix.allowed_collision_pairs.remove(collision_check)
+        self.collision_matrix.allowed_collision_pairs.discard(collision_check)
         self.set_reason_for_pair(body_a, body_b, None)
 
 
 @dataclass
 class ReasonCheckBox(QCheckBox):
+    """
+    A checkbox for the cells of Table.
+    """
+
     row: int
     column: int
     table: Table
+    """
+    Backreference to the Table instance.
+    """
     self_collision_matrix_interface: SelfCollisionMatrixInterface
-    reason: Optional[DisableCollisionReason] = None
+    """
+    Reference to a SelfCollisionMatrixInterface instance which is shares by other ui components.
+    """
 
     def __post_init__(self):
         super().__init__()
@@ -208,6 +217,9 @@ class ReasonCheckBox(QCheckBox):
         self.stateChanged.connect(self.checkbox_callback)
 
     def sync_reason(self):
+        """
+        Synchronizes the checkbox with the reason for the pair.
+        """
         body_a = self.table.table_id_to_body(self.row)
         body_b = self.table.table_id_to_body(self.column)
         reason = self.self_collision_matrix_interface.get_reason_for_pair(
@@ -228,24 +240,37 @@ class ReasonCheckBox(QCheckBox):
         self.table.update_reason(body_a, body_b, reason)
 
     def update_range(self, state: Qt.CheckState):
+        """
+        Update all selected checkboxes in the table to the values of this checkbox.
+        :param state: New state of this checkbox
+        """
         self.table.selectedRanges()
         for range_ in self.table.selectedRanges():
             for row in range(range_.topRow(), range_.bottomRow() + 1):
                 for column in range(range_.leftColumn(), range_.rightColumn() + 1):
-                    item = self.table.get_widget(row, column)
-                    if state != item.checkState():
-                        item.checkbox_callback(state, False)
+                    if row == column:
+                        continue
+                    item = self.table.get_cell(row, column)
+                    # if state != item.checkState():
+                    item.checkbox_callback(state, False)
 
 
 @dataclass
 class Table(QTableWidget):
+    """
+    Table for displaying and editing self-collision matrix.
+    """
+
     self_collision_matrix_interface: SelfCollisionMatrixInterface
+    """
+    Reference to a SelfCollisionMatrixInterface instance which is shares by other ui components.
+    """
 
     def __post_init__(self):
         super().__init__()
         self.cellClicked.connect(self._table_item_callback)
 
-    def get_widget(self, row, column):
+    def get_cell(self, row, column):
         return self.cellWidget(row, column).layout().itemAt(0).widget()
 
     def table_id_to_body(self, index: int) -> Body:
@@ -264,8 +289,8 @@ class Table(QTableWidget):
         )
         row = self.body_to_table_id(body_a)
         column = self.body_to_table_id(body_b)
-        self.get_widget(row, column).sync_reason()
-        self.get_widget(column, row).sync_reason()
+        self.get_cell(row, column).sync_reason()
+        self.get_cell(column, row).sync_reason()
 
     def _table_item_callback(self, row, column):
         body_a = self.table_id_to_body(row)
@@ -358,7 +383,7 @@ class ProgressBarWithText(QProgressBar):
         self.parent().repaint()
 
 
-class HLine(QFrame):
+class HorizontalLine(QFrame):
     def __init__(self):
         super().__init__()
         self.setFrameShape(QFrame.HLine)
@@ -366,6 +391,10 @@ class HLine(QFrame):
 
 
 class ComputeSelfCollisionMatrixParameterDialog(QDialog):
+    """
+    Dialog for setting parameters for computing the self collision matrix.
+    """
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -380,7 +409,7 @@ class ComputeSelfCollisionMatrixParameterDialog(QDialog):
                 "Collision checks for entries in this matrix will not be performed."
             )
         )
-        self.layout.addWidget(HLine())
+        self.layout.addWidget(HorizontalLine())
         self.layout.addWidget(
             QLabel(
                 "Phase 1: Add link pairs that are in contact in default joint state."
@@ -391,7 +420,7 @@ class ComputeSelfCollisionMatrixParameterDialog(QDialog):
                 "Distance threshold:", 0.0, "distance_threshold_zero"
             )
         )
-        self.layout.addWidget(HLine())
+        self.layout.addWidget(HorizontalLine())
         self.layout.addWidget(
             QLabel("Phase 2: Add link pairs that are (almost) always in collision.")
         )
@@ -416,7 +445,7 @@ class ComputeSelfCollisionMatrixParameterDialog(QDialog):
                 "in", 0.95, "almost_percentage", unit="% of configurations."
             )
         )
-        self.layout.addWidget(HLine())
+        self.layout.addWidget(HorizontalLine())
         self.layout.addWidget(
             QLabel("Phase 3: Add link pairs that are never in collision.")
         )
@@ -498,8 +527,9 @@ class ComputeSelfCollisionMatrixParameterDialog(QDialog):
 
 
 class ClickableLabel(QLabel):
-    def __init__(self, text="", parent=None):
-        super().__init__(text, parent)
+    """
+    A label that triggers the click of its parent checkbox.
+    """
 
     def mousePressEvent(self, event):
         self.parent().checkbox.click()
@@ -507,9 +537,19 @@ class ClickableLabel(QLabel):
 
 @dataclass
 class DisableBodyItem(QWidget):
+    """
+    One item in DisableBodiesDialog.
+    """
+
     body: Body
+    """
+    The body represented by this item.
+    """
     self_collision_matrix_interface: SelfCollisionMatrixInterface
-    parent: Optional[QWidget] = None
+    """
+    Reference to a SelfCollisionMatrixInterface instance which is shares by other ui components.
+    """
+    parent: QWidget | None = None
 
     def __post_init__(self):
         super().__init__(self.parent)
@@ -543,7 +583,14 @@ class DisableBodyItem(QWidget):
 
 @dataclass
 class DisableBodiesDialog(QDialog):
+    """
+    Dialog for disabling bodies in the self collision matrix.
+    """
+
     self_collision_matrix_interface: SelfCollisionMatrixInterface
+    """
+    Reference to a SelfCollisionMatrixInterface instance which is shares by other ui components.
+    """
 
     def __post_init__(self):
         super().__init__()
@@ -576,17 +623,30 @@ class DisableBodiesDialog(QDialog):
 
 @dataclass
 class Application(QMainWindow):
+    """
+    The main application for the collision matrix tool.
+    """
+
     self_collision_matrix_interface: SelfCollisionMatrixInterface = field(init=False)
+    """
+    Reference to a SelfCollisionMatrixInterface instance which is shares by other ui components.
+    """
     timer: QTimer = field(init=False, default_factory=QTimer)
+    """
+    Timer used to update the ui periodically.
+    """
 
     def __post_init__(self):
         super().__init__()
         self.self_collision_matrix_interface = SelfCollisionMatrixInterface()
         self.timer.start(1000)  # Time in milliseconds
         self.timer.timeout.connect(lambda: None)
-        self.initUI()
+        self.init_ui_components()
 
-    def initUI(self):
+    def init_ui_components(self):
+        """
+        Initialize all ui components.
+        """
         self.setWindowTitle("Self Collision Matrix Tool")
         self.setMinimumSize(800, 600)
 
@@ -690,22 +750,13 @@ class Application(QMainWindow):
         dialog.exec_()
         self.table.synchronize()
 
-    @property
-    def self_collision_matrix_rule(self) -> SelfCollisionMatrixRule:
-        return self.world.collision_manager.ignore_collision_rules[0]
-
-    def set_tmp_srdf_path(self):
-        self.__srdf_path = get_middleware().resolve_iri(
-            "package://giskardpy_ros/self_collision_matrices/"
-        )
-
     def disable_srdf_buttons(self):
-        self.__disable_srdf_buttons(True)
+        self._disable_srdf_buttons(True)
 
     def enable_srdf_buttons(self):
-        self.__disable_srdf_buttons(False)
+        self._disable_srdf_buttons(False)
 
-    def __disable_srdf_buttons(self, active: bool):
+    def _disable_srdf_buttons(self, active: bool):
         self.save_srdf_button.setDisabled(active)
         self.load_srdf_button.setDisabled(active)
         self.disable_bodies_button.setDisabled(active)
@@ -753,15 +804,15 @@ class Application(QMainWindow):
             )
             self.urdf_progress.set_progress(80, f"Updating table {urdf_file}")
             self.table.synchronize()
-            self.set_tmp_srdf_path()
             self.enable_srdf_buttons()
             self.urdf_progress.set_progress(100, f"Loaded {urdf_file}")
 
-    @property
-    def group_name(self):
-        return list(self.world.group_names)[0]
-
-    def popup_srdf_path_with_dialog(self, save: bool) -> str:
+    def popup_srdf_path_with_dialog(self, save: bool) -> str | None:
+        """
+        Creates the popup dialog for selecting the path to the srdf file.
+        :param save: whether to open a save file dialog or an open file dialog.
+        :return: the selected file path
+        """
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         if save:
