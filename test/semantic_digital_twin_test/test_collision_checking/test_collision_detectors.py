@@ -10,13 +10,13 @@ from semantic_digital_twin.collision_checking.pybullet_collision_detector import
     BulletCollisionDetector,
 )
 from semantic_digital_twin.collision_checking.trimesh_collision_detector import (
-    TrimeshCollisionDetector,
+    FCLCollisionDetector,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.testing import world_setup_simple
 import numpy as np
 
-collision_detectors = [BulletCollisionDetector, TrimeshCollisionDetector]
+collision_detectors = [BulletCollisionDetector, FCLCollisionDetector]
 
 
 @pytest.mark.parametrize("collision_detector", collision_detectors)
@@ -105,7 +105,7 @@ def test_no_collision(world_setup_simple, collision_detector):
 @pytest.mark.skip(reason="Not my krrood_test not my problem.")
 def test_collision_matrix(world_setup_simple):
     world, body1, body2, body3, body4, body5 = world_setup_simple
-    tcd = TrimeshCollisionDetector(_world=world)
+    tcd = FCLCollisionDetector(_world=world)
     collisions = tcd.check_collisions(
         CollisionMatrix(
             {

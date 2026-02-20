@@ -13,7 +13,7 @@ from krrood.entity_query_language.predicate import (
 from random_events.interval import Interval
 from typing_extensions import List, TYPE_CHECKING, Iterable, Type
 
-from ..collision_checking.trimesh_collision_detector import TrimeshCollisionDetector
+from ..collision_checking.trimesh_collision_detector import FCLCollisionDetector
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
 from ..spatial_computations.ik_solver import (
@@ -61,7 +61,7 @@ def contact(
     :param threshold: The threshold for contact detection
     :return: True if the two objects are in contact False else
     """
-    tcd = TrimeshCollisionDetector(_world=body1._world)
+    tcd = FCLCollisionDetector(_world=body1._world)
     result = tcd.check_collision_between_bodies(body1, body2)
 
     if result is None:

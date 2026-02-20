@@ -15,7 +15,7 @@ from ..world_description.world_entity import Body
 
 
 @dataclass
-class TrimeshCollisionDetector(CollisionDetector):
+class FCLCollisionDetector(CollisionDetector):
     collision_manager: CollisionManager = field(
         default_factory=CollisionManager, init=False
     )
@@ -106,26 +106,26 @@ class TrimeshCollisionDetector(CollisionDetector):
                 distance_request,
                 distance_result,
             )
-            if distance_result.min_distance <= distance:
-                contact_normal = (
-                    distance_result.nearest_points[0]
-                    - distance_result.nearest_points[1]
+            if distance_result.min_distance > distance:
+                continue
+            contact_normal = (
+                distance_result.nearest_points[0] - distance_result.nearest_points[1]
+            )
+            contact_normal /= np.linalg.norm(contact_normal)
+            result.append(
+                ClosestPoints(
+                    distance=distance_result.min_distance,
+                    body_a=body_a,
+                    body_b=body_b,
+                    root_P_point_on_body_a=np.append(
+                        distance_result.nearest_points[0], 1
+                    ),
+                    root_P_point_on_body_b=np.append(
+                        distance_result.nearest_points[1], 1
+                    ),
+                    root_V_contact_normal_from_b_to_a=np.append(contact_normal, 0),
                 )
-                contact_normal /= np.linalg.norm(contact_normal)
-                result.append(
-                    ClosestPoints(
-                        distance=distance_result.min_distance,
-                        body_a=body_a,
-                        body_b=body_b,
-                        root_P_point_on_body_a=np.append(
-                            distance_result.nearest_points[0], 1
-                        ),
-                        root_P_point_on_body_b=np.append(
-                            distance_result.nearest_points[1], 1
-                        ),
-                        root_V_contact_normal_from_b_to_a=np.append(contact_normal, 0),
-                    )
-                )
+            )
 
         return CollisionCheckingResult(result)
 

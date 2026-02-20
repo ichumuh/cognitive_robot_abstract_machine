@@ -209,6 +209,12 @@ class HomogeneousTransformationMatrix(
     def create_with_variables(
         cls, name: str, resolver: Callable[[], np.ndarray] | None = None
     ) -> Self:
+        """
+        Creates a TransformationMatrix object with float variables variables in all relevant entries.
+        :param name: Name for the variables.
+        :param resolver: Callable that returns the actual transformation matrix when called.
+        :return: TransformationMatrix object with float variables.
+        """
         transformation_matrix = HomogeneousTransformationMatrix()
         for row in range(3):
             for column in range(4):
@@ -216,6 +222,7 @@ class HomogeneousTransformationMatrix(
                     name=f"{cls.__name__}_{name}[{row},{column}]",
                 )
                 transformation_matrix[row, column] = variable
+                variable.resolve = lambda: resolver()[row, column]
         return transformation_matrix
 
     def to_json(self) -> Dict[str, Any]:
@@ -887,6 +894,12 @@ class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     def create_with_variables(
         cls, name: str, resolver: Callable[[], List[float] | np.ndarray] | None = None
     ) -> Self:
+        """
+        Creates a Vector3 object with float variables in all relevant entries.
+        :param name: Name for the variables.
+        :param resolver: Callable that returns the actual vector when called.
+        :return: Vector3 object with float variables.
+        """
         x = sm.FloatVariable(name=f"{name}.x")
         y = sm.FloatVariable(name=f"{name}.y")
         z = sm.FloatVariable(name=f"{name}.z")
@@ -1190,6 +1203,12 @@ class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     def create_with_variables(
         cls, name: str, resolver: Callable[[], List[float] | np.ndarray] | None = None
     ) -> Self:
+        """
+        Creates a Vector3 object with float variables in all relevant entries.
+        :param name: Name for the variables.
+        :param resolver: Callable that returns the actual vector when called.
+        :return: Vector3 object with float variables.
+        """
         x = sm.FloatVariable(name=f"{name}.x")
         y = sm.FloatVariable(name=f"{name}.y")
         z = sm.FloatVariable(name=f"{name}.z")

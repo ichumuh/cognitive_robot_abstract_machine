@@ -382,6 +382,9 @@ class World(HasSimulatorProperties):
     """
 
     collision_manager: CollisionManager = field(init=False)
+    """
+    Class that manages collision detection related stuff for this world.
+    """
 
     _atomic_modification_is_being_executed: bool = field(init=False, default=False)
     """

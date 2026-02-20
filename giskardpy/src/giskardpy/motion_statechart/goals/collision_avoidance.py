@@ -47,7 +47,7 @@ class CollisionAvoidanceTask(Task):
         :return: The upper slack limit for the collision avoidance task.
         """
         distance_to_buffer_zone = buffer_zone_expr - distance_expression
-        qp_limits_for_lba = (
+        qp_limits_for_lower_error_bound = (
             max_velocity
             * context.qp_controller_config.mpc_dt
             * self.compute_control_horizon(context.qp_controller_config)
@@ -56,7 +56,9 @@ class CollisionAvoidanceTask(Task):
         hard_threshold = sm.min(violated_distance, buffer_zone_expr / 2)
 
         lower_limit_limited = sm.limit(
-            distance_to_buffer_zone, -qp_limits_for_lba, qp_limits_for_lba
+            distance_to_buffer_zone,
+            -qp_limits_for_lower_error_bound,
+            qp_limits_for_lower_error_bound,
         )
 
         upper_slack = sm.if_greater(
@@ -104,6 +106,9 @@ class ExternalCollisionDistanceMonitor(MotionStatechartNode):
     e.g. of collision_index=1 it will monitor the 2. closest contact.
     """
     external_collision_manager: ExternalCollisionVariableManager = field(kw_only=True)
+    """
+    Reference to the external collision variable manager shared by other external collision avoidance nodes.
+    """
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
@@ -141,6 +146,9 @@ class ExternalCollisionAvoidanceTask(CollisionAvoidanceTask):
     e.g. of collision_index=1 it will avoid the 2. closest contact.
     """
     external_collision_manager: ExternalCollisionVariableManager = field(kw_only=True)
+    """
+    Reference to the external collision variable manager shared by other external collision avoidance nodes.
+    """
 
     @property
     def tip(self) -> KinematicStructureEntity:
@@ -302,6 +310,9 @@ class SelfCollisionDistanceMonitor(MotionStatechartNode):
     e.g. of collision_index=1 it will monitor the 2. closest contact.
     """
     self_collision_manager: SelfCollisionVariableManager = field(kw_only=True)
+    """
+    Reference to the self collision variable manager shared by other self collision avoidance nodes.
+    """
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
@@ -335,6 +346,9 @@ class SelfCollisionAvoidanceTask(CollisionAvoidanceTask):
     The maximum velocity for the collision avoidance task.
     """
     self_collision_manager: SelfCollisionVariableManager = field(kw_only=True)
+    """
+    Reference to the self collision variable manager shared by other self collision avoidance nodes.
+    """
 
     @property
     def group_a_P_point_on_a(self) -> Point3:

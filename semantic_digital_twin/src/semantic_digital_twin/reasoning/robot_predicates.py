@@ -23,7 +23,7 @@ from ..collision_checking.collision_rules import (
     AllowSelfCollisions,
 )
 from ..collision_checking.pybullet_collision_detector import BulletCollisionDetector
-from ..collision_checking.trimesh_collision_detector import TrimeshCollisionDetector
+from ..collision_checking.trimesh_collision_detector import FCLCollisionDetector
 from ..robots.abstract_robot import AbstractRobot, ParallelGripper
 from ..spatial_computations.raytracer import RayTracer
 from ..spatial_types import HomogeneousTransformationMatrix
