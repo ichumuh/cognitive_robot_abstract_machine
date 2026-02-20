@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Dict, Any, Self
 
-from line_profiler.explicit_profiler import profile
 from typing_extensions import List, TYPE_CHECKING
 
 from krrood.adapters.json_serializer import to_json, from_json
@@ -220,7 +219,6 @@ class CollisionManager(ModelChangeCallback):
             or CollisionCheck(body_b, body_a) in self.collision_matrix.collision_checks
         )
 
-    @profile
     def compute_collisions(self) -> CollisionCheckingResult:
         """
         Computes collisions based on the current collision matrix.

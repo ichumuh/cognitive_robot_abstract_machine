@@ -33,9 +33,21 @@ class Pointing(Task):
 
     max_velocity: float = field(default=0.3, kw_only=True)
     threshold: float = field(default=0.01, kw_only=True)
+    """
+    Observation is true if the pointing angle is below this threshold.
+    """
     weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
-    _root_P_goal_point_id: int = field(init=False)
+    """
+    Priority weight for the pointing constraint in the optimization problem.
+    """
+    _root_P_goal_point_index: int = field(init=False)
+    """
+    Index of the FloatVariables for root_P_goal_point in the FloatVariableData. 
+    """
     _float_variable_data: FloatVariableData = field(init=False)
+    """
+    Reference to the data structure used to store auxiliary variables.
+    """
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
@@ -79,14 +91,14 @@ class Pointing(Task):
         root_P_goal_point = Point3.create_with_variables(
             f"{self.name}.root_P_goal_point",
         )
-        self._root_P_goal_point_id = (
+        self._root_P_goal_point_index = (
             self._float_variable_data.add_variables_of_expression(root_P_goal_point)
         )
         return root_P_goal_point
 
     def set_root_P_goal_point_data(self, value: Point3):
         self._float_variable_data.set_values(
-            self._root_P_goal_point_id, value.to_np()[:3]
+            self._root_P_goal_point_index, value.to_np()[:3]
         )
 
 
@@ -110,9 +122,21 @@ class PointingCone(Task):
     """Slack cone region in radians"""
     max_velocity: float = field(default=0.3, kw_only=True)
     threshold: float = field(default=0.01, kw_only=True)
+    """
+    Observation is true if the pointing angle is below this threshold.
+    """
     weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
-    _root_P_goal_point_id: int = field(init=False)
+    """
+    Priority weight for the pointing constraint in the optimization problem.
+    """
+    _root_P_goal_point_index: int = field(init=False)
+    """
+    Index of the FloatVariables for root_P_goal_point in the FloatVariableData. 
+    """
     _float_variable_data: FloatVariableData = field(init=False)
+    """
+    Reference to the data structure used to store auxiliary variables.
+    """
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
@@ -186,12 +210,12 @@ class PointingCone(Task):
         root_P_goal_point = Point3.create_with_variables(
             f"{self.name}.root_P_goal_point",
         )
-        self._root_P_goal_point_id = (
+        self._root_P_goal_point_index = (
             self._float_variable_data.add_variables_of_expression(root_P_goal_point)
         )
         return root_P_goal_point
 
     def set_root_P_goal_point_data(self, value: Point3):
         self._float_variable_data.set_values(
-            self._root_P_goal_point_id, value.to_np()[:3]
+            self._root_P_goal_point_index, value.to_np()[:3]
         )
