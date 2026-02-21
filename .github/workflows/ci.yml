@@ -74,6 +74,10 @@ jobs:
           path: /github/home/.cache/semantic_digital_twin
           key: ${{ runner.os }}-cache-${{ github.ref_name }}
 
+      - name: List files in cache
+        run: |
+          ls -R /github/home/.cache/semantic_digital_twin
+
   test_each_lib:
     needs: [to-lowercase, create_mesh_cache]
     strategy:
