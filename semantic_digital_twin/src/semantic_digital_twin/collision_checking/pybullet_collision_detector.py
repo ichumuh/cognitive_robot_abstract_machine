@@ -239,6 +239,8 @@ def convert_to_decomposed_obj_and_save_in_tmp(
             logging.info(f'Saved convex decomposition to "{obj_file_name}".')
         else:
             logging.info(f'Saved obj to "{obj_file_name}".')
+    else:
+        logging.debug(f'Cache hit, loaded "{obj_file_name}".')
     return obj_file_name
 
 
