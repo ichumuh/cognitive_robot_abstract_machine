@@ -757,7 +757,7 @@ class HasSupportingSurface(HasStorageSpace, ABC):
 
         surface_circuit = self._build_surface_sampler(
             category_of_interest=category_of_interest,
-            object_bloat_and_standard_deviation=largest_xy_object_dimension,
+            object_bloat_and_variance=largest_xy_object_dimension,
         )
 
         if surface_circuit is None:
@@ -771,18 +771,18 @@ class HasSupportingSurface(HasStorageSpace, ABC):
     def _build_surface_sampler(
         self,
         category_of_interest: Optional[Type[SemanticAnnotation]] = None,
-        object_bloat_and_standard_deviation: float = 0.1,
+        object_bloat_and_variance: float = 0.1,
     ):
         """
         Build a probabilistic circuit representing the supporting surface, truncated by the objects on the surface,
         and with Gaussian mixtures around the objects of interest.
 
         :param category_of_interest: The type of object sample points around.
-        :param object_bloat_and_standard_deviation: The amount of bloat to apply to the object events, and the standard
+        :param object_bloat_and_variance: The amount of bloat to apply to the object events, and the standard
             deviation to use for the Gaussian mixtures.
         """
         truncated_event_2d = self._2d_surface_sample_space_excluding_objects(
-            object_bloat_and_standard_deviation
+            object_bloat_and_variance
         )
 
         objects_of_interest = (
@@ -795,7 +795,7 @@ class HasSupportingSurface(HasStorageSpace, ABC):
                 world_P_obj_list=[
                     obj.root.global_pose.to_position() for obj in objects_of_interest
                 ],
-                standard_deviation=object_bloat_and_standard_deviation,
+                variance=object_bloat_and_variance,
                 sample_space=truncated_event_2d,
             )
         else:
@@ -825,14 +825,14 @@ class HasSupportingSurface(HasStorageSpace, ABC):
     def _2d_gaussian_sampler_from_2d_sample_space(
         self,
         world_P_obj_list: List[Point3],
-        standard_deviation: float,
+        variance: float,
         sample_space: Event,
     ) -> Optional[ProbabilisticCircuit]:
         """
         Create a Gaussian mixture model from a list of points, truncated by an event.
 
         :param world_P_obj_list: A list of points representing the positions of the objects to sample around, in the world frame.
-        :param standard_deviation: The standard deviation to use for the Gaussian mixtures.
+        :param variance: The standard deviation to use for the Gaussian mixtures.
         :param sample_space: The event to truncate the Gaussian mixture model with.
 
         :return: A probabilistic circuit representing the Gaussian mixture model truncated by the event, or None if the event has zero measure.
@@ -849,12 +849,12 @@ class HasSupportingSurface(HasStorageSpace, ABC):
             x_p = GaussianDistribution(
                 SpatialVariables.x.value,
                 float(world_P_obj[0]),
-                standard_deviation,
+                variance,
             )
             y_p = GaussianDistribution(
                 SpatialVariables.y.value,
                 float(world_P_obj[1]),
-                standard_deviation,
+                variance,
             )
             p_object_root.add_subcircuit(leaf(x_p, surface_circuit))
             p_object_root.add_subcircuit(leaf(y_p, surface_circuit))
