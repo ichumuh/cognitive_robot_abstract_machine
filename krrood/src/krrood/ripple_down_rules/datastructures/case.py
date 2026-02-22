@@ -14,7 +14,7 @@ from ..utils import make_set, row_to_dict, table_rows_as_str, get_value_type_fro
     get_full_class_name, get_type_from_string, make_list, is_iterable, serialize_dataclass, dataclass_to_dict, copy_case
 
 if TYPE_CHECKING:
-    from ripple_down_rules.rules import Rule
+    from ..rules import Rule
     from .callable_expression import CallableExpression
 
 

@@ -5,7 +5,7 @@ from unittest import TestCase
 
 from typing_extensions import List, Dict, Union, Tuple
 
-from ripple_down_rules.utils import (
+from krrood.ripple_down_rules.utils import (
     extract_imports,
     make_set,
     stringify_hint,
@@ -21,8 +21,7 @@ class UtilsTestCase(TestCase):
         file_path = "test_file.py"
         with open(file_path, "w") as f:
             f.write("import os\n")
-            f.write("from module import function\n")
-            f.write("from ripple_down_rules.utils import make_set\n")
+            f.write("from krrood.ripple_down_rules.utils import make_set\n")
             f.write("print('Hello World')\n")
 
         expected_scope = {"os": os, "make_set": make_set}
@@ -86,9 +85,9 @@ class UtilsTestCase(TestCase):
             "from test.krrood_test.test_ripple_down_rules.datasets import Species, World"
         ]
 
-        from ripple_down_rules.rdr import GeneralRDR
+        from krrood.ripple_down_rules.rdr import GeneralRDR
 
-        package_dir = dirname(sys.modules["ripple_down_rules"].__file__)
+        package_dir = dirname(sys.modules["krrood.ripple_down_rules"].__file__)
         target_file = os.path.join(package_dir, "datastructures", "case.py")
         imports = get_imports_from_types([GeneralRDR], target_file, "ripple_down_rules")
         assert imports == ["from ..rdr import GeneralRDR"]
