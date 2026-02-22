@@ -921,7 +921,7 @@ class MujocoTendon(SimulatorAdditionalProperty):
     Range of allowed tendon lengths.
     """
 
-    rgba: Color = field(default_factory=lambda: [0.5, 0.5, 0.5, 1.0])
+    rgba: List[float] = field(default_factory=lambda: Color(0.5, 0.5, 0.5, 1))
     """
     Color and transparency of the tendon.
     """
@@ -969,7 +969,7 @@ class MujocoTendon(SimulatorAdditionalProperty):
     joints: Dict[str, float] = field(default_factory=dict)
     """
     This element adds a joint to the computation of the fixed tendon length.
-    The position or angle of each included joint is multiplied by the corresponding coefficient value,
+    The position or angle of each included joint is multiplied by the corresponding coef value, 
     and added up to obtain the tendon length.
     """
 
@@ -1782,7 +1782,7 @@ class MujocoBuilder(MultiSimBuilder):
                 tendon.margin = mujoco_tendon.margin
                 tendon.material = mujoco_tendon.material
                 tendon.range = mujoco_tendon.range
-                tendon.rgba = mujoco_tendon.rgba.to_rgba()
+                tendon.rgba = mujoco_tendon.rgba
                 tendon.solimp_friction = mujoco_tendon.solver_impedance_friction
                 tendon.solimp_limit = mujoco_tendon.solver_impedance_limit
                 tendon.solref_friction = mujoco_tendon.solver_reference_friction
