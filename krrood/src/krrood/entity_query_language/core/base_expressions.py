@@ -579,7 +579,7 @@ class DerivedExpression(SymbolicExpression, ABC):
         ...
 
     @property
-    def _binding_id_(self) -> int:
+    def _binding_id_(self) -> uuid.UUID:
         return self._original_expression_._binding_id_
 
     @property
@@ -704,7 +704,7 @@ class UnificationDict(UserDict):
         return super().__getitem__(key)
 
     @cached_property
-    def _id_expression_map_(self) -> Dict[int, Selectable[T]]:
+    def _id_expression_map_(self) -> Dict[uuid.UUID, Selectable[T]]:
         return {key._binding_id_: key for key in self.data.keys()}
 
 
@@ -755,7 +755,7 @@ class Selectable(SymbolicExpression, Generic[T], ABC):
         self._is_false_ = not is_true
 
     @cached_property
-    def _binding_id_(self) -> int:
+    def _binding_id_(self) -> uuid.UUID:
         return (
             self._var_._binding_id_
             if self._var_ is not None and self._var_ is not self

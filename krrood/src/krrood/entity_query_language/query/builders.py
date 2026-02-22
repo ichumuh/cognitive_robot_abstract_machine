@@ -7,6 +7,8 @@ This module defines builder classes that collect metadata and produce symbolic e
 
 from __future__ import annotations
 
+import itertools
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
@@ -14,7 +16,8 @@ from functools import cached_property, lru_cache
 from typing_extensions import Tuple, List, Type, Optional, Callable, TYPE_CHECKING
 
 from ..core.base_expressions import SymbolicExpression, Selectable
-from ..operators.core_logical_operators import chained_logic, AND
+from ..operators.comparator import Comparator
+from ..operators.core_logical_operators import chained_logic, AND, LogicalOperator
 from ..failures import (
     NoConditionsProvided,
     LiteralConditionError,
@@ -25,7 +28,7 @@ from ..failures import (
 from .quantifiers import ResultQuantificationConstraint, ResultQuantifier, An
 from .operations import Where, Having, OrderedBy, GroupedBy
 from ..operators.aggregators import Aggregator
-from ..core.variable import Literal, Variable
+from ..core.variable import Literal, Variable, InstantiatedVariable
 from ..core.mapped_variable import MappedVariable
 
 if TYPE_CHECKING:
@@ -93,21 +96,32 @@ class FilterBuilder(ExpressionBuilder, ABC):
         """
         :return: A tuple containing the aggregators and non-aggregators in the conditions.
         """
+        from .query import Query
+
         aggregators, non_aggregators = [], []
-        for cond in self.conditions:
-            if isinstance(cond, Aggregator):
-                aggregators.append(cond)
-            elif isinstance(cond, Selectable) and not isinstance(cond, Literal):
-                non_aggregators.append(cond)
-            for var in cond._children_:
-                if isinstance(var, Aggregator):
-                    aggregators.append(var)
-                elif isinstance(var, MappedVariable) and any(
-                    isinstance(v, Aggregator) for v in var._descendants_
-                ):
-                    aggregators.append(var)
-                elif isinstance(var, Selectable) and not isinstance(var, Literal):
-                    non_aggregators.append(var)
+
+        def walk(expr: SymbolicExpression):
+            if isinstance(expr, Query):
+                # subqueries are a boundary, we don't need to traverse them.
+                return False
+
+            if isinstance(expr, Aggregator):
+                aggregators.append(expr)
+                # we don't need to traverse the child of aggregators.
+                return False
+            elif isinstance(expr, Selectable) and not isinstance(expr, Literal):
+                non_aggregators.append(expr)
+
+            # Stop traversal early if both found
+            if aggregators and non_aggregators:
+                return True
+
+            return any(walk(child) for child in expr._children_)
+
+        for condition in self.conditions:
+            if walk(condition):
+                break
+
         return tuple(aggregators), tuple(non_aggregators)
 
     @cached_property
@@ -241,19 +255,11 @@ class GroupedByBuilder(ExpressionBuilder):
             for d in variable._descendants_
         ):
             return True
-        elif (
-            isinstance(variable, Variable)
-            and isinstance(variable._domain_, Selectable)
-            and self.variable_is_in_or_derived_from_a_grouped_by_variable(
-                variable._domain_
-            )
-        ):
-            return True
         else:
             return False
 
     @cached_property
-    def ids_of_aggregated_variables(self) -> Tuple[int, ...]:
+    def ids_of_aggregated_variables(self) -> Tuple[uuid.UUID, ...]:
         """
         :return: A tuple of ids of aggregated variables.
         """
@@ -264,7 +270,7 @@ class GroupedByBuilder(ExpressionBuilder):
         )
 
     @cached_property
-    def ids_of_variables_to_group_by(self) -> Tuple[int, ...]:
+    def ids_of_variables_to_group_by(self) -> Tuple[uuid.UUID, ...]:
         """
         :return: A tuple of the binding IDs of the variables to group by.
         """

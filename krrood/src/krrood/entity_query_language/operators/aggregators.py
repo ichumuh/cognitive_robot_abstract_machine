@@ -7,6 +7,7 @@ It contains classes for counting, summing, averaging, and finding extreme values
 from __future__ import annotations
 
 import numbers
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -18,6 +19,7 @@ from typing_extensions import (
     Any,
     Collection,
     Dict,
+    TYPE_CHECKING,
 )
 
 from ..core.base_expressions import (
@@ -31,6 +33,10 @@ from ..failures import NestedAggregationError, InvalidChildType
 from ..utils import T
 from ..core.variable import Variable
 from ..core.mapped_variable import CanBehaveLikeAVariable
+
+
+if TYPE_CHECKING:
+    from ..query.query import Entity
 
 
 IntOrFloat = int | float
@@ -181,7 +187,7 @@ class Sum(EntityAggregator[numbers.Number]):
 
     def _apply_aggregation_function_and_get_bindings_(
         self, child_result: OperationResult
-    ) -> Dict[int, Optional[IntOrFloat]]:
+    ) -> Dict[uuid.UUID, Optional[IntOrFloat]]:
         return {
             self._binding_id_: self.get_aggregation_result_from_child_result(
                 child_result
