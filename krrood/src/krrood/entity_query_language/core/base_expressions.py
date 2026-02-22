@@ -704,7 +704,7 @@ class UnificationDict(UserDict):
         return super().__getitem__(key)
 
     @cached_property
-    def _id_expression_map_(self) -> Dict[int, Selectable[T]]:
+    def _id_expression_map_(self) -> Dict[uuid.UUID, Selectable[T]]:
         return {key._binding_id_: key for key in self.data.keys()}
 
 
@@ -783,5 +783,4 @@ class Selectable(SymbolicExpression, Generic[T], ABC):
     def _name_(self):
         if self._type_:
             return self._type_.__name__
-        else:
-            return self.__class__.__name__
+        return self.__class__.__name__
