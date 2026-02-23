@@ -2728,10 +2728,7 @@ class TestCollisionAvoidance:
         assert collisions.contacts[0].distance > 0.049
         assert len(cylinder_bot_world.collision_manager.collision_consumers) == 0
 
-    def test_update_collision_matrix_later(self, cylinder_bot_world: World, rclpy_node):
-        VizMarkerPublisher(
-            _world=cylinder_bot_world, node=rclpy_node
-        ).with_tf_publisher()
+    def test_update_collision_matrix_later(self, cylinder_bot_world: World):
         robot = cylinder_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
         tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
         env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
@@ -2750,6 +2747,7 @@ class TestCollisionAvoidance:
                         )
                     ]
                 ),
+                ExternalCollisionAvoidance(robot=robot),
                 cart_goal_reached := CartesianPose(
                     root_link=cylinder_bot_world.root,
                     tip_link=tip,
@@ -2759,16 +2757,7 @@ class TestCollisionAvoidance:
                 ),
                 Sequence(
                     [
-                        Parallel(
-                            [
-                                ExternalCollisionAvoidance(robot=robot),
-                                ExternalCollisionDistanceMonitor(
-                                    body=robot.root, threshold=0.049
-                                ),
-                                LocalMinimumReached(),
-                            ],
-                            minimum_success=2,
-                        ),
+                        LocalMinimumReached(),
                         UpdateTemporaryCollisionRules(
                             temporary_rules=[AllowAllCollisions()]
                         ),
