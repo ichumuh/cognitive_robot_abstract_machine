@@ -143,6 +143,8 @@ class Executor:
             self.context.world.state, time=self.time
         )
         self.context.collision_manager.update_collision_matrix()
+        # do one tick to immediately active nodes whose start condition is constant true.
+        self.motion_statechart.tick(self.context)
 
     def tick(self):
         self.control_cycles += 1

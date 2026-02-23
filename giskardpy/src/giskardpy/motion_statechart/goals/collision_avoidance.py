@@ -4,6 +4,10 @@ from itertools import combinations
 import krrood.symbolic_math.symbolic_math as sm
 from krrood.symbolic_math.symbolic_math import Scalar, FloatVariable
 from semantic_digital_twin.collision_checking.collision_groups import CollisionGroup
+from semantic_digital_twin.collision_checking.collision_matrix import (
+    CollisionRule,
+    CollisionMatrix,
+)
 from semantic_digital_twin.collision_checking.collision_variable_managers import (
     SelfCollisionVariableManager,
     ExternalCollisionVariableManager,
@@ -237,6 +241,74 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
         )
 
         return artifacts
+
+
+@dataclass(eq=False, repr=False)
+class UpdateTemporaryCollisionRules(MotionStatechartNode):
+    """
+    Updates the temporary collision rules for the robot.
+    """
+
+    temporary_rules: list[CollisionRule] = field(kw_only=True)
+    collision_matrix: CollisionMatrix = field(init=False)
+
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        # safe old rules
+        old_temporary_rules = context.collision_manager.temporary_rules
+
+        # compute collision matrix with new rules
+        context.collision_manager.clear_temporary_rules()
+        context.collision_manager.extend_temporary_rule(self.temporary_rules)
+        context.collision_manager.update_collision_matrix()
+        self.collision_matrix = context.collision_manager.collision_matrix
+
+        context.collision_manager.clear_temporary_rules()
+        context.collision_manager.extend_temporary_rule(old_temporary_rules)
+        context.collision_manager.update_collision_matrix()
+
+        artifacts.observation = sm.Scalar.const_true()
+        return artifacts
+
+    def on_start(self, context: MotionStatechartContext):
+        context.collision_manager.clear_temporary_rules()
+        context.collision_manager.extend_temporary_rule(self.temporary_rules)
+        context.collision_manager.set_collision_matrix(self.collision_matrix)
+
+
+@dataclass(eq=False, repr=False)
+class SetInitialTemporaryCollisionRules(MotionStatechartNode):
+    """
+    Updates the temporary collision rules for the robot.
+    """
+
+    temporary_rules: list[CollisionRule] = field(kw_only=True)
+    collision_matrix: CollisionMatrix = field(init=False)
+    set_on_build: bool = field(default=True, kw_only=True)
+    """Whether to set the collision matrix on build."""
+
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        # safe old rules
+        old_temporary_rules = context.collision_manager.temporary_rules
+
+        # compute collision matrix with new rules
+        context.collision_manager.clear_temporary_rules()
+        context.collision_manager.extend_temporary_rule(self.temporary_rules)
+        context.collision_manager.update_collision_matrix()
+        self.collision_matrix = context.collision_manager.collision_matrix
+
+        # restore old rules
+        if not self.set_on_build:
+            context.collision_manager.clear_temporary_rules()
+            context.collision_manager.extend_temporary_rule(old_temporary_rules)
+            context.collision_manager.update_collision_matrix()
+
+        artifacts.observation = sm.Scalar.const_true()
+        return artifacts
+
+    def on_start(self, context: MotionStatechartContext):
+        context.collision_manager.set_collision_matrix(self.collision_matrix)
 
 
 @dataclass(eq=False, repr=False)
@@ -489,10 +561,6 @@ class SelfCollisionAvoidance(Goal):
                 or group_b.root not in self.robot.kinematic_structure_entities
             ):
                 # this is no self collision
-                continue
-            if not self.self_collision_manager.is_any_collision_checked(
-                group_a, group_b
-            ):
                 continue
             self.self_collision_manager.register_groups_of_body_combination(
                 group_a.root, group_b.root

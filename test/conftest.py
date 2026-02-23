@@ -5,6 +5,9 @@ from copy import deepcopy
 
 import numpy as np
 import pytest
+from semantic_digital_twin.collision_checking.collision_matrix import (
+    MaxAvoidedCollisionsOverride,
+)
 from typing_extensions import Type
 
 from krrood.class_diagrams import ClassDiagram
@@ -169,6 +172,10 @@ def cylinder_bot_world():
         )
         world.merge_world(robot_world, connection)
         connection.has_hardware_interface = True
+
+        world.collision_manager.max_avoided_bodies_rules.append(
+            MaxAvoidedCollisionsOverride(2, {robot})
+        )
 
     return world
 

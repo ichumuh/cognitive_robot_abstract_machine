@@ -97,11 +97,13 @@ class CollisionManager(ModelChangeCallback):
     Rules that are applied to the collision matrix before temporary rules.
     They are intended for the most general rules, like default distance thresholds.
     Any other rules will overwrite these.
+    .. note: These rules ARE synced with other worlds.
     """
     temporary_rules: List[CollisionRule] = field(default_factory=list)
     """
     Rules that are applied to the collision matrix after default rules.
     These are intended for task specific rules.
+    .. note: These rules are NOT synced with other worlds.
     """
     ignore_collision_rules: List[AllowCollisionRule] = field(
         default_factory=lambda: [
@@ -117,6 +119,7 @@ class CollisionManager(ModelChangeCallback):
     
     .. note: This is only meant for collision that should NEVER be checked. 
         Allow collision rules can also be added to default or temporary rules if needed.
+    .. note: These rules ARE synced with other worlds.
     """
 
     max_avoided_bodies_rules: List[MaxAvoidedCollisionsRule] = field(
@@ -159,14 +162,18 @@ class CollisionManager(ModelChangeCallback):
     def add_ignore_collision_rule(self, rule: AllowCollisionRule):
         self.ignore_collision_rules.append(rule)
 
-    @synchronized_attribute_modification
     def add_temporary_rule(self, rule: CollisionRule):
         """
         Adds a rule to the temporary collision rules.
         """
         self.temporary_rules.append(rule)
 
-    @synchronized_attribute_modification
+    def extend_temporary_rule(self, rules: list[CollisionRule]):
+        """
+        Adds a list rule to the temporary collision rules.
+        """
+        self.temporary_rules.extend(rules)
+
     def clear_temporary_rules(self):
         """
         Call this before starting a new task.
@@ -216,6 +223,16 @@ class CollisionManager(ModelChangeCallback):
             consumer.on_collision_matrix_update()
         if buffer is not None:
             self.collision_matrix.apply_buffer(buffer)
+        self.get_buffer_zone_distance.cache_clear()
+        self.get_violated_distance.cache_clear()
+
+    def set_collision_matrix(self, collision_matrix: CollisionMatrix):
+        """
+        Sets the collision matrix directly and clears caches.
+        .. warning: if the collision matrix was computed with a different world model version, you may get unexpected results.
+        :param collision_matrix: New collision matrix.
+        """
+        self.collision_matrix = collision_matrix
         self.get_buffer_zone_distance.cache_clear()
         self.get_violated_distance.cache_clear()
 
