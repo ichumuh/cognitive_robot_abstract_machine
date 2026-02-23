@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from typing_extensions import Iterable, Tuple
+from typing import List
 
 from .pose import PoseStamped
 
@@ -13,10 +12,8 @@ class PoseTrajectory:
     Immutable wrapper for a sequence of waypoint poses.
     """
 
-    poses: Tuple[PoseStamped, ...]
+    poses: List[PoseStamped, ...]
     """
     Ordered waypoint poses.
     """
 
-    def __post_init__(self):
-        self.poses = tuple(self.poses)
