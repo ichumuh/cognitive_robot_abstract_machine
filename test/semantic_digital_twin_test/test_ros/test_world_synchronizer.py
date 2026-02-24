@@ -1142,12 +1142,12 @@ def test_acknowledgement_with_missed_messages(rclpy_node):
 
         synchronizer_1 = StateSynchronizer(
             node=rclpy_node,
-            world=w1,
+            _world=w1,
             synchronous=True,
         )
         synchronizer_2 = StateSynchronizer(
             node=receiver_node,
-            world=w2,
+            _world=w2,
         )
         synchronizer_2.pause()
 

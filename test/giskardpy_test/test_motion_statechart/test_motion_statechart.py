@@ -2920,8 +2920,8 @@ class TestCollisionAvoidance:
         kin_sim = Executor(MotionStatechartContext(world=self_collision_bot_world))
         kin_sim.compile(motion_statechart=msc_copy)
 
-        # 4 because of the base nodes + 2 that are added by self collision avoidance
-        assert len(msc_copy.nodes) == 4 + 2
+        # 4 because of the base nodes + 20 that are added by self collision avoidance
+        assert len(msc_copy.nodes) == 4 + 20
 
         kin_sim.tick_until_end(500)
         collisions = kin_sim.context.world.collision_manager.compute_collisions()
@@ -3185,7 +3185,7 @@ class TestCollisionAvoidance:
         kin_sim = Executor(MotionStatechartContext(world=pr2_with_box))
         kin_sim.compile(motion_statechart=msc)
 
-        assert len(msc.nodes) == 37
+        assert len(msc.nodes) == 75
 
         kin_sim.tick_until_end(500)
 

@@ -110,9 +110,7 @@ class CollisionGroupConsumer(CollisionConsumer, ABC):
             )
 
         self.collision_groups = [
-            group
-            for group in self.collision_groups
-            if len(group.bodies) > 0 or group.root in world.bodies_with_collision
+            group for group in self.collision_groups if len(group.bodies) > 0
         ]
 
     def get_collision_group(self, body: KinematicStructureEntity) -> CollisionGroup:

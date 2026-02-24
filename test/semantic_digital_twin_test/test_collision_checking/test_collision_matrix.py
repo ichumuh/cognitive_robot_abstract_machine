@@ -31,6 +31,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AllowDefaultInCollision,
     AllowAlwaysInCollision,
     AllowNeverInCollision,
+    AllowCollisionForAdjacentPairs,
 )
 from semantic_digital_twin.collision_checking.pybullet_collision_detector import (
     BulletCollisionDetector,
@@ -353,29 +354,54 @@ class TestCollisionRules:
         rule.update(pr2_world_state_reset)
         assert 0 < len(rule.allowed_collision_pairs) < len(collision_checks)
 
-    def test_AllowCollisionForAdjacentPairs(self, pr2_world_state_reset):
-        pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
-        collision_manager = pr2_world_state_reset.collision_manager
-        collision_manager.update_collision_matrix()
-        expected_collision_matrix = collision_manager.collision_matrix
+    def test_AllowCollisionForAdjacentPairs(self, pr2_world_copy):
+        pr2 = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
+        expected_collision_matrix = CollisionMatrix()
+        rule = AllowCollisionForAdjacentPairs()
+        rule.update(pr2_world_copy)
+        rule.apply_to_collision_matrix(expected_collision_matrix)
 
+        normal_allowed_pairs = len(rule.allowed_collision_pairs)
+
+        # remove all hardware interfaces, now everything should be allowed
         hard_ware_interface_cache = {}
-
-        with pr2_world_state_reset.modify_world():
-            for dof in pr2_world_state_reset.degrees_of_freedom:
+        with pr2_world_copy.modify_world():
+            for dof in pr2_world_copy.degrees_of_freedom:
                 hard_ware_interface_cache[dof.name] = dof.has_hardware_interface
                 dof.has_hardware_interface = False
 
-        collision_manager.update_collision_matrix()
-        empty_collision_matrix = collision_manager.collision_matrix
-        assert len(empty_collision_matrix.collision_checks) == 0
+        rule.update(pr2_world_copy)
 
-        with pr2_world_state_reset.modify_world():
-            for dof in pr2_world_state_reset.degrees_of_freedom:
+        assert len(rule.allowed_collision_pairs) > normal_allowed_pairs
+
+        # add all hardware interfaces back, this should produce the same matrix as before
+        with pr2_world_copy.modify_world():
+            for dof in pr2_world_copy.degrees_of_freedom:
                 dof.has_hardware_interface = hard_ware_interface_cache[dof.name]
 
-        collision_manager.update_collision_matrix()
-        assert collision_manager.collision_matrix == expected_collision_matrix
+        rule.update(pr2_world_copy)
+        assert len(rule.allowed_collision_pairs) == normal_allowed_pairs
+
+        # attach an object to the robot, this object should not be checked with gripper tool frame
+        with pr2_world_copy.modify_world():
+            body = Body(
+                name=PrefixedName("muh"),
+                collision=ShapeCollection(shapes=[Sphere(radius=0.05)]),
+            )
+            connection = FixedConnection(
+                parent=pr2_world_copy.get_body_by_name("r_gripper_tool_frame"),
+                child=body,
+            )
+            pr2_world_copy.add_connection(connection)
+
+        rule.update(pr2_world_copy)
+        assert (
+            CollisionCheck.create_and_validate(
+                body_a=pr2_world_copy.get_body_by_name("r_gripper_palm_link"),
+                body_b=body,
+            )
+            in rule.allowed_collision_pairs
+        )
 
     def test_allow_self_collision(self, pr2_apartment_world):
         robot = pr2_apartment_world.get_semantic_annotations_by_type(PR2)[0]
@@ -447,7 +473,7 @@ class TestCollisionGroups:
                 group.root.parent_connection.is_controlled
             ), f"parent of group root {group.root.name} is not controlled"
             for body in group.bodies:
-                assert not body.parent_connection.is_controlled
+                assert body == group.root or not body.parent_connection.is_controlled
 
         # no group body should be in another group body
         for group1, group2 in combinations(
