@@ -403,6 +403,13 @@ class TestCollisionRules:
             in rule.allowed_collision_pairs
         )
 
+    def test_double_update(self, pr2_world_state_reset):
+        rule = AllowCollisionForAdjacentPairs()
+        rule.update(pr2_world_state_reset)
+        assert len(rule.allowed_collision_pairs) > 0
+        rule.update(pr2_world_state_reset)
+        assert len(rule.allowed_collision_pairs) > 0
+
     def test_allow_self_collision(self, pr2_apartment_world):
         robot = pr2_apartment_world.get_semantic_annotations_by_type(PR2)[0]
         collision_matrix = CollisionMatrix()

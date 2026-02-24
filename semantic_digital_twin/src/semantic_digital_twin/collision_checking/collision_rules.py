@@ -105,8 +105,9 @@ class AllowCollisionRule(CollisionRule, ABC):
         }
 
     def update(self, world: World):
-        self.allowed_collision_pairs = set()
-        self.allowed_collision_bodies = set()
+        if not self.is_up_to_date(world):
+            self.allowed_collision_pairs = set()
+            self.allowed_collision_bodies = set()
         super().update(world)
 
 

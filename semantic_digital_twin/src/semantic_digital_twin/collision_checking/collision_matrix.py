@@ -178,12 +178,18 @@ class CollisionRule(ABC):
         Modifies the collision matrix by adding or removing collision checks.
         """
 
+    def is_up_to_date(self, world: World) -> bool:
+        """
+        Checks if the collision rule is up to date with the current state of the world.
+        """
+        return self._last_world_model_version == world._model_manager.version
+
     def update(self, world: World):
         """
         Updates the collision rule based on the current state of the world, if the world model has changed.
         :param world: The world used for updating
         """
-        if world._model_manager.version == self._last_world_model_version:
+        if self.is_up_to_date(world):
             return
         self._update(world)
         self._last_world_model_version = world._model_manager.version
