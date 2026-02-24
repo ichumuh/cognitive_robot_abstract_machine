@@ -203,6 +203,9 @@ class AvoidSelfCollisions(AvoidCollisionRule):
     """
 
     robot: AbstractRobot = field(kw_only=True)
+    """
+    The robot managed by the rule.
+    """
 
     def _update(self, world: World):
         self.added_collision_checks = set(
@@ -230,6 +233,9 @@ class AllowCollisionForBodies(AllowCollisionRule):
     """
 
     allowed_collision_bodies: set[Body] = field(default_factory=set)
+    """
+    The set of bodies for which all collisions should be allowed.
+    """
 
     def _update(self, world: World): ...
 
@@ -241,7 +247,13 @@ class AllowCollisionBetweenGroups(AllowCollisionRule):
     """
 
     body_group_a: List[Body] = field(default_factory=list)
+    """
+    The first group of bodies.
+    """
     body_group_b: List[Body] = field(default_factory=list)
+    """
+    The second group of bodies.
+    """
 
     def _update(self, world: World):
         self.allowed_collision_pairs = set()
@@ -291,6 +303,9 @@ class AllowSelfCollisions(AllowCollisionRule):
     """
 
     robot: AbstractRobot = field(kw_only=True)
+    """
+    The robot for which self-collisions should be allowed.
+    """
 
     def _update(self, world: World):
         self.allowed_collision_pairs = set(
@@ -359,7 +374,8 @@ class AllowDefaultInCollision(AllowCollisionRule):
 class AllowAlwaysInCollision(AllowCollisionRule):
     """
     Allows collision between robot bodies that are in collision always.
-    This is computed by placing the robot in random states and checking if the robot is in collision in `almost_percentage` of the cases.
+    This is computed by placing the robot in random states and checking if the robot is in collision in
+    `almost_percentage` of the cases.
     .. note: This rule is expensive and should be used with caution.
     """
 
@@ -424,17 +440,47 @@ class AllowAlwaysInCollision(AllowCollisionRule):
 
 @dataclass
 class AllowNeverInCollision(AllowCollisionRule):
+    """
+    Allows collision between robot bodies that are never in collision.
+    This is computed by placing the robot in random states and checking if the distance between any pair is always
+    above a certain threshold.
+    .. note: This rule is expensive and should be used with caution.
+    """
+
     robot: AbstractRobot = field(kw_only=True)
+    """
+    The robot managed by the rule.
+    """
     collision_checks: set[CollisionCheck] = field(default_factory=set)
+    """
+    The collision checks to perform.
+    Allows you to prefilter the collision checks to perform.
+    """
     distance_threshold_max: float = 0.05
+    """
+    The maximum distance threshold for a pair to be considered as potentially never in collision.
+    """
     distance_threshold_min: float = -0.02
     """
-    If a pair is below this distance, they are not allowed.
+    If a pair is below this distance even once, they are not allowed.
     """
     distance_threshold_range: float = 0.05
+    """
+    The range of the distance threshold.
+    """
     distance_threshold_zero: float = 0.0
+    """
+    The zero distance threshold.
+    """
     number_of_tries: int = 10_000
+    """
+    The number of random states to check.
+    """
     progress_callback: Callable[[int, str], None] | None = field(default=None)
+    """
+    A callback function to report progress.
+    .. note: This callback is optional and can be used to monitor the progress of the collision check.
+    """
 
     def __post_init__(self):
         if self.progress_callback is None:
@@ -520,7 +566,8 @@ class AllowNeverInCollision(AllowCollisionRule):
 @dataclass
 class AllowCollisionForAdjacentPairs(AllowCollisionRule):
     """
-    Allow collision between body pairs of a robot that are connected by a chain that has no controllable connection.
+    Allow collision between body pairs of the whole world model that are connected by a chain that has no controllable connection.
+    Adjacent bodies in the kinematic chain that are not separated by a controlled joint are allowed to collide.
     """
 
     def _update(self, world: World):
@@ -543,16 +590,28 @@ class AllowCollisionForAdjacentPairs(AllowCollisionRule):
 @dataclass
 class SelfCollisionMatrixRule(AllowCollisionRule, SubclassJSONSerializer):
     """
-    Used to load collision matrices sorted as srdf, e.g., those created by moveit.
+    Used to load and manage collision matrices, often represented as SRDF files.
+    Allows specifying which body pairs or bodies are exempt from collision checking.
+    Has functionality to safe this matrix to an SRDF file.
+    `compute_self_collision_matrix` can be used to compute a self-collision matrix for a given robot.
+    .. note: use from_collision_srdf to load a collision matrix from an SRDF file, unless you want to compute and safe it.
     """
 
     SRDF_DISABLE_ALL_COLLISIONS: ClassVar[str] = "disable_all_collisions"
     SRDF_DISABLE_SELF_COLLISION: ClassVar[str] = "disable_self_collision"
     SRDF_MOVEIT_DISABLE_COLLISIONS: ClassVar[str] = "disable_collisions"
 
-    def update(self, world: World): ...
+    def update(self, world: World):
+        """
+        Updates the rule based on the current world state.
+        """
+        ...
 
-    def _update(self, world: World): ...
+    def _update(self, world: World):
+        """
+        Internal update method.
+        """
+        ...
 
     @classmethod
     def from_collision_srdf(cls, file_path: str, world: World) -> Self:
@@ -644,9 +703,23 @@ class SelfCollisionMatrixRule(AllowCollisionRule, SubclassJSONSerializer):
         progress_callback: Callable[[int, str], None] | None = None,
     ):
         """
-        :param use_collision_checker: if False, only the parts will be called that don't require collision checking.
-        :param progress_callback: a function that is used to display the progress. it's called with a value of 0-100 and
-                                    a string representing the current action
+        Computes a self-collision matrix for the given robot by applying various rules.
+
+        This method systematically identifies body pairs that should be allowed to collide by
+        checking for adjacent links, default collisions, always-in-collision pairs, and
+        never-in-collision pairs.
+
+        :param robot: The robot for which to compute the matrix.
+        :param distance_threshold_zero: Threshold for default collision check.
+        :param distance_threshold_always: Threshold for always-in-collision check.
+        :param distance_threshold_never_max: Maximum threshold for never-in-collision check.
+        :param distance_threshold_never_min: Minimum threshold for never-in-collision check.
+        :param distance_threshold_never_range: Range threshold for never-in-collision check.
+        :param distance_threshold_never_zero: Zero threshold for never-in-collision check.
+        :param number_of_tries_always: Number of random states to check for always-in-collision.
+        :param almost_percentage: Percentage for always-in-collision rule.
+        :param number_of_tries_never: Number of random states to check for never-in-collision.
+        :param progress_callback: Callback for progress updates.
         """
         self.allowed_collision_pairs = set()
         np.random.seed(1337)
@@ -716,6 +789,12 @@ class SelfCollisionMatrixRule(AllowCollisionRule, SubclassJSONSerializer):
         robot_name: str,
         file_name: str,
     ):
+        """
+        Saves the current self-collision matrix to an SRDF file.
+
+        :param robot_name: The name of the robot.
+        :param file_name: The path to the file where the matrix should be saved.
+        """
         # Create the root element
         root = etree.Element("robot")
         root.set("name", robot_name)
