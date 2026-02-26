@@ -19,16 +19,11 @@ from .core.variable import Variable, Literal
 from .core.mapped_variable import MappedVariable
 from .operators.comparator import Comparator
 
-try:
-    from rustworkx_utils import (
-        GraphVisualizer,
-        RWXNode as RXUtilsNode,
-        ColorLegend as RXUtilsColorLegend,
-    )
-except ImportError:
-    GraphVisualizer = None
-    RXUtilsNode = None
-    RXUtilsColorLegend = None
+from ..rustworkx_utils import (
+    GraphVisualizer,
+    RWXNode as RXUtilsNode,
+    ColorLegend as RXUtilsColorLegend,
+)
 
 import rustworkx as rx
 
@@ -55,6 +50,10 @@ class QueryGraph:
     """
 
     def __post_init__(self):
+        if GraphVisualizer is None:
+            raise ModuleNotFoundError(
+                "rustworkx_utils is not installed. Please install it with `pip install rustworkx_utils`"
+            )
         self.construct_graph()
 
     def visualize(
@@ -79,10 +78,6 @@ class QueryGraph:
         :returns: The rendered visualization object.
         :raises: `ModuleNotFoundError` If rustworkx_utils is not installed.
         """
-        if not GraphVisualizer:
-            raise ModuleNotFoundError(
-                "rustworkx_utils is not installed. Please install it with `pip install rustworkx_utils`"
-            )
         visualizer = GraphVisualizer(
             node=self.expression_node_map[self.query._root_],
             figsize=figure_size,
@@ -134,13 +129,15 @@ class QueryGraph:
         :param parent_node: The parent node of the children to add.
         """
         parent_expression = parent_node.data
+        selected_var_ids = (
+            [v._binding_id_ for v in parent_expression._selected_variables_]
+            if isinstance(parent_expression, Query)
+            else []
+        )
         for child in parent_expression._children_:
             child_node = self.construct_graph(child)
-            if isinstance(parent_expression, Query):
-                if child._binding_id_ in [
-                    v._binding_id_ for v in parent_expression._selected_variables_
-                ]:
-                    child_node.enclosed = True
+            if child._binding_id_ in selected_var_ids:
+                child_node.enclosed = True
             child_node.parent = parent_node
 
 

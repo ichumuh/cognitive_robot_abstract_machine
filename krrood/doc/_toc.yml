@@ -34,6 +34,9 @@ parts:
     - file: ripple_down_rules/relational_example_tutorial
     - file: ripple_down_rules/relational_example_with_decorator_tutorial
     - file: ripple_down_rules/test_driven_rdr_fitting_tutorial
+- caption: rustworkx_utils
+  chapters:
+    - file: rustworkx_utils/visualize_graph
 
 - caption: Miscellaneous
   chapters:
