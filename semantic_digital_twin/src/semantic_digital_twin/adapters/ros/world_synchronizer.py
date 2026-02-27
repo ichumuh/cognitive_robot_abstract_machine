@@ -246,7 +246,7 @@ class Synchronizer(WorldEntityWithID):
                 success = self._acknowledge_condition_variable.wait_for(
                     lambda: len(self._received_acknowledgments)
                     >= self._expected_acknowledgment_count,
-                    timeout=5,
+                    timeout=30,
                 )
                 if not success:
                     self.node.get_logger().warning(
