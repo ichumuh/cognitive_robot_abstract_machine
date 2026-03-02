@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Union, TYPE_CHECKING
 
 import numpy as np
+from scipy.sparse import issparse
 
 if TYPE_CHECKING:
     import scipy.sparse as sp
@@ -111,6 +112,29 @@ class QPData:
         qp_data_filtered.neq_upper_bounds = self.neq_upper_bounds[bA_filter]
         self.filtered = qp_data_filtered
 
+    def to_print_testcase(self):
+        testcase = (
+            f"linear_weights = np.array({self.linear_weights.tolist()}, dtype=float)\n"
+            f"quadratic_weights = np.array({self.quadratic_weights.tolist()}, dtype=float)\n"
+            f"box_lower_constraints = np.array({self.box_lower_constraints.tolist()}, dtype=float)\n"
+            f"box_upper_constraints = np.array({self.box_upper_constraints.tolist()}, dtype=float)\n"
+            f"eq_bounds = np.array({self.eq_bounds.tolist()}, dtype=float)\n"
+            f"neq_lower_bounds = np.array({self.neq_lower_bounds.tolist()}, dtype=float)\n"
+            f"neq_upper_bounds = np.array({self.neq_upper_bounds.tolist()}, dtype=float)\n"
+            f"eq_matrix_data = np.array({self.eq_matrix.data.tolist()}, dtype=float)\n"
+            f"eq_matrix_indices = np.array({self.eq_matrix.indices.tolist()}, dtype=int)\n"
+            f"eq_matrix_indptr = np.array({self.eq_matrix.indptr.tolist()}, dtype=int)\n"
+            f"eq_matrix_shape = {self.eq_matrix.shape}\n"
+            f"eq_matrix = csc_matrix((eq_matrix_data, eq_matrix_indices, eq_matrix_indptr), shape=eq_matrix_shape).toarray()\n"
+            f"neq_matrix_data = np.array({self.neq_matrix.data.tolist()}, dtype=float)\n"
+            f"neq_matrix_indices = np.array({self.neq_matrix.indices.tolist()}, dtype=int)\n"
+            f"neq_matrix_indptr = np.array({self.neq_matrix.indptr.tolist()}, dtype=int)\n"
+            f"neq_matrix_shape = {self.neq_matrix.shape}\n"
+            f"neq_matrix = csc_matrix((neq_matrix_data, neq_matrix_indices, neq_matrix_indptr), shape=neq_matrix_shape).toarray()\n"
+            "x = solve_and_verify_qp_solution(quadratic_weights, linear_weights, box_lower_constraints, box_upper_constraints, eq_matrix, eq_bounds, neq_matrix, neq_lower_bounds, neq_upper_bounds, benchmark=False)"
+        )
+        print(testcase)
+
     def relaxed(self) -> QPData:
         relaxed_qp_data = QPData(
             quadratic_weights=self.filtered.quadratic_weights,
@@ -209,3 +233,67 @@ class QPData:
             print(
                 f"ubA (neq_upper_bounds): \n{np.array2string(self.neq_upper_bounds, max_line_width=large)}"
             )
+
+    def analyze_well_posedness(self):
+        """
+        Analyzes the QP problem data for numerical issues and poor posing.
+        Prints statistics and warnings for potentially ill-posed problems.
+        """
+        print("--- QP Well-Posedness Analysis ---")
+        self._analyze_hessian()
+        self._analyze_constraints()
+        print("----------------------------------")
+
+    def _analyze_hessian(self):
+        """
+        Checks the condition number of the Hessian.
+        """
+        if self.quadratic_weights is not None:
+            max_weight = np.max(np.abs(self.quadratic_weights))
+            min_weight = np.min(
+                np.abs(self.quadratic_weights)[np.abs(self.quadratic_weights) > 0]
+            )
+            condition_number = max_weight / min_weight
+            print(f"  Weight Matrix max singular value: {max_weight}")
+            print(f"  Weight Matrix min singular value: {min_weight}")
+            print(f"  Weight Matrix Condition Number: {condition_number}")
+            if condition_number > 1_000:
+                print("  Warning: Weight Matrix is poorly conditioned.")
+
+    def _analyze_constraints(self):
+        """
+        Checks for scale imbalances and potential rank issues in constraints.
+        """
+        self._check_matrix_condition(self.eq_matrix, "Equality Constraint Matrix (E)")
+        self._check_matrix_condition(
+            self.neq_matrix, "Inequality Constraint Matrix (A)"
+        )
+
+        # Simple infeasibility check for box constraints
+        if (
+            self.box_lower_constraints is not None
+            and self.box_upper_constraints is not None
+        ):
+            violations = self.box_lower_constraints > self.box_upper_constraints
+            if np.any(violations):
+                print(
+                    f"  WARNING: Box constraints are infeasible for indices {np.where(violations)[0]}."
+                )
+
+    def _check_matrix_condition(
+        self, matrix: Union[sp.csc_matrix, np.ndarray], name: str
+    ):
+        if issparse(matrix):
+            matrix = matrix.toarray()
+        if matrix.shape[0] * matrix.shape[1] == 0:
+            print(f"  {name} is empty.")
+            return
+        singular_value_decomposition = np.linalg.svd(matrix, compute_uv=False)
+        condition_number = (
+            singular_value_decomposition[0] / singular_value_decomposition[-1]
+        )
+        print(f"  {name} max singular value: {singular_value_decomposition[0]}")
+        print(f"  {name} min singular value: {singular_value_decomposition[-1]}")
+        print(f"  {name} Condition Number: {condition_number}")
+        if condition_number > 1_000:
+            print(f"        WARNING: this is very large.")
