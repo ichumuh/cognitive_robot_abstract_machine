@@ -3,41 +3,31 @@ import time
 
 import pytest
 
-from krrood.entity_query_language.query.match import MatchVariable
+from krrood.entity_query_language.factories import (
+    variable_from,
+    underspecified,
+)
+from krrood.probabilistic_knowledge.parameterizer import (
+    MatchParameterizer,
+)
+from krrood.probabilistic_knowledge.probable_variable import MatchToInstanceTranslator
+from pycram.datastructures.dataclasses import Context
+from pycram.datastructures.enums import TaskStatus
 from pycram.datastructures.pose import (
     PyCramPose,
     Header,
     PyCramVector3,
     PyCramQuaternion,
 )
-from random_events.product_algebra import SimpleEvent, Event
-
-
-from krrood.entity_query_language.factories import (
-    variable_from,
-    probable_variable,
-    probable,
-    variable,
-)
-from krrood.probabilistic_knowledge.parameterizer import (
-    DataAccessObjectParameterizer,
-    MatchParameterizer,
-)
-from krrood.probabilistic_knowledge.probable_variable import MatchToInstanceTranslator
-from pycram.datastructures.dataclasses import Context
-from pycram.datastructures.enums import TaskStatus
 from pycram.language import ParallelPlan, CodeNode
-from pycram.plan import PlanNode, Plan, ActionDescriptionNode, ActionNode, MotionNode
 from pycram.motion_executor import simulated_robot
-from pycram.robot_plans import *
-from random_events.variable import Symbolic, Set
-from semantic_digital_twin.adapters.urdf import URDFParser
 from pycram.orm.ormatic_interface import *
+from pycram.plan import PlanNode, Plan, ActionDescriptionNode, ActionNode, MotionNode
+from pycram.robot_plans import *
+from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.robots.abstract_robot import (
-    SemanticRobotAnnotation,
     Manipulator,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 
 
 @pytest.fixture(scope="session")
@@ -701,14 +691,14 @@ def test_algebra_sequential_plan(mutable_model_world):
     """
     world, robot_view, context = mutable_model_world
 
-    target_location = probable(PoseStamped)(
-        pose=probable(PyCramPose)(
-            position=probable(PyCramVector3)(x=..., y=..., z=0),
-            orientation=probable(PyCramQuaternion)(x=0, y=0, z=0, w=1),
+    target_location = underspecified(PoseStamped)(
+        pose=underspecified(PyCramPose)(
+            position=underspecified(PyCramVector3)(x=..., y=..., z=0),
+            orientation=underspecified(PyCramQuaternion)(x=0, y=0, z=0, w=1),
         ),
-        header=probable(Header)(frame_id=variable_from([robot_view.root])),
+        header=underspecified(Header)(frame_id=variable_from([robot_view.root])),
     )
-    navigate_action = probable_variable(NavigateAction)(
+    navigate_action = underspecified(NavigateAction)(
         target_location=target_location,
         keep_joint_states=...,
     )
@@ -736,10 +726,10 @@ def test_parameterization_of_pick_up(mutable_model_world):
 
     milk_variable = variable_from([milk])
 
-    pick_up_description = probable_variable(PickUpAction)(
+    pick_up_description = underspecified(PickUpAction)(
         object_designator=milk_variable,
         arm=...,
-        grasp_description=probable(GraspDescription)(
+        grasp_description=underspecified(GraspDescription)(
             approach_direction=...,
             vertical_alignment=...,
             rotate_gripper=...,

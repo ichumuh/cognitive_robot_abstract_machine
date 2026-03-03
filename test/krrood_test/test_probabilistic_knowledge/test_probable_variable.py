@@ -1,18 +1,4 @@
 import numpy as np
-
-from krrood.entity_query_language.core.variable import Literal
-from krrood.entity_query_language.query.match import (
-    ProbableVariable,
-    AttributeMatch,
-    AbstractMatchExpression,
-    construct_graph_and_get_root,
-)
-from krrood.probabilistic_knowledge.parameterizer import (
-    DataAccessObjectParameterizer,
-    copy_partial_object,
-    MatchParameterizer,
-)
-from krrood.rustworkx_utils import RWXNode
 from random_events.interval import singleton, open, closed, closed_open
 from random_events.product_algebra import SimpleEvent, Event
 from random_events.variable import Continuous
@@ -22,18 +8,20 @@ from krrood.entity_query_language.factories import (
     entity,
     and_,
     or_,
-    match_variable,
-    match,
-    Entity,
-    probable_variable,
-    probable,
+    underspecified,
+)
+from krrood.entity_query_language.query.match import (
+    UnderspecifiedVariable,
+)
+from krrood.probabilistic_knowledge.parameterizer import (
+    copy_partial_object,
+    MatchParameterizer,
 )
 from krrood.probabilistic_knowledge.probable_variable import (
     QueryToRandomEventTranslator,
     is_disjunctive_normal_form,
     MatchToInstanceTranslator,
 )
-
 from ..dataset.example_classes import Pose, Position, Orientation
 from ..dataset.ormatic_interface import *  # type: ignore
 
@@ -129,8 +117,8 @@ def test_dnf_checking():
 
 
 def test_query_writing_with_match_and_copy():
-    var: ProbableVariable = probable_variable(Pose)(
-        position=probable(Position)(x=0.1, y=..., z=...), orientation=None
+    var: UnderspecifiedVariable = underspecified(Pose)(
+        position=underspecified(Position)(x=0.1, y=..., z=...), orientation=None
     )
 
     translator = MatchToInstanceTranslator(var)
@@ -146,10 +134,10 @@ def test_query_writing_with_match_and_copy():
 
 
 def test_probable_variable_with_concrete_kwarg():
-    probable_pose = probable_variable(Pose)
+    probable_pose = underspecified(Pose)
 
     prob_q = probable_pose(
-        position=probable(Position)(x=..., y=..., z=...),
+        position=underspecified(Position)(x=..., y=..., z=...),
         orientation=Orientation(x=0.0, y=0.0, z=0.0, w=1.0),
     ).where(probable_pose.variable.position.x > 0.5)
 

@@ -397,9 +397,9 @@ class AttributeMatch(AbstractMatchExpression[T]):
         return self.name
 
 
-class ProbableVariable(MatchVariable):
+class UnderspecifiedVariable(MatchVariable):
     """
-    A special type of MatchVariable that represents a variable with probabilistic constraints.
+    A special type of MatchVariable that represents a variable with underspecified constraints.
     """
 
     def __call__(self, **kwargs):
