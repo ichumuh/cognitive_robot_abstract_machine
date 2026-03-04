@@ -13,26 +13,31 @@ kernelspec:
 
 # Graph and Visualization
 
-EQL represents queries as Directed Acyclic Graphs (DAGs). While this graph is primarily used for internal execution, EQL provides tools to visualize these structures for debugging and educational purposes.
+EQL represents queries as Directed Acyclic Graphs (DAGs). While this graph is primarily used for internal execution,
+EQL provides tools to visualize these structures for debugging and educational purposes.
 
 ## The `QueryGraph`
 
-Unlike previous versions of EQL, there is no longer a global singleton graph. Each query now constructs its own local {py:class}`~krrood.entity_query_language.query_graph.QueryGraph` during the building phase.
+Each query constructs its own local graph during the building phase.
 
 ### Key Features:
 - **Local Scope**: Every query has its own graph, preventing side effects between different queries.
-- **Node-Edge Structure**: Each {py:class}`~krrood.entity_query_language.core.base_expressions.SymbolicExpression` is a node, and relationships (like child-parent) are edges.
+- **Node-Edge Structure**: Each {py:class}`~krrood.entity_query_language.core.base_expressions.SymbolicExpression` is a
+node, and relationships (like child-parent) are edges.
 
 ```{hint}
 You can access a query's graph after it has been built to inspect its structure.
 ```
 
-## Visualization with `rustworkx`
+## Visualization with `QueryGraph`
 
-EQL uses the `rustworkx` library as an optional dependency to provide high-performance graph layout and rendering.
+EQL uses the `rustworkx`, and `matplotlib` library as an optional dependency to provide high-performance graph layout
+and rendering. {py:class}`~krrood.entity_query_language.query_graph.QueryGraph` is a wrapper around `rustworkx`'s graph
+data structures and algorithms.
 
 ### The `.visualize()` Method
-If you have `rustworkx` and `matplotlib` installed, you can visualize any query or expression.
+If you have `rustworkx` and `matplotlib` installed, you can visualize any query or expression by constructing a 
+`QueryGraph` on your query object and calling the `visualize()` method.
 
 ```python
 # Create a query graph from an expression

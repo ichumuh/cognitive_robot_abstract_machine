@@ -13,7 +13,6 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.failures import NoKwargsInMatchVar
 from krrood.entity_query_language.predicate import HasType
 from krrood.entity_query_language.core.base_expressions import UnificationDict
-from krrood.entity_query_language.query_graph import QueryGraph
 from ..dataset.semantic_world_like_classes import (
     FixedConnection,
     Container,
@@ -29,7 +28,6 @@ def test_doc_match():
 
     robots = [Robot("R2D2", 100), Robot("C3PO", 0)]
     query = match_variable(Robot, domain=robots)(name="R2D2", battery=100)
-    # QueryGraph(query).visualize()
     assert query.tolist()[0].name == "R2D2"
 
 

@@ -83,7 +83,6 @@ def test_empty_conditions_and_no_domain(
     B = variable(Body, domain=None)
     query = an(entity(B).where(B.world == world))
 
-    # QueryGraph(query).visualize()
 
     assert len(list(query.evaluate())) == len(world.bodies), "Should generate 6 bodies."
 
@@ -964,8 +963,6 @@ def test_exists_and_for_all(handles_and_containers_world):
         )
     )
 
-    # QueryGraph(query.build()).visualize()
-
     results = list(query.evaluate())
 
     assert len(results) == 0
@@ -1062,7 +1059,6 @@ def test_ordering_the_query_by_the_query_itself(handles_and_containers_world):
     body = variable(Body, domain=handles_and_containers_world.bodies)
     query = entity(body).where(contains(body.name, "Handle"))
     ordered_query = an(query.ordered_by(query.name[-1]))
-    # QueryGraph(ordered_query).visualize()
     assert list(ordered_query.evaluate()) == sorted(
         [b for b in handles_and_containers_world.bodies if "Handle" in b.name],
         key=lambda b: b.name[-1],
@@ -1151,12 +1147,10 @@ def test_subquery_independence():
 
     # select the same variable as the outer query
     query = an(entity(var1).where(var1 != the(entity(var1).where(var1 == 2))))
-    # QueryGraph(query.build()).visualize()
     assert query.tolist() == [1, 4, 3]
 
     # test with an()
     query = an(entity(var1).where(var1 != an(entity(var1).where(var1 == 2))))
-    # QueryGraph(query.build()).visualize()
     assert query.tolist() == [1, 4, 3]
 
 
