@@ -243,7 +243,7 @@ class Attribute(MappedVariable):
         return f"{self._child_._name_}.{self._attribute_name_}"
 
     def _apply_final_operation_set_external_instance_value_(self, obj: Any, value: Any):
-        setattr(obj, self.attribute._attribute_name_, value)
+        setattr(obj, self._attribute_name_, value)
 
 
 @dataclass(eq=False, repr=False)

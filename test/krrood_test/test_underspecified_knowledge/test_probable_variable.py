@@ -29,7 +29,7 @@ def test_underspecification_with_where():
         position=underspecified(Position)(x=..., y=..., z=...),
         orientation=underspecified(Orientation)(x=..., y=..., z=..., w=...),
     )
-
+    underspecified_pose.expression
     q = underspecified_pose.where(
         underspecified_pose.variable.position.y > 0.0,
         underspecified_pose.variable.position.x == 0.0,
@@ -177,7 +177,7 @@ def test_new_underspecified_with_factory():
 
 def test_underspecified_with_list():
     q = underspecified(Positions)(
-        positions=[underspecified(Position)(x=1, y=..., z=...), Position(1, 2, 3)],
+        positions=[underspecified(Position)(x=1.0, y=..., z=...), Position(1, 2, 3)],
         some_strings=["a", "b"],
     )
     q.expression.build()
@@ -187,6 +187,9 @@ def test_underspecified_with_list():
             literal.assigned_variable._value_ = 0.0
 
     q._update_kwargs_from_literal_values()
+
+    print(q.kwargs)
+    print(q.kwargs["positions"][0].kwargs)
 
     r = q.construct_instance()
     assert r == Positions([Position(0.0, 0.0, 0.0), Position(1, 2, 3)], ["a", "b"])

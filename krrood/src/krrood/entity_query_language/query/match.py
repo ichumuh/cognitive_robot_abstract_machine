@@ -37,6 +37,7 @@ from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
     CanBehaveLikeAVariable,
     MappedVariable,
+    Index,
 )
 from krrood.entity_query_language.core.variable import Literal, DomainType
 from krrood.entity_query_language.failures import (
@@ -334,7 +335,7 @@ class Match(AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
 
     def _update_kwargs_from_literal_values(self):
         for literal in self.literals:
-            variable = literal.assigned_variable
+            literal._update_kwargs_from(self)
 
 
 @dataclass(eq=False)
@@ -479,6 +480,25 @@ class AttributeMatch(AbstractMatchExpression[T]):
 
     def __str__(self):
         return self.name
+
+    def _update_kwargs_from(self, match: Match[T]):
+        """
+        Update the kwargs of the parent match with the values of the assigned variable.
+        Only works if this is a variable assignment.
+        """
+        current_value = match
+        for step in self.variable._access_path_[:-1]:
+            if isinstance(step, Attribute):
+                current_value = current_value.kwargs[step._attribute_name_]
+            elif isinstance(step, Index):
+                current_value = current_value[step._key_]
+            else:
+                assert_never(step)
+
+        final_step = self.variable._access_path_[-1]
+        final_step._apply_final_operation_set_external_instance_value_(
+            current_value, self.assigned_variable._value_
+        )
 
 
 def construct_graph_and_get_root(
