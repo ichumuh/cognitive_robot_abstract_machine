@@ -8,7 +8,7 @@ import operator
 
 from typing_extensions import Union, Iterable
 
-from krrood.entity_query_language.core.base_expressions import SymbolicExpression
+from krrood.entity_query_language.core.base_expressions import SymbolicExpression, TruthValueOperator
 from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
     CanBehaveLikeAVariable,
@@ -42,7 +42,6 @@ from krrood.entity_query_language.predicate import *  # type: ignore
 from krrood.entity_query_language.query.match import (
     Match,
     MatchVariable,
-    ProbableVariable,
 )
 from krrood.entity_query_language.query.quantifiers import (
     ResultQuantificationConstraint,
@@ -60,7 +59,7 @@ from krrood.entity_query_language.rules.conclusion_selector import (
 from krrood.entity_query_language.utils import is_iterable
 from krrood.symbol_graph.symbol_graph import Symbol, SymbolGraph
 
-ConditionType = Union[SymbolicExpression, bool, Predicate]
+ConditionType = Union[SymbolicExpression, bool, Predicate, TruthValueOperator]
 """
 The possible types for conditions.
 """
@@ -101,7 +100,7 @@ def match(
     :param type_: The type of the variable (i.e., The class you want to instantiate).
     :return: The Match instance.
     """
-    return Match(type_=type_)
+    return Match(factory=type_)
 
 
 def match_variable(
@@ -115,35 +114,18 @@ def match_variable(
     :param domain: The domain used for the variable created by the match.
     :return: The Match instance.
     """
-    return MatchVariable(type_=type_, domain=domain)
+    return MatchVariable(factory=type_, domain=domain)
 
 
-def probable_variable(
-    type_: Union[Type[T], Selectable[T]],
-) -> Union[Type[T], MatchVariable[T]]:
-    """
-    Same as :py:func:`krrood.entity_query_language.match.match_variable` but instead of searching for solutions in
-    the domain objects, it is used as a query for probabilistic models to infer solutions that satisfy the constraints
-    in the query.
-
-    .. note::
-
-        Calling a ProbableVariable will return a ProbableVariable instead of its expression.
-    """
-    return ProbableVariable(type_=type_)
-
-
-def probable(
-    type_: Union[Type[T], Selectable[T]],
+def underspecified(
+    expression: Union[Type[T], Callable[..., T]],
 ) -> Union[Type[T], Match[T]]:
     """
-    Create a random (probable) variable matching the type and the provided keyword arguments. This is used for easy
-    variable definitions when there are structural constraints.
-
-    :param type_: The type of the variable (i.e., The class you want to instantiate).
-    :return: The Match instance.
+    Same as :py:func:`krrood.entity_query_language.factories.match` but instead of searching for solutions in
+    the domain objects, it is used as a query for generative processes to infer solutions that satisfy the constraints
+    in the query.
     """
-    return Match(type_=type_)
+    return Match(factory=expression)
 
 
 # %% Variable Declaration
@@ -259,7 +241,7 @@ def flat_variable(
 # %% Logical Operators
 
 
-def and_(*conditions: ConditionType):
+def and_(*conditions: ConditionType) -> ConditionType:
     """
     Logical conjunction of conditions.
 
@@ -271,7 +253,7 @@ def and_(*conditions: ConditionType):
     return chained_logic(AND, *conditions)
 
 
-def or_(*conditions):
+def or_(*conditions) -> ConditionType:
     """
     Logical disjunction of conditions.
 
