@@ -313,7 +313,17 @@ class EqualityDerivativeLinkModel:
 
 @dataclass
 class EqualityConstraintModel:
-    pass
+    """
+    |   t1   |   t2   |   t1   |   t2   |   t1   |   t2   | prediction horizon
+    |v1 v2 v3|v1 v2 v3|j1 j2 j3|j1 j2 j3|s1 s2 s3|s1 s2 s3| free variables / slack
+    |-----------------------------------------------------|
+    |  J1*sp |  J1*sp |  J3*sp | J3*sp  | sp*ch  | sp*ch  |
+    |-----------------------------------------------------|
+    """
+
+    degrees_of_freedom: List[DegreeOfFreedom]
+    constraint_collection: ConstraintCollection
+    config: QPControllerConfig
 
 
 @dataclass
