@@ -529,6 +529,16 @@ class EnforcementStrategy(ABC):
     @abstractmethod
     def create_names(self, constraints: list[GiskardConstraint]) -> list[str]: ...
 
+    @abstractmethod
+    def create_slack_variables(
+        self, constraints: list[GiskardConstraint]
+    ) -> DirectLimits: ...
+
+    @abstractmethod
+    def create_bounds(
+        self, bounds: list[Scalar], normalization_numbers: list[float]
+    ) -> Vector: ...
+
     @property
     def number_of_free_variables(self) -> int:
         return len(self.degrees_of_freedom)
