@@ -70,7 +70,7 @@ demos = [
 ]
 
 # pbar = tqdm.tqdm(recursive_subclasses(Sage10kAbstractDemo))
-pbar = tqdm.tqdm([Sage10kEclecticResidence], mininterval=1)
+pbar = tqdm.tqdm([Sage10kVaporwave], mininterval=1)
 for demo in pbar:
     pbar.set_postfix({"Current Scene": demo.scene_url.name})
     run_demo(demo())
