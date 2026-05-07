@@ -2,21 +2,27 @@ from dataclasses import dataclass, field
 from typing import List
 
 from krrood.class_diagrams.class_diagram import WrappedClass
-from krrood.entity_query_language.factories import variable, underspecified, variable_from
+from krrood.entity_query_language.factories import (
+    variable,
+    underspecified,
+    variable_from,
+)
 from krrood.entity_query_language.query.match import Match
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from krrood.symbol_graph.symbol_graph import Symbol
 from probabilistic_model.distributions.gaussian import GaussianDistribution
 from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
-    LearnRSPN,
+    learn_probabilistic_circuit,
 )
 
 from matplotlib import pyplot as plt
 
 from probabilistic_model.probabilistic_circuit.relational.rspns import (
     RSPNTemplate,
-    RSPNSpecification, aggregation_statistic, RSPNPredicate,
+    RelationalSumProductNetworkSpecification,
+    aggregation_statistic,
+    RSPNPredicate,
 )
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 from pycram.datastructures.grasp import GraspDescription
@@ -151,7 +157,7 @@ def example():
     #     )
     # )
 
-    spec = RSPNSpecification()
+    spec = RelationalSumProductNetworkSpecification()
 
     class_spec_nation = {
         "exchangeable_parts": ["persons"],
@@ -211,7 +217,9 @@ def example():
     # learned_nation.probabilistic_circuit.plot_structure()
     # plt.show()
 
-    learned_nation = LearnRSPN(Nation, [n1, knowrob_nation], class_spec_nation)
+    learned_nation = learn_probabilistic_circuit(
+        Nation, [n1, knowrob_nation], class_spec_nation
+    )
     learned_nation.probabilistic_circuit.plot_structure()
     plt.show()
 

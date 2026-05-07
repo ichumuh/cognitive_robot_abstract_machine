@@ -28,9 +28,8 @@ from krrood_test.dataset.example_classes import (
     KRROODOrientation,
 )
 from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
-    LearnRSPN,
+    learn_probabilistic_circuit,
     FeatureExtractor,
-    preprocess_dataframe,
 )
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 from pycram.robot_plans.actions.composite.transporting import MoveAndPickUpAction
@@ -147,12 +146,10 @@ def test_move_and_pick_up(database, mutable_model_world, data_preparation):
     samples, circuit = data_preparation
 
     feature_extractor = FeatureExtractor(samples)
-    dataframe = feature_extractor.create_dataframe(samples)
-    dataframe = preprocess_dataframe(feature_extractor.features, dataframe)
+    dataframe = feature_extractor.create_dataframe()
+    dataframe = feature_extractor.preprocess_dataframe(dataframe)
     sorted = dataframe.sort_index(axis=1)
     final = sorted.to_numpy()
-    # one_sample = final.tolist()[0]
-    # assert sorted.columns == [v.name for v in move_and_pick_up_distribution.variables]
     identical_variables = [
         variable
         for variable in circuit.variables
@@ -161,9 +158,9 @@ def test_move_and_pick_up(database, mutable_model_world, data_preparation):
     # remove unnecessary variables from circuit (obj_desig, ref_frame, manip)
     circuit = circuit.marginal(identical_variables)
 
-    template = LearnRSPN(MoveAndPickUpAction, samples)
+    learned_circuit = learn_probabilistic_circuit(MoveAndPickUpAction, samples)
 
-    assert np.mean(template.probabilistic_circuit.log_likelihood(final)) > np.mean(
+    assert np.mean(learned_circuit.log_likelihood(final)) > np.mean(
         circuit.log_likelihood(final)
     )
 

@@ -258,9 +258,7 @@ class UnderspecifiedParameters:
         hashes = [hash(obj) for obj in domain_objects]
         data_access_objects = [to_dao(obj, state=state) for obj in domain_objects]
 
-        extractor = FeatureExtractor(
-            data_access_objects, symbolic_root=attribute_match.assigned_variable
-        )
+        extractor = FeatureExtractor(data_access_objects)
 
         result = {}
 
