@@ -3,22 +3,20 @@ import numpy as np
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import (
     underspecified,
-    variable,
-    variable_from,
 )
 from krrood.ormatic.data_access_objects.helper import to_dao
-from krrood.ormatic.data_access_objects.to_dao import ToDataAccessObjectState
 from krrood.parametrization.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
-from krrood_test.dataset.example_classes import (
+from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+from ..dataset import ormatic_interface  # type: ignore
+from ..dataset.example_classes import (
     NestedAction,
     KRROODPose,
     KRROODPosition,
     KRROODOrientation,
 )
-from krrood_test.dataset.semantic_world_like_classes import Apple
-from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+from ..dataset.semantic_world_like_classes import Body
 
 
 def test_features_extraction():
@@ -27,7 +25,7 @@ def test_features_extraction():
             position=underspecified(KRROODPosition)(x=2.0, y=..., z=...),
             orientation=underspecified(KRROODOrientation)(x=..., y=..., z=..., w=...),
         ),
-        obj=...,
+        obj=Body(name="body"),
     )
 
     parameters = UnderspecifiedParameters(action)

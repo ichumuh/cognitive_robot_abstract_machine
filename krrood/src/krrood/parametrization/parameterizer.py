@@ -88,6 +88,7 @@ class UnderspecifiedParameters:
             self.truncation_assignments_from_where_conditions = (
                 self._random_event_compiler.translate()
             )
+        _ = self.variables  # make variables available
 
     @cached_property
     def variables(self) -> Dict[str, random_events.variable.Variable]:

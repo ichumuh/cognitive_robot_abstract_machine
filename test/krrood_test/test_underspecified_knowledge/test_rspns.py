@@ -1,23 +1,23 @@
 import numpy as np
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
-from krrood.entity_query_language.factories import underspecified, variable
+from krrood.entity_query_language.factories import underspecified
 from krrood.ormatic.data_access_objects.helper import to_dao
 from krrood.parametrization.feature_extractor import FeatureExtractor
 from krrood.parametrization.model_registries import DictRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
-from krrood_test.dataset.example_classes import (
+from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
+    learn_probabilistic_circuit,
+)
+from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+from ..dataset.example_classes import (
     NestedAction,
     KRROODPose,
     KRROODPosition,
     KRROODOrientation,
 )
-from krrood_test.dataset.semantic_world_like_classes import Body, Apple
-from probabilistic_model.probabilistic_circuit.relational.learn_rspn import (
-    learn_probabilistic_circuit,
-)
-from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 from ..dataset.ormatic_interface import *  # type: ignore
+from ..dataset.semantic_world_like_classes import Body
 
 
 def test_rspn_learning():
@@ -26,7 +26,7 @@ def test_rspn_learning():
             position=underspecified(KRROODPosition)(x=..., y=..., z=...),
             orientation=underspecified(KRROODOrientation)(x=..., y=..., z=..., w=...),
         ),
-        obj=None,
+        obj=Body(name="body"),
     )
 
     parameters = UnderspecifiedParameters(action)
@@ -39,6 +39,7 @@ def test_rspn_learning():
     backend = ProbabilisticBackend(probabilistic_registry, number_of_samples=50)
     samples = list(backend.evaluate(action))
     assert all([sample.obj == samples[0].obj for sample in samples])
+
     samples_to_daos = [to_dao(sample) for sample in samples]
 
     feature_extractor = FeatureExtractor(samples_to_daos)
