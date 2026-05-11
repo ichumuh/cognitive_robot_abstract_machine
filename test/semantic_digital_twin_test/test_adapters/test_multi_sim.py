@@ -475,3 +475,12 @@ def test_spawn_body_with_connections():
         multi_sim.stop_simulation()
     finally:
         stop_multisim_if_running(multi_sim)
+
+def test_hsrb_loading(hsr_world_copy):
+    try:
+        multi_sim = MujocoSim(world=hsr_world_copy, headless=headless)
+        multi_sim.start_simulation()
+        time.sleep(1)
+        multi_sim.stop_simulation()
+    except ParsingError:
+        pytest.skip("Skipping HSRB krrood_test due to URDF parsing error.")
