@@ -35,7 +35,7 @@ jobs:
           with open('src/random_events/__init__.py') as f:
               for line in f:
                   if line.startswith('__version__'):
-                      print(ast.parse(line).body[0].value.s)
+                      print(ast.literal_eval(line.split('=', 1)[1].strip()))
                       break
           ")
           echo "Local version: $LOCAL_VERSION"
@@ -45,15 +45,13 @@ jobs:
             | tr -d ' ' || echo "0.0.0")
           echo "PyPI version: $PYPI_VERSION"
 
-          if python -c "
-          from packaging.version import Version
+          python -c "
           import sys
-          sys.exit(0 if Version('$LOCAL_VERSION') > Version('$PYPI_VERSION') else 1)
-          "; then
-            echo "should_publish=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-          fi
+          def parse(v):
+              return tuple(int(x) for x in v.split('.'))
+          sys.exit(0 if parse('$LOCAL_VERSION') > parse('$PYPI_VERSION') else 1)
+          " && echo "should_publish=true" >> $GITHUB_OUTPUT \
+            || echo "should_publish=false" >> $GITHUB_OUTPUT
           echo "version=$LOCAL_VERSION" >> $GITHUB_OUTPUT
 
   build-wheels:
