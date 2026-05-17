@@ -212,7 +212,8 @@ def test_apartment_semantic_annotations(apartment_world_setup):
 def test_explain_inferred_semantic_annotations(apartment_world_setup):
     world_reasoner = WorldReasoner(apartment_world_setup)
     found_semantic_annotations = list(world_reasoner.infer_semantic_annotations())
-    explanation = explain_inference(next(ann for ann in found_semantic_annotations if isinstance(ann, Drawer)))
+    drawer = next(ann for ann in found_semantic_annotations if isinstance(ann, Drawer))
+    explanation = explain_inference(drawer)
     assert explanation is not None
     assert isinstance(explanation.query_root, InstantiatedVariable)
     assert explanation.get_satisfied_conditions_as_string() == (
