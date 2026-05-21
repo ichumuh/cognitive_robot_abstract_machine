@@ -11,7 +11,7 @@ from pycram.robot_plans.actions.core.container import OpenAction
 from pycram.robot_plans.actions.core.misc import MoveToReach
 from semantic_digital_twin.robots.abstract_robot import Manipulator
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
-from semantic_digital_twin.spatial_types import Pose2D
+from semantic_digital_twin.spatial_types import Pose2D, Pose
 from semantic_digital_twin.world_description.graph_of_convex_sets import (
     navigation_map_at_target,
     translate_free_space_to_where_condition,
@@ -41,15 +41,23 @@ class Sage10kOpenDoor(ActionDescription):
         gcs = navigation_map_at_target(target=self.door.handle.root)
 
         arm = Arms.LEFT
-        pre_grasp_pose = self.door.handle.pre_grasp_pose()
+
+        min_p = self.door.handle.root.collision.min_point
+        max_p = self.door.handle.root.collision.max_point
+
+        x = min_p.x - 0.05
+        y = (min_p.y + max_p.y) / 2
+        z = (min_p.z + max_p.z) / 2
+
+        pre_grasp_pose = Pose.from_xyz_rpy(
+            x=x, y=y, z=z, reference_frame=self.door.handle.root
+        )
 
         # Find a node in free space that is near the pre-grasp pose.
-        target_node = gcs.node_of_point(self.door.handle.pre_grasp_pose().position)
+        target_node = gcs.node_of_point(pre_grasp_pose.position)
         if target_node is None:
             raise PointOccupiedError(
-                self.world.transform(
-                    self.door.handle.pre_grasp_pose(), self.world.root
-                ).position
+                self.world.transform(pre_grasp_pose, self.world.root).position
             )
 
         gcs = gcs.create_subgraph(

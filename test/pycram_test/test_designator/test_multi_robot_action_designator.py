@@ -574,7 +574,7 @@ def test_facing(immutable_multiple_robot_apartment):
         )
 
 
-def test_transport(mutable_multiple_robot_apartment, rclpy_node):
+def test_transport(mutable_multiple_robot_apartment):
     world, robot, context = mutable_multiple_robot_apartment
 
     description = TransportAction(
@@ -600,13 +600,13 @@ def test_move_to_reach(immutable_multiple_robot_apartment, rclpy_node):
     world, robot, context = immutable_multiple_robot_apartment
 
     move_to_reach = MoveToReach(
-        target_pose_robot=Pose2D(x=0.4, yaw=np.pi),
+        target_pose_robot=Pose2D(y=-0.3),
         target_pose_manipulator=Pose.from_xyz_rpy(
-            x=0.7, y=-0.4, z=0.77, reference_frame=world.root
+            x=0.7, y=-1, z=0.9, reference_frame=world.root
         ),
-        hip_rotation=-0.0,
+        hip_rotation=0.0,
         grasp_description=GraspDescription(
-            approach_direction=ApproachDirection.FRONT,
+            approach_direction=ApproachDirection.LEFT,
             vertical_alignment=VerticalAlignment.NoAlignment,
             rotate_gripper=False,
             manipulator=world.get_semantic_annotations_by_type(Manipulator)[0],
@@ -614,7 +614,7 @@ def test_move_to_reach(immutable_multiple_robot_apartment, rclpy_node):
     )
     VizMarkerPublisher(_world=world, node=rclpy_node).with_tf_publisher()
     PosePublisher(
-        pose=Pose.from_xyz_rpy(x=0.7, y=-0.4, z=0.77, reference_frame=world.root),
+        pose=Pose.from_xyz_rpy(x=0.7, y=-1, z=0.9, reference_frame=world.root),
         _world=world,
         node=rclpy_node,
     ).with_tf_publisher()
@@ -622,4 +622,3 @@ def test_move_to_reach(immutable_multiple_robot_apartment, rclpy_node):
     plan = execute_single(move_to_reach, context=context)
     with simulated_robot:
         plan.perform()
-    time.sleep(1)

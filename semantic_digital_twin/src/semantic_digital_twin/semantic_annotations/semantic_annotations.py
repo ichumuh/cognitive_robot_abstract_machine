@@ -131,21 +131,6 @@ class Handle(HasRootBody):
             }
         )
 
-    def pre_grasp_pose(self) -> Pose:
-        """
-        The pre grasp pose of the handle.
-
-        :return: The pre grasp pose.
-        """
-        min_p = self.root.collision.min_point
-        max_p = self.root.collision.max_point
-
-        x = min_p.x - 0.05
-        y = (min_p.y + max_p.y) / 2
-        z = (min_p.z + max_p.z) / 2
-
-        return Pose.from_xyz_rpy(x=x, y=y, z=z, reference_frame=self.root)
-
 
 @dataclass(eq=False)
 class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
