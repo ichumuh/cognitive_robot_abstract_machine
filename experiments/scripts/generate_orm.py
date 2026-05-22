@@ -6,14 +6,16 @@ import numpy as np
 
 import experiments
 import pycram.orm.ormatic_interface
+from krrood.adapters.json_serializer import SubclassJSONSerializer
 from krrood.class_diagrams import ClassDiagram
 from krrood.ormatic.data_access_objects.alternative_mappings import AlternativeMapping
 from krrood.ormatic.helper import get_classes_of_ormatic_interface
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.type_dict import TypeDict
-from krrood.ormatic.utils import classes_of_package
+from krrood.ormatic.utils import classes_of_package, classes_of_module
 from krrood.utils import recursive_subclasses
 from pycram.orm.model import NumpyType
+import pycram.locations.costmaps
 
 # ----------------------------------------------------------------------------------------------------------------------
 # This script generates the ORM classes for the pycram package
@@ -29,6 +31,8 @@ classes, alternative_mappings, type_mappings = get_classes_of_ormatic_interface(
 classes = set(classes)
 
 classes |= set(classes_of_package(experiments))
+classes -= set(classes_of_module(pycram.locations.costmaps))
+classes -= {SubclassJSONSerializer}
 
 
 alternative_mappings += [am for am in recursive_subclasses(AlternativeMapping)]
@@ -64,6 +68,6 @@ logging.getLogger("krrood").setLevel(logging.DEBUG)
 # Generate the ORM classes
 ormatic.make_all_tables()
 
-path = os.path.abspath(os.path.join(os.getcwd(), "../"))
+path = os.path.abspath(os.path.join(os.getcwd(), "../src/experiments/"))
 with open(os.path.join(path, "ormatic_interface.py"), "w") as f:
     ormatic.to_sqlalchemy_file(f)
