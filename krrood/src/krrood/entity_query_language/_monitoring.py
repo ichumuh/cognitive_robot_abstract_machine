@@ -15,10 +15,11 @@ from functools import wraps
 from typing_extensions import Any, Optional, Type, Callable, Union
 
 from krrood.entity_query_language._stack import CallStack, StackFrame
+from krrood.singleton import SingletonMeta
 
 
 @dataclass
-class MonitoredRegistry:
+class MonitoredRegistry(metaclass=SingletonMeta):
     """
     Registry for monitoring EQL object creation stacks.
     Acts as a class decorator and provides lookup methods.
@@ -70,6 +71,5 @@ class MonitoredRegistry:
         """
         return tuple(self._monitored)
 
-
-# Singleton — import this wherever @monitored decoration is needed.
+# The decorator to use for classes to be monitored.
 monitored = MonitoredRegistry()
