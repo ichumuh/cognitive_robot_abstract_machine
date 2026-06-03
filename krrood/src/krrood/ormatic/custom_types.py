@@ -1,6 +1,7 @@
-import importlib
 import enum
 import json
+import importlib
+import pathlib
 
 from sqlalchemy import TypeDecorator, types
 from sqlalchemy import types
@@ -78,3 +79,24 @@ class JSONDataType(TypeDecorator):
     def process_result_value(self, value, dialect):
         """Return the value as-is (raw JSON, not deserialized)."""
         return json.loads(value)
+
+
+class PathType(TypeDecorator):
+    """
+    Type decorator for pathlib.Path objects.
+    """
+
+    impl = types.Text
+    cache_ok = True
+
+    def process_bind_param(self, value: pathlib.Path, dialect) -> Optional[str]:
+        if value is not None:
+            return str(value)
+        return value
+
+    def process_result_value(
+        self, value: Optional[str], dialect
+    ) -> Optional[pathlib.Path]:
+        if value is not None:
+            return pathlib.Path(value)
+        return value

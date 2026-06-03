@@ -62,6 +62,7 @@ from semantic_digital_twin.spatial_computations.raytracer import RayTracer
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Quaternion,
+    Point3,
 )
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.utils import IDGenerator
@@ -1079,6 +1080,16 @@ class World(HasSimulatorProperties):
     @memoize
     def get_body_by_name(self, name: Union[str, PrefixedName]) -> Body:
         return self._get_world_entity_by_name_from_iterable(name, self.bodies)
+
+    def get_bodies_by_global_position(
+        self, world_P_body: Point3, maximum_distance: float = 1e-6
+    ) -> list[Body]:
+        return [
+            body
+            for body in self.bodies
+            if body.global_pose.position.euclidean_distance(world_P_body)
+            <= maximum_distance
+        ]
 
     @memoize
     def get_body_in_branch_by_name(

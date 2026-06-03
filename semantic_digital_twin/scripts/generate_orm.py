@@ -53,6 +53,8 @@ all_classes = set(classes_of_package(semantic_digital_twin))
 all_classes -= set(classes_of_module(semantic_digital_twin.orm.ormatic_interface))
 all_classes -= set(classes_of_package(semantic_digital_twin.adapters))
 all_classes |= set(classes_of_package(semantic_digital_twin.adapters.sage_10k_dataset))
+
+
 # remove classes that should not be mapped
 all_classes -= {
     ResetStateContextManager,

@@ -360,8 +360,7 @@ class Tracy(
         )
 
     def _setup_velocity_limits(self):
-        vel_limits = defaultdict(lambda: 1.0)
-        self.tighten_dof_velocity_limits_of_1dof_connections(new_limits=vel_limits)
+        self.tighten_dof_velocity_limits_proportionally(maximum_velocity=0.2)
 
     @property
     def all_end_effectors(self) -> list[EndEffector]:

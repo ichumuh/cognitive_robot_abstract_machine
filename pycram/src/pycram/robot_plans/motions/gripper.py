@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, List
 
+from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -9,6 +10,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
+from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 from pycram.robot_plans.motions.base import BaseMotion
@@ -165,6 +167,7 @@ class MoveToolCenterPointMotion(BaseMotion):
                 tip_link=tip,
                 goal_point=self.target.to_position(),
                 name="MoveTCP",
+                weight=DefaultWeights.WEIGHT_BELOW_CA,
             )
         else:
             task = CartesianPose(
@@ -172,6 +175,7 @@ class MoveToolCenterPointMotion(BaseMotion):
                 tip_link=tip,
                 goal_pose=self.target,
                 name="MoveTCP",
+                weight=DefaultWeights.WEIGHT_BELOW_CA,
             )
         return task
 
@@ -223,3 +227,45 @@ class MoveTCPWaypointsMotion(BaseMotion):
             for pose in self.waypoints
         ]
         return Sequence(nodes=nodes)
+
+
+@dataclass
+class MoveManipulatorMotion(BaseMotion):
+    """
+    Moves the Tool center point (TCP) of the robot
+    """
+
+    target: Pose
+    """
+    Target pose to which the TCP should be moved
+    """
+
+    manipulator: EndEffector
+    """
+    The Manipulator to move to the target pose
+    """
+
+    allow_gripper_collision: bool = False
+    """
+    If the gripper can collide with something
+    """
+
+    @property
+    def _motion_chart(self):
+        robot = self.robot
+        full_body_controlled = robot.mobile_base.full_body_controlled if isinstance(robot, HasMobileBase) else False
+
+        root = self.world.root if full_body_controlled else robot.root
+        goal_pose = (
+            self.target
+            if full_body_controlled
+            else self.world.transform(self.target, root)
+        )
+        task = CartesianPose(
+            root_link=root,
+            tip_link=self.manipulator.tool_frame,
+            goal_pose=goal_pose,
+            threshold=0.005,
+            name=self.__class__.__name__,
+        )
+        return task
