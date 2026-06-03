@@ -37,9 +37,17 @@ class CaseWhen(Selectable):
     """The value returned if the condition is false. Defaults to None."""
 
     def __post_init__(self):
-        # Inherit type from then_value for EQL type validation
         self._type_ = getattr(self.then_value, '_type_', None)
-        # Framework initialization — registers children for tree traversal
+        # Explicitly register children — _update_children_ converts non-SymbolicExpression
+        # values (like plain Python ints/strings) to Literal nodes automatically
+        if self.else_value is not None:
+            self.condition, self.then_value, self.else_value = self._update_children_(
+                self.condition, self.then_value, self.else_value
+            )
+        else:
+            self.condition, self.then_value = self._update_children_(
+                self.condition, self.then_value
+            )
         super().__post_init__()
 
     def _replace_child_field_(self, old: Any, new: Any) -> None:
