@@ -6,6 +6,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Self, List
 
+from typing_extensions import Type
+
 from semantic_digital_twin.collision_checking.collision_matrix import (
     MaxAvoidedCollisionsOverride,
 )
@@ -31,6 +33,8 @@ from semantic_digital_twin.robots.robot_part_mixins import (
     HasEndEffector,
     GenericLeftFinger,
     GenericRightFinger,
+    HasFingers,
+    GenericFinger,
 )
 from semantic_digital_twin.robots.robot_parts import (
     MobileBase,
@@ -188,6 +192,13 @@ class PR2RightGripper(
     EndEffector, HasTwoFingers[PR2RightGripperLeftFinger, PR2RightGripperRightFinger]
 ):
 
+    @classmethod
+    def _thumb_class(cls):
+        """
+        Returns the class of the thumb type for this HasFingers mixin.
+        """
+        return PR2RightGripperLeftFinger
+
     def setup_joint_states(self) -> List[JointState]:
         right_gripper_joints = self.active_connections
 
@@ -227,6 +238,10 @@ class PR2RightGripper(
 class PR2LeftGripper(
     EndEffector, HasTwoFingers[PR2LeftGripperLeftFinger, PR2LeftGripperRightFinger]
 ):
+
+    @classmethod
+    def _thumb_class(cls):
+        return PR2LeftGripperLeftFinger
 
     def setup_joint_states(self) -> List[JointState]:
         left_gripper_joints = self.active_connections
