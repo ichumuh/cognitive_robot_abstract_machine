@@ -888,7 +888,7 @@ def test_repeated_collision_pr2_apartment_does_not_increase_execution_time(
     world = deepcopy(pr2_apartment_world)
 
     tool_frame = world.get_body_by_name("r_gripper_tool_frame")
-    robot = PR2.from_world(world)
+    robot = world.get_semantic_annotations_by_type(PR2)[0]
 
     left_arm_park = robot.left_arm.get_joint_state_by_type(StaticJointState.PARK)
     right_arm_park = robot.right_arm.get_joint_state_by_type(StaticJointState.PARK)
