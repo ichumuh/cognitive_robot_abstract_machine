@@ -21,12 +21,35 @@ date_str = datetime.datetime.now().strftime("%Yy-%mm-%dd--%Hh-%Mm-%Ss")
 
 
 @dataclass
-class QPDebugger:
+class QuadraticProgramDebugger:
+    """
+    This class is designed to help you debug Giskard's quadratic programs (QP) by using names of constraints and
+    degrees of freedom to create panda arrays with names rows and columns.
+    """
+
     qp_data_symbolic: QPDataSymbolic
+    """
+    The symbolic casadi expressions for computing the QP components.
+    """
     current_solution: np.ndarray | None = field(default=None)
+    """
+    The solution of the QP, None if there is none.
+    """
     direct_limits: pandas.DataFrame = field(init=False)
+    """
+    This panda array gives you insights into the decision variables of the QP.
+    It contains columns for direct upper and lower bounds, last solution and weights.
+    """
     equality_constraints: pandas.DataFrame = field(init=False)
+    """
+    This panda array gives insight in the equality constraints.
+    It contains columns for the equality bounds, the result of the equality matrix * decision variables (without slack),
+    and the slack, which is essentially how much the constraints are violated. 
+    """
     equality_matrix: pandas.DataFrame = field(init=False)
+    """
+    
+    """
     inequality_constraints: pandas.DataFrame = field(init=False)
     inequality_matrix: pandas.DataFrame = field(init=False)
 

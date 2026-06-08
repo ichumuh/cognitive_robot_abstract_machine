@@ -10,7 +10,7 @@ import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.qp_data_factories import QPDataFactory
 from giskardpy.qp.qp_data_symbolic import QPDataSymbolic
-from giskardpy.qp.qp_debugger import QPDebugger
+from giskardpy.qp.qp_debugger import QuadraticProgramDebugger
 from giskardpy.qp.solvers.qp_solver import QPSolver
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 
@@ -36,7 +36,7 @@ class QPController:
 
     qp_data_factory: QPDataFactory = field(default=None, init=False)
     qp_solver: QPSolver = field(default=None, init=False)
-    debugger: QPDebugger = field(default=None, init=False)
+    debugger: QuadraticProgramDebugger = field(default=None, init=False)
 
     def __post_init__(self, degrees_of_freedom: List[DegreeOfFreedom]):
         self.qp_solver = self.config.qp_solver_class()
@@ -64,7 +64,9 @@ class QPController:
             life_cycle_symbols=self.life_cycle_variables,
             float_variables=self.float_variables,
         )
-        self.debugger = QPDebugger(qp_data_symbolic=self.qp_data_factory.qp_data)
+        self.debugger = QuadraticProgramDebugger(
+            qp_data_symbolic=self.qp_data_factory.qp_data
+        )
 
     def _set_active_dofs(self, degrees_of_freedom: List[DegreeOfFreedom]):
         all_active_float_variables = set().union(

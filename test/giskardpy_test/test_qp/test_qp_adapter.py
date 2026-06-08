@@ -6,7 +6,7 @@ from giskardpy.qp.constraint import DofLimits
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.qp.qp_data_factories import QPDataExplicitFactory
-from giskardpy.qp.qp_debugger import QPDebugger
+from giskardpy.qp.qp_debugger import QuadraticProgramDebugger
 from giskardpy.qp.solvers.qp_solver_piqp import QPSolverPIQP
 from krrood.symbolic_math.symbolic_math import (
     FloatVariable,
@@ -387,7 +387,9 @@ def test_qp_data_symbolic(prismatic_bot2):
     )
     qp_data_filtered = qp_data.apply_filters()
     solution = QPSolverPIQP().solver_call(qp_data_filtered)
-    debugger = QPDebugger(qp_data_symbolic=qp_data_symbolic, current_solution=solution)
+    debugger = QuadraticProgramDebugger(
+        qp_data_symbolic=qp_data_symbolic, current_solution=solution
+    )
     assert len(debugger.inequality_constraints) == 1
     assert len(debugger.equality_constraints) == 22
 
