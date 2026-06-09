@@ -14,5 +14,5 @@ class TFPublisher(GiskardBehavior):
 
     @catch_and_raise_to_blackboard
     def update(self):
-        GiskardBlackboard().giskard.tf_publisher.notify_state_change()
+        GiskardBlackboard().giskard.tf_publisher.on_state_change()
         return Status.SUCCESS
