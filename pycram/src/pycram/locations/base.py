@@ -1,22 +1,17 @@
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from typing_extensions import List, Iterator, Optional, Iterable
 
-from giskardpy.motion_statechart.goals.collision_avoidance import (
-    ExternalCollisionDistanceMonitor,
-)
 from krrood.entity_query_language.predicate import Predicate
 from pycram.datastructures.dataclasses import Context
-from pycram.utils import collision_check
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
-from semantic_digital_twin.collision_checking.collision_matrix import CollisionMatrix
 from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidExternalCollisions,
     AllowSelfCollisions,
@@ -24,7 +19,6 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.world_entity import Body
 
 logger = logging.getLogger("pycram")
 
