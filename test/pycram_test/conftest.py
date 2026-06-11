@@ -16,6 +16,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.robots.pr2 import PR2
+from semantic_digital_twin.robots.stretch import Stretch
 
 
 def pytest_configure(config):
@@ -40,7 +41,7 @@ def viz_marker_publisher():
 @pytest.fixture(scope="function")
 def mutable_model_world(pr2_apartment_world):
     world = deepcopy(pr2_apartment_world)
-    pr2 = PR2.from_world(world)
+    pr2 = world.get_semantic_annotations_by_type(PR2)[0]
     return world, pr2, Context(world, pr2)
 
 
@@ -81,3 +82,16 @@ def pycram_testing_session():
     drop_database(session.bind)
     session.close()
     engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def immutable_stretch_apartment_world(stretch_apartment_world):
+    context = Context(
+        stretch_apartment_world,
+        Stretch.from_world(stretch_apartment_world),
+    )
+    state = deepcopy(stretch_apartment_world.state._data)
+
+    yield stretch_apartment_world, context.robot, context
+
+    stretch_apartment_world.state._data[:] = state
