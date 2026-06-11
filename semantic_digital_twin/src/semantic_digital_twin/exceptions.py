@@ -223,6 +223,7 @@ class WorldIsNotATreeError(WorldValidationError):
             f"The world is not a tree: found {len(self.world.kinematic_structure_entities)} kinematic "
             f"structure entities but {len(self.world.connections)} connections."
         )
+        super().__post_init__()
 
 
 @dataclass
@@ -242,6 +243,7 @@ class BrokenWorldModificationHistoryError(WorldValidationError):
             f"The world is {self.world}"
             f" Potential cause: {self.potential_cause}"
         )
+        super().__post_init__()
 
 
 @dataclass
@@ -261,6 +263,7 @@ class WorldContainsOrphanedDegreeOfFreedom(WorldValidationError):
             f"{set(self.world.degrees_of_freedom) - self.actual_dofs}"
             " Did you forget to call self.delete_orphaned_dofs()?"
         )
+        super().__post_init__()
 
 
 @dataclass
@@ -565,6 +568,7 @@ class WorldEntityNotFoundError(UsageError):
             self.message = f"WorldEntity with name {self.name_or_hash} not found"
         else:
             self.message = f"WorldEntity with hash {self.name_or_hash} not found"
+        super().__post_init__()
 
 
 @dataclass
