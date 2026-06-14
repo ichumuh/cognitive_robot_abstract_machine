@@ -307,6 +307,29 @@ class MismatchingWorld(UsageError):
 
 
 @dataclass
+class CannotBeAPartOf(UsageError):
+    """
+    Raised when ``add`` is called with a part that no composition field of the annotation accepts.
+    """
+
+    annotation: SemanticAnnotation
+    """
+    The annotation the part was being added to.
+    """
+
+    part: SemanticAnnotation
+    """
+    The part that could not be added.
+    """
+
+    def __post_init__(self):
+        self.message = (
+            f"{type(self.part).__name__} cannot be added as a part of "
+            f"{type(self.annotation).__name__}: no composition field accepts it."
+        )
+
+
+@dataclass
 class SemanticAnnotationCircularDependencyError(UsageError):
     """
     Raised when a circular dependency between semantic annotations is detected.

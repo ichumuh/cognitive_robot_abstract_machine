@@ -1,10 +1,8 @@
 import hashlib
-import os
 import threading
 import time
 import unittest
 import uuid
-from copy import deepcopy
 from dataclasses import dataclass, field
 from time import sleep
 from typing import Optional, Set, Tuple, List
@@ -14,19 +12,25 @@ import numpy as np
 import pytest
 import rclpy
 import sqlalchemy
-from importlib.resources import files
-from pathlib import Path
-
 from rclpy.executors import SingleThreadedExecutor
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from krrood.adapters.json_serializer import JSONAttributeDiff, to_json, from_json
 from krrood.ormatic.utils import drop_database, create_engine
+from semantic_digital_twin.adapters.ros.messages import (
+    MetaData,
+    WorldStateUpdate,
+    LoadModel,
+    Acknowledgment,
+    WorldUpdate,
+)
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelReloadSynchronizer,
     WorldSynchronizer,
 )
 from semantic_digital_twin.adapters.urdf import URDFParser
+from semantic_digital_twin.callbacks.callback import StateChangeCallback
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     MissingWorldModificationContextError,
@@ -35,6 +39,7 @@ from semantic_digital_twin.exceptions import (
     StateUpdateContainsUnknownDegreesOfFreedomError,
     BrokenWorldModificationHistoryError,
 )
+from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
@@ -42,7 +47,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Fridge,
     Drawer,
 )
-from semantic_digital_twin.spatial_types import Vector3, HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
@@ -59,16 +64,6 @@ from semantic_digital_twin.world_description.world_modification import (
     AttributeUpdateModification,
     synchronized_attribute_modification,
 )
-from krrood.adapters.json_serializer import JSONAttributeDiff, to_json, from_json
-from semantic_digital_twin.callbacks.callback import StateChangeCallback
-from semantic_digital_twin.adapters.ros.messages import (
-    MetaData,
-    WorldStateUpdate,
-    LoadModel,
-    Acknowledgment,
-    WorldUpdate,
-)
-from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 
 
 def create_dummy_world(w: Optional[World] = None) -> World:
@@ -518,7 +513,7 @@ def test_semantic_annotation_modifications_merge_world(rclpy_node):
             name=PrefixedName("handle"),
             world=w0,
         )
-        door.add_handle(handle)
+        door.add(handle)
 
     w1 = World(name="w1")
     w2 = World(name="w2")
@@ -573,7 +568,7 @@ def test_semantic_annotation_change_parameter_during_same_modification_block(
     with w1.modify_world():
         w1.add_semantic_annotation(drawer)
         w1.add_semantic_annotation(handle)
-        drawer.add_handle(handle)
+        drawer.add(handle)
 
     time.sleep(1)
     assert [hash(sa) for sa in w1.semantic_annotations] == [
@@ -875,7 +870,7 @@ def test_attribute_updates(rclpy_node):
     ], f"{[sa.name for sa in world1.semantic_annotations]} vs {[sa.name for sa in world2.semantic_annotations]}"
 
     with world1.modify_world():
-        fridge.add_door(door)
+        fridge.add(door)
 
     time.sleep(1)
     assert [hash(sa) for sa in world1.semantic_annotations] == [

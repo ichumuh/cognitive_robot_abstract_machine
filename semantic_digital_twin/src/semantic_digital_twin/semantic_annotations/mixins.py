@@ -6,24 +6,19 @@ from typing import Tuple
 
 import numpy as np
 import trimesh
-from krrood.entity_query_language.factories import variable_from, entity, variable, an
-from polytope import bounding_box
-from probabilistic_model.distributions.gaussian import GaussianDistribution
-from random_events.product_algebra import Event
-from random_events.set import Set as EventSet
-from random_events.variable import Symbolic
-from semantic_digital_twin.reasoning.predicates import is_supported_by
 from typing_extensions import (
     TYPE_CHECKING,
     List,
     Optional,
     Self,
     Set,
-    Iterable,
     Type,
 )
 
+from krrood.class_diagrams.class_diagram import WrappedClass
+from krrood.entity_query_language.factories import variable_from, entity, variable, an
 from krrood.ormatic.utils import classproperty
+from probabilistic_model.distributions.gaussian import GaussianDistribution
 from probabilistic_model.distributions.helper import make_dirac
 from probabilistic_model.probabilistic_circuit.rx.helper import (
     uniform_measure_of_event,
@@ -34,11 +29,16 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     SumUnit,
     leaf,
 )
+from random_events.product_algebra import Event
+from random_events.set import Set as EventSet
+from random_events.variable import Symbolic
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     MismatchingWorld,
+    CannotBeAPartOf,
 )
+from semantic_digital_twin.reasoning.predicates import is_supported_by
 from semantic_digital_twin.spatial_types import (
     Point3,
     HomogeneousTransformationMatrix,
@@ -71,9 +71,8 @@ if TYPE_CHECKING:
         Drawer,
         Door,
         Handle,
-        Hinge,
-        Slider,
         Aperture,
+        MechanicalJoint,
     )
     from semantic_digital_twin.world import World
 
@@ -266,6 +265,51 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         )
         world.add_connection(self_C_new_child)
 
+    def _attach_entities_in_kinematic_structure(
+        self,
+        parent_entity: KinematicStructureEntity,
+        child_entity: KinematicStructureEntity,
+    ):
+        """
+        Attach child_entity under parent_entity in the kinematic structure.
+        """
+        if parent_entity._world != child_entity._world:
+            raise MismatchingWorld(parent_entity._world, child_entity._world)
+
+        if child_entity.parent_kinematic_structure_entity == parent_entity:
+            return
+
+        world = parent_entity._world
+
+        root_T_parent = self._offline_root_T_entity(parent_entity)
+        root_T_child = self._offline_root_T_entity(child_entity)
+
+        parent_T_child = root_T_parent.inverse() @ root_T_child
+
+        old_parent_connection = child_entity.parent_connection
+        world.remove_connection(old_parent_connection)
+
+        new_connection = FixedConnection(
+            parent=parent_entity,
+            child=child_entity,
+            parent_T_connection_expression=HomogeneousTransformationMatrix(
+                parent_T_child.evaluate()
+            ),
+        )
+        world.add_connection(new_connection)
+
+    def _mount_strategy(self, host: HasRootBody) -> None:
+        """
+        Realize the relationship between this annotation (as a part) and its ``host`` in the
+        kinematic structure. The default is to become a kinematic child of the host; parts with a
+        different strategy (e.g. mechanical joints that re-parent the host, apertures that cut it)
+        override this.
+
+        :param host: The annotation this one is being added to as a part.
+        """
+        # host._attach_child_entity_in_kinematic_structure(self.root)
+        host._attach_entities_in_kinematic_structure(host.root, self.root)
+
     def _offline_root_T_entity(
         self, entity: KinematicStructureEntity
     ) -> HomogeneousTransformationMatrix:
@@ -420,7 +464,51 @@ class HasRootRegion(HasRootKinematicStructureEntity, ABC):
 
 
 @dataclass(eq=False)
-class HasApertures(HasRootBody, ABC):
+class CompositionMixin(HasRootKinematicStructureEntity, ABC):
+    """
+    Base for annotations that have structural *parts* (the composition / part-of relation).
+
+    Each part mixin (``HasHandle``, ``HasDoors``, ...) declares a typed containment field. The
+    unified :meth:`add` routes a part to the field whose element type matches it and lets the part
+    mount itself (:meth:`HasRootKinematicStructureEntity._mount_strategy`). This is distinct from the
+    containment / occupancy relation (see :class:`ContainmentMixin`), which is added via ``place``
+    and is deliberately not reachable through ``add``.
+    """
+
+    @synchronized_attribute_modification
+    def add(self, part: HasRootKinematicStructureEntity) -> None:
+        """
+        Add ``part`` as a structural part, routing it to the matching composition field by type.
+
+        :param part: The part to add.
+        :raises CannotBeAPartOf: If no composition field of this annotation accepts ``type(part)``.
+        """
+        composition_fields = {
+            name
+            # Composition slots are declared on part mixins (e.g. HasHandle) inheriting directly from Composition mixins
+            # but not on concrete annotation classes that merely inherit them and add their own fields (like Door.entry_way).
+            for clazz in type(self).__mro__
+            if CompositionMixin in clazz.__bases__
+            for name in vars(clazz).get("__annotations__", {})
+        }
+        for wrapped_field in WrappedClass(type(self)).fields:
+            element_type = wrapped_field.type_endpoint
+            if wrapped_field.name not in composition_fields or not isinstance(
+                part, element_type
+            ):
+                continue
+
+            part._mount_strategy(self)
+            if wrapped_field.is_one_to_many_relationship:
+                getattr(self, wrapped_field.name).append(part)
+            else:
+                setattr(self, wrapped_field.name, part)
+            return
+        raise CannotBeAPartOf(self, part)
+
+
+@dataclass(eq=False)
+class HasApertures(HasRootBody, CompositionMixin, ABC):
     """
     A mixin class for semantic annotations that have apertures.
     """
@@ -430,66 +518,17 @@ class HasApertures(HasRootBody, ABC):
     The apertures of the semantic annotation.
     """
 
-    @synchronized_attribute_modification
-    def add_aperture(self, aperture: Aperture):
-        """
-        Cuts a hole in the semantic annotation's body for the given body annotation.
-
-        :param aperture: The aperture to cut a hole for.
-        """
-        self._remove_aperture_geometry_from_parent(aperture)
-        self._attach_child_entity_in_kinematic_structure(aperture.root)
-        self.apertures.append(aperture)
-
-    def _remove_aperture_geometry_from_parent(self, aperture: Aperture):
-        """
-        Remove the geometry of the aperture from the parent body's collision and visual geometry.
-
-        :param aperture: The aperture whose geometry should be removed.
-        """
-
-        world = self._world
-        world.update_forward_kinematics()
-        hole_event = aperture.root.area.as_bounding_box_collection_in_frame(
-            self.root
-        ).event
-        wall_event = self.root.collision.as_bounding_box_collection_in_frame(
-            self.root
-        ).event
-        new_wall_event = wall_event - hole_event
-        new_bounding_box_collection = BoundingBoxCollection.from_event(
-            self.root, new_wall_event
-        ).as_shapes()
-
-        self.root.collision = new_bounding_box_collection
-        self.root.visual = new_bounding_box_collection
-
 
 @dataclass(eq=False)
-class HasHinge(HasRootBody, ABC):
+class HasMechanicalJoint(HasRootBody, CompositionMixin, ABC):
     """
-    A mixin class for semantic annotations that have hinge joints.
-    """
-
-    hinge: Optional[Hinge] = field(default=None)
-    """
-    The hinge of the semantic annotation.
+    A mixin class for semantic annotations that have mechanical joints.
     """
 
-    @synchronized_attribute_modification
-    def add_hinge(
-        self,
-        hinge: Hinge,
-    ):
-        """
-        Add a hinge to the semantic annotation.
-
-        :param hinge: The hinge to add.
-        """
-        self._attach_parent_entity_in_kinematic_structure(
-            hinge.root,
-        )
-        self.hinge = hinge
+    mechanical_joint: Optional[MechanicalJoint] = field(default=None)
+    """
+    The mechanical joint of the semantic annotation.
+    """
 
     def _kinematic_structure_entities(
         self, visited: Set[int]
@@ -500,53 +539,13 @@ class HasHinge(HasRootBody, ABC):
         kinematic_structure_entities = (
             self._world.get_kinematic_structure_entities_of_branch(self.root)
         )
-        if self.hinge is not None:
-            kinematic_structure_entities.append(self.hinge.root)
+        if self.mechanical_joint is not None:
+            kinematic_structure_entities.append(self.mechanical_joint.root)
         return kinematic_structure_entities
 
 
 @dataclass(eq=False)
-class HasSlider(HasRootKinematicStructureEntity, ABC):
-    """
-    A mixin class for semantic annotations that have slider joints.
-    """
-
-    slider: Optional[Slider] = field(default=None)
-    """
-    The slider of the semantic annotation.
-    """
-
-    @synchronized_attribute_modification
-    def add_slider(
-        self,
-        slider: Slider,
-    ):
-        """
-        Add a slider to the semantic annotation.
-
-        :param slider: The slider to add.
-        """
-        self._attach_parent_entity_in_kinematic_structure(
-            slider.root,
-        )
-        self.slider = slider
-
-    def _kinematic_structure_entities(
-        self, visited: Set[int]
-    ) -> list[KinematicStructureEntity]:
-        if id(self) in visited:
-            return []
-        visited.add(id(self))
-        kinematic_structure_entities = (
-            self._world.get_kinematic_structure_entities_of_branch(self.root)
-        )
-        if self.slider is not None:
-            kinematic_structure_entities.append(self.slider.root)
-        return kinematic_structure_entities
-
-
-@dataclass(eq=False)
-class HasDrawers(HasRootKinematicStructureEntity, ABC):
+class HasDrawers(CompositionMixin, ABC):
     """
     A mixin class for semantic annotations that have drawers.
     """
@@ -556,23 +555,9 @@ class HasDrawers(HasRootKinematicStructureEntity, ABC):
     The drawers of the semantic annotation.
     """
 
-    @synchronized_attribute_modification
-    def add_drawer(
-        self,
-        drawer: Drawer,
-    ):
-        """
-        Add a drawer to the semantic annotation.
-
-        :param drawer: The drawer to add.
-        """
-
-        self._attach_child_entity_in_kinematic_structure(drawer.root)
-        self.drawers.append(drawer)
-
 
 @dataclass(eq=False)
-class HasDoors(HasRootKinematicStructureEntity, ABC):
+class HasDoors(CompositionMixin, ABC):
     """
     A mixin class for semantic annotations that have doors.
     """
@@ -582,23 +567,9 @@ class HasDoors(HasRootKinematicStructureEntity, ABC):
     The doors of the semantic annotation.
     """
 
-    @synchronized_attribute_modification
-    def add_door(
-        self,
-        door: Door,
-    ):
-        """
-        Add a door to the semantic annotation.
-
-        :param door: The door to add.
-        """
-
-        self._attach_child_entity_in_kinematic_structure(door.root)
-        self.doors.append(door)
-
 
 @dataclass(eq=False)
-class HasHandle(HasRootBody, ABC):
+class HasHandle(HasRootBody, CompositionMixin, ABC):
     """
     A mixin class for semantic annotations that have a handle.
     """
@@ -608,24 +579,9 @@ class HasHandle(HasRootBody, ABC):
     The handle of the semantic annotation.
     """
 
-    @synchronized_attribute_modification
-    def add_handle(
-        self,
-        handle: Handle,
-    ):
-        """
-        Adds a handle to the parent world with a fixed connection.
-
-        :param handle: The handle to add.
-        """
-        self._attach_child_entity_in_kinematic_structure(
-            handle.root,
-        )
-        self.handle = handle
-
 
 @dataclass(eq=False)
-class HasStorageSpace(HasRootBody, ABC):
+class IsStorageSpace(HasRootBody, ABC):
     """
     A mixin class for semantic annotations that represent storage spaces. Used to afterthefact add object for example
     to a table, and have those objects move with the table when it is moved.
@@ -633,7 +589,7 @@ class HasStorageSpace(HasRootBody, ABC):
 
     objects: List[HasRootBody] = field(default_factory=list, hash=False, kw_only=True)
     """
-    The objects stored in the semantic annotation.
+    The occupants currently contained in/on this annotation.
     """
 
     @synchronized_attribute_modification
@@ -659,7 +615,7 @@ class HasStorageSpace(HasRootBody, ABC):
 
 
 @dataclass(eq=False)
-class HasSupportingSurface(HasStorageSpace, ABC):
+class HasSupportingSurface(IsStorageSpace, ABC):
     """
     A semantic annotation that represents a supporting surface.
     """

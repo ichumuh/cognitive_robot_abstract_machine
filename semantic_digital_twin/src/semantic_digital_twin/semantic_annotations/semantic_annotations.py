@@ -25,12 +25,11 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasDoors,
     HasHandle,
     HasCaseAsRootBody,
-    HasHinge,
-    HasSlider,
+    HasMechanicalJoint,
     HasApertures,
     IsPerceivable,
     HasRootBody,
-    HasStorageSpace,
+    IsStorageSpace,
 )
 from semantic_digital_twin.spatial_types import (
     Point3,
@@ -139,6 +138,10 @@ class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
     A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and cookware. It typically has a front door that opens to reveal racks for loading dirty items and a control panel for selecting wash cycles.
     """
 
+    @classproperty
+    def hole_direction(self) -> Vector3:
+        return Vector3.NEGATIVE_X()
+
 
 @dataclass(eq=False)
 class Aperture(HasRootRegion):
@@ -193,9 +196,49 @@ class Aperture(HasRootRegion):
             name, world, parent_T_self, scale=body_scale
         )
 
+    def _mount_strategy(self, host):
+        # An aperture cuts its shape out of the host's geometry, then mounts as a child.
+        self._remove_aperture_geometry_from_parent(host)
+        super()._mount_strategy(host)
+
+    def _remove_aperture_geometry_from_parent(self, parent: HasRootBody):
+        """
+        Remove the geometry of the aperture from the parent body's collision and visual geometry.
+
+        :param parent: The parent from which the aperture geometry is removed.
+        """
+
+        world = parent._world
+        world.update_forward_kinematics()
+        hole_event = self.root.area.as_bounding_box_collection_in_frame(
+            parent.root
+        ).event
+        wall_event = parent.root.collision.as_bounding_box_collection_in_frame(
+            parent.root
+        ).event
+        new_wall_event = wall_event - hole_event
+        new_bounding_box_collection = BoundingBoxCollection.from_event(
+            parent.root, new_wall_event
+        ).as_shapes()
+
+        parent.root.collision = new_bounding_box_collection
+        parent.root.visual = new_bounding_box_collection
+
 
 @dataclass(eq=False)
-class Hinge(HasRootBody):
+class MechanicalJoint(HasRootBody):
+    """
+    A mechanical joint is a physical entity that connects two bodies and allows one to move along or around a fixed axis
+    """
+
+    def _mount_strategy(self, host):
+        # A hinge re-parents its host onto itself (the host rotates about the hinge).
+        # host._attach_parent_entity_in_kinematic_structure(self.root)
+        host._attach_entities_in_kinematic_structure(self.root, host.root)
+
+
+@dataclass(eq=False)
+class Hinge(MechanicalJoint):
     """
     A hinge is a physical entity that connects two bodies and allows one to rotate around a fixed axis.
     """
@@ -206,7 +249,7 @@ class Hinge(HasRootBody):
 
 
 @dataclass(eq=False)
-class Slider(HasRootBody):
+class Slider(MechanicalJoint):
     """
     A Slider is a physical entity that connects two bodies and allows one to linearly translate along a fixed axis.
     """
@@ -221,7 +264,7 @@ class EntryWay(Aperture): ...
 
 
 @dataclass(eq=False)
-class Door(HasHandle, HasHinge):
+class Door(HasHandle, HasMechanicalJoint):
     """
     A door is a physical entity that has covers an opening, has a movable body and a handle.
     """
@@ -359,7 +402,7 @@ class DoubleDoor(SemanticAnnotation):
 
 
 @dataclass(eq=False)
-class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace):
+class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasMechanicalJoint):
 
     @classproperty
     def hole_direction(self) -> Vector3:
