@@ -15,6 +15,7 @@ import numpy as np
 from giskardpy.motion_statechart.data_types import FloatEnum
 from giskardpy.qp.exceptions import (
     InfeasibleException,
+    MismatchedLimitLengthsError,
     VelocityLimitUnreachableException,
 )
 from giskardpy.qp.pos_in_vel_limits import (
@@ -29,7 +30,7 @@ from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFr
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from typing_extensions import Self, Callable
+from typing_extensions import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,17 @@ if TYPE_CHECKING:
 
 
 LargeNumber = 1e4
+
+
+def normalize_slack_weight(
+    weight: Scalar,
+    normalization_factor: float,
+    control_horizon: int = 1,
+) -> Scalar:
+    """
+    Scales a slack weight so constraints with different units become comparable.
+    """
+    return weight * (1 / (sm.Scalar(normalization_factor) ** 2 * control_horizon))
 
 
 def max_velocity_from_horizon_and_jerk_qp(
@@ -73,100 +85,102 @@ def max_velocity_from_horizon_and_jerk_qp(
 
 
 @dataclass
-class DirectLimits(ABC):
+class DirectLimits:
     """
     Represents weights and limits of decision variables in a QP.
     All fields must have the same length.
-    Subclasses must implement the `create` factory method, which should be used for creating it.
     """
 
-    lower_bounds: sm.Vector = field(init=False)
-    upper_bounds: sm.Vector = field(init=False)
-    quadratic_weights: sm.Vector = field(init=False)
-    linear_weights: sm.Vector = field(init=False)
-    names: list[str] = field(init=False)
+    lower_bounds: sm.Vector
+    upper_bounds: sm.Vector
+    quadratic_weights: sm.Vector
+    linear_weights: sm.Vector
+    names: list[str]
+
+    def __post_init__(self):
+        lengths = {
+            "lower_bounds": self.lower_bounds.shape[0],
+            "upper_bounds": self.upper_bounds.shape[0],
+            "quadratic_weights": self.quadratic_weights.shape[0],
+            "linear_weights": self.linear_weights.shape[0],
+            "names": len(self.names),
+        }
+        if len(set(lengths.values())) > 1:
+            raise MismatchedLimitLengthsError(
+                f"All DirectLimits fields must have the same length, got {lengths}."
+            )
+
+    @classmethod
+    def empty(cls) -> DirectLimits:
+        """
+        Creates a DirectLimits without any decision variables.
+        """
+        return cls(
+            lower_bounds=sm.Vector([]),
+            upper_bounds=sm.Vector([]),
+            quadratic_weights=sm.Vector([]),
+            linear_weights=sm.Vector([]),
+            names=[],
+        )
+
+
+@dataclass
+class DofLimits:
+    """
+    Builds a :class:`DirectLimits` holding the bounds and weights of the robot's free variables
+    (velocity and jerk decision variables across the prediction horizon).
+    """
 
     @classmethod
     def create(
         cls,
         degrees_of_freedom: List[DegreeOfFreedom],
         config: QPControllerConfig,
-    ) -> Self:
-        pass
-
-
-@dataclass
-class SlackLimits(DirectLimits):
-    """
-    Implements
-    """
-
-    @classmethod
-    def from_constraints(
-        cls, constraints: list[GiskardConstraint], config: QPControllerConfig
-    ):
+    ) -> DirectLimits:
         self = cls()
-        num_of_slack_variables = len(constraints)
-        self.quadratic_weights = Vector(
-            [
-                self.normalized_weight(
-                    quadratic_weight=c.quadratic_weight,
-                    control_horizon=config.velocity_horizon,
-                    normalization_number=c.normalization_factor,
-                )
-                for c in constraints
-            ]
+        lower_bounds, upper_bounds = self.free_variable_bounds(
+            degrees_of_freedom, config
         )
-        self.linear_weights = Vector(
-            [
-                self.normalized_weight(
-                    quadratic_weight=c.linear_weight,
-                    control_horizon=config.velocity_horizon,
-                    normalization_number=c.normalization_factor,
-                )
-                for c in constraints
-            ]
+        quadratic_weights, linear_weights = self.init_weights(
+            degrees_of_freedom, config
         )
-        self.lower_bounds = Vector([-LargeNumber] * num_of_slack_variables)
-        self.upper_bounds = Vector([LargeNumber] * num_of_slack_variables)
-        self.names = [c.name for c in constraints]
-        return self
+        return DirectLimits(
+            lower_bounds=lower_bounds,
+            upper_bounds=upper_bounds,
+            quadratic_weights=quadratic_weights,
+            linear_weights=linear_weights,
+            names=self.make_names(degrees_of_freedom, config),
+        )
 
-    def normalized_weight(
+    def active_slots(
         self,
-        quadratic_weight: Scalar,
-        normalization_number: float,
-        control_horizon: int,
-    ) -> Scalar:
-        return quadratic_weight * (
-            1 / (sm.Scalar(normalization_number) ** 2 * control_horizon)
-        )
-
-
-@dataclass
-class DofLimits(DirectLimits):
-    @classmethod
-    def create(
-        cls,
         degrees_of_freedom: List[DegreeOfFreedom],
         config: QPControllerConfig,
-    ) -> DofLimits:
-        self = cls()
-        self.free_variable_bounds(degrees_of_freedom, config)
-        self.init_weights(degrees_of_freedom, config)
-        self.make_names(degrees_of_freedom, config)
-        return self
+    ):
+        """
+        Yields every active decision variable slot as a ``(derivative, time_step, dof)`` tuple.
+        The order defines the layout shared by bounds, weights, and names so they stay aligned.
+        """
+        max_derivative = config.max_derivative
+        for derivative, time_step in product(
+            [Derivatives.velocity, Derivatives.jerk],
+            range(config.prediction_horizon),
+        ):
+            if time_step >= config.prediction_horizon - (max_derivative - derivative):
+                continue
+            for degree_of_freedom in degrees_of_freedom:
+                yield derivative, time_step, degree_of_freedom
 
     def make_names(
         self, degrees_of_freedom: List[DegreeOfFreedom], config: QPControllerConfig
-    ):
-        self.names = []
-        for derivative in ["vel", "jerk"]:
-            for k in range(config.prediction_horizon):
-                if derivative == "vel" and k > config.prediction_horizon - 3:
-                    continue
-                for dof in degrees_of_freedom:
-                    self.names.append(f"{dof.name}_{derivative}_k_{k}")
+    ) -> list[str]:
+        short_label = {Derivatives.velocity: "vel", Derivatives.jerk: "jerk"}
+        return [
+            f"{dof.name}_{short_label[derivative]}_k_{time_step}"
+            for derivative, time_step, dof in self.active_slots(
+                degrees_of_freedom, config
+            )
+        ]
 
     def _compute_position_constrained_velocity_bounds(
         self,
@@ -478,7 +492,7 @@ class DofLimits(DirectLimits):
         self,
         degrees_of_freedom: list[DegreeOfFreedom],
         config: QPControllerConfig,
-    ):
+    ) -> tuple[sm.Vector, sm.Vector]:
         max_derivative = config.max_derivative
         lower_bounds = []
         upper_bounds = []
@@ -490,46 +504,33 @@ class DofLimits(DirectLimits):
                 config=config,
             )
             cache[degree_of_freedom.id] = all_limits
-        for derivative, t in product(
-            [Derivatives.velocity, Derivatives.jerk], range(config.prediction_horizon)
+        for derivative, t, degree_of_freedom in self.active_slots(
+            degrees_of_freedom, config
         ):
-            if t >= config.prediction_horizon - (max_derivative - derivative):
-                continue
-            for degree_of_freedom in degrees_of_freedom:
-                lower_bound = cache[degree_of_freedom.id].lower[derivative][t]
-                upper_bound = cache[degree_of_freedom.id].upper[derivative][t]
-                lower_bounds.append(lower_bound)
-                upper_bounds.append(upper_bound)
+            lower_bounds.append(cache[degree_of_freedom.id].lower[derivative][t])
+            upper_bounds.append(cache[degree_of_freedom.id].upper[derivative][t])
 
-        self.lower_bounds = sm.Vector(lower_bounds)
-        self.upper_bounds = sm.Vector(upper_bounds)
+        return sm.Vector(lower_bounds), sm.Vector(upper_bounds)
 
     def init_weights(
         self,
         degrees_of_freedom: list[DegreeOfFreedom],
         config: QPControllerConfig,
-    ):
-        max_derivative = config.max_derivative
+    ) -> tuple[sm.Vector, sm.Vector]:
         quadratic_weights = []
-        for derivative, t in product(
-            [Derivatives.velocity, Derivatives.jerk], range(config.prediction_horizon)
+        for derivative, t, degree_of_freedom in self.active_slots(
+            degrees_of_freedom, config
         ):
-            if t >= config.prediction_horizon - (max_derivative - derivative):
-                continue
-            for degree_of_freedom in degrees_of_freedom:
-                normalized_weight = self.normalize_dof_weight(
-                    limit=degree_of_freedom.limits.upper[derivative],
-                    base_weight=config.get_dof_weight(
-                        degree_of_freedom.name, derivative
-                    ),
-                    t=t,
-                    derivative=derivative,
-                    horizon=config.prediction_horizon - 3,
-                    alpha=config.horizon_weight_gain_scalar,
-                )
-                quadratic_weights.append(normalized_weight)
-        self.quadratic_weights = sm.Vector(quadratic_weights)
-        self.linear_weights = sm.Vector.zeros(len(quadratic_weights))
+            normalized_weight = self.normalize_dof_weight(
+                limit=degree_of_freedom.limits.upper[derivative],
+                base_weight=config.get_dof_weight(degree_of_freedom.name, derivative),
+                t=t,
+                derivative=derivative,
+                horizon=config.prediction_horizon - 3,
+                alpha=config.horizon_weight_gain_scalar,
+            )
+            quadratic_weights.append(normalized_weight)
+        return sm.Vector(quadratic_weights), sm.Vector.zeros(len(quadratic_weights))
 
     def normalize_dof_weight(
         self, limit, base_weight, t, derivative, horizon, alpha
@@ -651,9 +652,31 @@ class IntegralStrategy(EnforcementStrategy):
         return sm.Matrix.diag([self.config.mpc_dt for _ in self.constraints])
 
     def create_slack_variables(self) -> DirectLimits:
-        return SlackLimits.from_constraints(
-            constraints=self.constraints,
-            config=self.config,
+        number_of_slack_variables = len(self.constraints)
+        return DirectLimits(
+            lower_bounds=Vector([-LargeNumber] * number_of_slack_variables),
+            upper_bounds=Vector([LargeNumber] * number_of_slack_variables),
+            quadratic_weights=Vector(
+                [
+                    normalize_slack_weight(
+                        c.quadratic_weight,
+                        c.normalization_factor,
+                        self.config.velocity_horizon,
+                    )
+                    for c in self.constraints
+                ]
+            ),
+            linear_weights=Vector(
+                [
+                    normalize_slack_weight(
+                        c.linear_weight,
+                        c.normalization_factor,
+                        self.config.velocity_horizon,
+                    )
+                    for c in self.constraints
+                ]
+            ),
+            names=[c.name for c in self.constraints],
         )
 
     def _apply_cap(
@@ -798,24 +821,19 @@ class VelocityStrategy(EnforcementStrategy):
                     lower_slack.append(c.lower_slack_limit)
                     upper_slack.append(c.upper_slack_limit)
                     quadratic_weights.append(
-                        self.normalized_weight(
+                        normalize_slack_weight(
                             c.quadratic_weight, c.normalization_factor
                         )
                     )
                     linear_weights.append(c.linear_weight)
                     names.append(f"t{t:03}/{c.name}")
-        limits = SlackLimits()
-        limits.lower_bounds = sm.Vector(lower_slack)
-        limits.upper_bounds = sm.Vector(upper_slack)
-        limits.quadratic_weights = sm.Vector(quadratic_weights)
-        limits.linear_weights = sm.Vector(linear_weights)
-        limits.names = names
-        return limits
-
-    def normalized_weight(
-        self, quadratic_weight: Scalar, normalization_factor
-    ) -> Scalar:
-        return quadratic_weight * (1 / sm.Scalar(normalization_factor)) ** 2
+        return DirectLimits(
+            lower_bounds=sm.Vector(lower_slack),
+            upper_bounds=sm.Vector(upper_slack),
+            quadratic_weights=sm.Vector(quadratic_weights),
+            linear_weights=sm.Vector(linear_weights),
+            names=names,
+        )
 
     def create_bounds(
         self, bounds_getter: Callable[GiskardConstraint, Scalar]
@@ -937,9 +955,6 @@ class SystemDynamicsStrategy(EnforcementStrategy):
             for dof in self.degrees_of_freedom:
                 names.append(f"{dof.name} k_{k} vel/jerk link")
         return names
-
-    def create_slack_variables(self) -> DirectLimits:
-        return SlackLimits()
 
     def create_bounds(
         self, bounds_getter: Callable[GiskardConstraint, Scalar]

@@ -24,3 +24,7 @@ class HardConstraintsViolatedException(InfeasibleException):
 class EmptyProblemException(InfeasibleException, DontPrintStackTrace):
     def __init__(self):
         super().__init__("Empty QP problem.")
+
+
+class MismatchedLimitLengthsError(GiskardException):
+    """Raised when the bounds, weights, and names of a DirectLimits do not all share the same length."""

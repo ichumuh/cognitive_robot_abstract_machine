@@ -2,7 +2,15 @@ from collections import defaultdict
 
 import numpy as np
 
-from giskardpy.qp.constraint import DofLimits, SystemDynamicsStrategy, IntegralStrategy
+import pytest
+
+from giskardpy.qp.constraint import (
+    DirectLimits,
+    DofLimits,
+    SystemDynamicsStrategy,
+    IntegralStrategy,
+)
+from giskardpy.qp.exceptions import MismatchedLimitLengthsError
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.qp.qp_data_factories import QPDataExplicitFactory
@@ -14,6 +22,26 @@ from krrood.symbolic_math.symbolic_math import (
     Vector,
 )
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
+
+
+def test_direct_limits_rejects_mismatched_lengths():
+    with pytest.raises(MismatchedLimitLengthsError):
+        DirectLimits(
+            lower_bounds=Vector([-1.0, -1.0]),
+            upper_bounds=Vector([1.0, 1.0]),
+            quadratic_weights=Vector([0.1, 0.1]),
+            linear_weights=Vector([0.0, 0.0]),
+            names=["only_one_name"],
+        )
+
+
+def test_direct_limits_empty():
+    empty = DirectLimits.empty()
+    assert empty.lower_bounds.shape[0] == 0
+    assert empty.upper_bounds.shape[0] == 0
+    assert empty.quadratic_weights.shape[0] == 0
+    assert empty.linear_weights.shape[0] == 0
+    assert empty.names == []
 
 
 def test_DofLimits(prismatic_bot):
