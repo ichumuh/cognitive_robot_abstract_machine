@@ -1,3 +1,12 @@
+"""
+Decision-variable limits and constraint enforcement strategies for the QP controller.
+
+Defines the box limits and weights of the QP decision variables (:class:`DirectLimits`,
+:class:`DofLimits`, :class:`DofLimitProfiler`), the strategies that turn high level constraints
+into QP matrix rows, slack columns, and bounds (:class:`EnforcementStrategy` and subclasses), and
+the constraint description classes (:class:`GiskardConstraint` and subclasses).
+"""
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +57,7 @@ def normalize_slack_weight(
 ) -> Scalar:
     """
     Scales a slack weight so constraints with different units become comparable.
+    The control horizon spreads the weight over the time steps a constraint is active.
     """
     return weight * (1 / (sm.Scalar(normalization_factor) ** 2 * control_horizon))
 
@@ -61,6 +71,11 @@ def max_velocity_from_horizon_and_jerk_qp(
     max_derivative: Derivatives,
     solver_class: Type[QPSolver],
 ):
+    """
+    Computes the highest velocity reachable within the prediction horizon under the given
+    acceleration and jerk limits, by solving an MPC that maximizes velocity without a binding
+    velocity limit.
+    """
     upper_limits = (
         (vel_limit,) * prediction_horizon,
         (acc_limit,) * prediction_horizon,
@@ -92,12 +107,34 @@ class DirectLimits:
     """
 
     lower_bounds: sm.Vector
+    """
+    Lower box limit of each decision variable.
+    """
+
     upper_bounds: sm.Vector
+    """
+    Upper box limit of each decision variable.
+    """
+
     quadratic_weights: sm.Vector
+    """
+    Quadratic objective weight of each decision variable.
+    """
+
     linear_weights: sm.Vector
+    """
+    Linear objective weight of each decision variable.
+    """
+
     names: list[str]
+    """
+    Human readable name of each decision variable, used for debugging.
+    """
 
     def __post_init__(self):
+        """
+        Ensures all bound, weight, and name fields describe the same number of decision variables.
+        """
         lengths = {
             "lower_bounds": self.lower_bounds.shape[0],
             "upper_bounds": self.upper_bounds.shape[0],
@@ -132,6 +169,9 @@ class DofLimitProfiler:
     """
 
     config: QPControllerConfig
+    """
+    Controller configuration providing horizon length, time step, and solver.
+    """
 
     def _compute_position_constrained_velocity_bounds(
         self,
@@ -142,6 +182,12 @@ class DofLimitProfiler:
         time_step: float,
         prediction_horizon: int,
     ) -> tuple[sm.Vector, sm.Vector, sm.Vector, sm.Scalar]:
+        """
+        Computes per-step velocity bounds that keep the degree of freedom within its position
+        limits, slowing it down early enough to stop before a limit is reached.
+        Returns the lower and upper velocity bounds, a goal velocity profile, and a flag marking
+        when the first step is already at rest against a limit.
+        """
         velocity_limit = upper_limits.velocity
         if lower_limits.position is None:
             velocity_upper_bound = sm.Vector.ones(prediction_horizon) * velocity_limit
@@ -226,6 +272,11 @@ class DofLimitProfiler:
         prediction_horizon: int,
         epsilon: float = 0.00001,
     ) -> DegreeOfFreedomLimits[sm.Vector]:
+        """
+        Computes the velocity, acceleration, and jerk bounds for one degree of freedom across the
+        whole prediction horizon, relaxing the jerk limit on the first steps when the position
+        goal would otherwise be unreachable.
+        """
         jerk_limit = upper_limits.jerk
         acceleration_limit = upper_limits.acceleration
 
@@ -318,15 +369,9 @@ class DofLimitProfiler:
         almost_equal_threshold: float = 0.0001,
     ) -> float:
         """
-        Searches for a jerk limit that allows the controller to achieve the `target_velocity_limit` barely within
-        the prediction horizon.
-        It searches by interactively solving MPCs without velocity limits but with a fixed jerk limit, until
-        the reached velocity is `eps` away from the target.
-        :param prediction_horizon: How many steps the MPC looks into the future. Should be same as final controller
-        :param time_step: Time between MPC steps.
-        :param target_velocity_limit: The velocity limit we want to achieve.
-        :param solver_class: The solver to use
-        :param almost_equal_threshold: Small value used for almost equal checks.
+        Finds the jerk limit under which the controller just barely reaches the target velocity
+        within the prediction horizon.
+        :param target_velocity_limit: The velocity limit that should be reachable.
         :return: The jerk limit that achieves target_velocity_limit.
         """
         jerk_limit = (4 * target_velocity_limit) / time_step**2
@@ -369,6 +414,10 @@ class DofLimitProfiler:
         degree_of_freedom: DegreeOfFreedom,
         max_derivative: Derivatives,
     ) -> DegreeOfFreedomLimits[sm.Vector]:
+        """
+        Computes the horizon bounds for a single degree of freedom, filling in missing
+        acceleration and jerk limits and raising when its velocity limit is unreachable.
+        """
         config = self.config
         lower_limits = DerivativeMap()
         upper_limits = DerivativeMap()
@@ -453,6 +502,9 @@ class DofLimits:
         degrees_of_freedom: List[DegreeOfFreedom],
         config: QPControllerConfig,
     ) -> DirectLimits:
+        """
+        Builds the :class:`DirectLimits` for the given degrees of freedom and configuration.
+        """
         self = cls()
         lower_bounds, upper_bounds = self.free_variable_bounds(
             degrees_of_freedom, config
@@ -490,6 +542,9 @@ class DofLimits:
     def make_names(
         self, degrees_of_freedom: List[DegreeOfFreedom], config: QPControllerConfig
     ) -> list[str]:
+        """
+        Creates a debug name for every free variable slot.
+        """
         short_label = {Derivatives.velocity: "vel", Derivatives.jerk: "jerk"}
         return [
             f"{dof.name}_{short_label[derivative]}_k_{time_step}"
@@ -503,6 +558,9 @@ class DofLimits:
         degrees_of_freedom: list[DegreeOfFreedom],
         config: QPControllerConfig,
     ) -> tuple[sm.Vector, sm.Vector]:
+        """
+        Computes the lower and upper box limits of every free variable slot.
+        """
         max_derivative = config.max_derivative
         lower_bounds = []
         upper_bounds = []
@@ -526,6 +584,9 @@ class DofLimits:
         degrees_of_freedom: list[DegreeOfFreedom],
         config: QPControllerConfig,
     ) -> tuple[sm.Vector, sm.Vector]:
+        """
+        Computes the quadratic and linear objective weights of every free variable slot.
+        """
         quadratic_weights = []
         for derivative, t, degree_of_freedom in self.active_slots(
             degrees_of_freedom, config
@@ -541,9 +602,12 @@ class DofLimits:
             quadratic_weights.append(normalized_weight)
         return sm.Vector(quadratic_weights), sm.Vector.zeros(len(quadratic_weights))
 
-    def normalize_dof_weight(
-        self, limit, base_weight, t, derivative, horizon, alpha
-    ) -> sm.Scalar:
+    def normalize_dof_weight(self, limit, base_weight, t, horizon, alpha) -> sm.Scalar:
+        """
+        Scales a free variable weight by its limit so derivatives become comparable, and ramps it
+        over the horizon so later time steps are penalized more.
+        """
+
         def linear(x_in: float, weight: float, h: int, alpha: float) -> float:
             start = weight * alpha
             a = (weight - start) / h
@@ -558,70 +622,137 @@ class DofLimits:
 
 @dataclass
 class EnforcementStrategy(ABC):
+    """
+    Turns a block of constraints into the QP building blocks that enforce them: the constraint
+    matrix over the free variables, the slack columns and their limits, the bounds, and the row
+    names. Subclasses define how a constraint is mapped onto the prediction horizon.
+    """
+
     degrees_of_freedom: list[DegreeOfFreedom]
+    """
+    Free variables of the robot the constraints act on.
+    """
+
     constraints: list[GiskardConstraint]
+    """
+    Constraints enforced by this strategy.
+    """
+
     config: QPControllerConfig
+    """
+    Controller configuration providing horizon length and time step.
+    """
 
     @abstractmethod
-    def create_matrix(self) -> Matrix: ...
+    def create_matrix(self) -> Matrix:
+        """
+        Builds the constraint matrix mapping the free variables onto the constraint rows.
+        """
+        ...
 
     @abstractmethod
-    def create_slack_matrix(self) -> Matrix: ...
+    def create_slack_matrix(self) -> Matrix:
+        """
+        Builds the matrix coupling the slack variables to the constraint rows.
+        """
+        ...
 
     @abstractmethod
-    def create_names(self) -> list[str]: ...
+    def create_names(self) -> list[str]:
+        """
+        Creates a debug name for every constraint row.
+        """
+        ...
 
     @abstractmethod
-    def create_slack_variables(self) -> DirectLimits: ...
+    def create_slack_variables(self) -> DirectLimits:
+        """
+        Creates the limits and weights of the slack variables introduced by this strategy.
+        """
+        ...
 
     @abstractmethod
     def create_bounds(
         self, bounds_getter: Callable[GiskardConstraint, Scalar]
-    ) -> Vector: ...
+    ) -> Vector:
+        """
+        Builds the constraint bounds, reading the relevant bound of each constraint via the getter.
+        """
+        ...
 
     def create_lower_bounds(self) -> Vector:
+        """
+        Builds the lower bounds of the inequality constraints.
+        """
         for c in self.constraints:
             assert isinstance(c, GiskardInequalityConstraint)
         return self.create_bounds(lambda c: c.lower_bound)
 
     def create_upper_bounds(self) -> Vector:
+        """
+        Builds the upper bounds of the inequality constraints.
+        """
         for c in self.constraints:
             assert isinstance(c, GiskardInequalityConstraint)
         return self.create_bounds(lambda c: c.upper_bound)
 
     def create_equality_bounds(self) -> Vector:
+        """
+        Builds the bounds of the equality constraints.
+        """
         for c in self.constraints:
             assert isinstance(c, GiskardEqualityConstraint)
         return self.create_bounds(lambda c: c.bound)
 
     @property
     def number_of_free_variables(self) -> int:
+        """
+        Number of degrees of freedom controlled by this strategy.
+        """
         return len(self.degrees_of_freedom)
 
     @property
     def number_of_velocity_columns(self) -> int:
+        """
+        Number of velocity decision variable columns across the horizon.
+        """
         return self.number_of_free_variables * (self.config.prediction_horizon - 2)
 
     @property
     def number_of_jerk_columns(self) -> int:
+        """
+        Number of jerk decision variable columns across the horizon.
+        """
         return self.number_of_free_variables * self.config.prediction_horizon
 
     @property
     def position_variables(self) -> Vector:
+        """
+        Symbolic position variables of the degrees of freedom.
+        """
         return Vector([dof.variables.position for dof in self.degrees_of_freedom])
 
     @property
     def velocity_variables(self) -> Vector:
+        """
+        Symbolic velocity variables of the degrees of freedom.
+        """
         return Vector([dof.variables.velocity for dof in self.degrees_of_freedom])
 
     @property
     def acceleration_variables(self) -> Vector:
+        """
+        Symbolic acceleration variables of the degrees of freedom.
+        """
         return Vector([dof.variables.acceleration for dof in self.degrees_of_freedom])
 
 
 @dataclass
 class IntegralStrategy(EnforcementStrategy):
     """
+    Enforces a constraint on the integral of an expression's derivative over the prediction
+    horizon, so a single row covers the whole horizon.
+
     Equality constraints have the form:
     .. math::
         f(q) = b
@@ -630,7 +761,7 @@ class IntegralStrategy(EnforcementStrategy):
 
     .. math::
 
-        target - f = \Delta t \sum_{k=0}^{N-1} J_{f} * sp_k
+        target - f = \\Delta t \\sum_{k=0}^{N-1} J_{f} * sp_k
 
     ::
 
@@ -642,6 +773,10 @@ class IntegralStrategy(EnforcementStrategy):
     """
 
     def create_matrix(self) -> Matrix:
+        """
+        Builds the constraint matrix by repeating the expression jacobian across the velocity
+        horizon and padding the jerk columns with zeros.
+        """
         if len(self.constraints) == 0:
             return sm.Matrix()
         jacobian = (
@@ -656,11 +791,17 @@ class IntegralStrategy(EnforcementStrategy):
         )
 
     def create_slack_matrix(self) -> Matrix:
+        """
+        Builds the diagonal slack matrix with one slack variable per constraint.
+        """
         if len(self.constraints) == 0:
             return sm.Matrix()
         return sm.Matrix.diag([self.config.mpc_dt for _ in self.constraints])
 
     def create_slack_variables(self) -> DirectLimits:
+        """
+        Creates one slack variable per constraint with normalized weights.
+        """
         number_of_slack_variables = len(self.constraints)
         return DirectLimits(
             lower_bounds=Vector([-LargeNumber] * number_of_slack_variables),
@@ -695,6 +836,9 @@ class IntegralStrategy(EnforcementStrategy):
         normalization_number: float,
         control_horizon: int,
     ) -> Scalar:
+        """
+        Clamps a bound to the largest change reachable within the control horizon.
+        """
         # todo normalization with jacobian???
         return sm.limit(
             value,
@@ -709,6 +853,9 @@ class IntegralStrategy(EnforcementStrategy):
         normalization_number: float,
         control_horizon: int,
     ) -> Scalar:
+        """
+        Returns the bound capped to what is reachable within the control horizon.
+        """
         return self._apply_cap(
             equality_bound, dt, normalization_number, control_horizon
         )
@@ -716,6 +863,9 @@ class IntegralStrategy(EnforcementStrategy):
     def create_bounds(
         self, bounds_getter: Callable[GiskardConstraint, Scalar]
     ) -> Vector:
+        """
+        Builds the capped bounds, one per constraint.
+        """
         return Vector(
             [
                 self.capped_bound(
@@ -729,6 +879,9 @@ class IntegralStrategy(EnforcementStrategy):
         )
 
     def create_names(self) -> list[str]:
+        """
+        Returns the constraint names, one row per constraint.
+        """
         return [c.name for c in self.constraints]
 
 
@@ -739,27 +892,7 @@ class VelocityStrategy(EnforcementStrategy):
     Position constraints are implemented by constraining the integral of the expressions' derivative over a prediction horizon.
     All other constraints are applied directly to that derivative of the expression.
     As a result, position constraints are cheaper, as they only require a single constraint.
-    """
 
-    # normalization_factor: sm.ScalarData = field(kw_only=True)
-    """
-    This value is important to make constraints with different units comparable.
-    The meaning depends on derivative.
-    If the derivative is position, the normalization factor is rough velocity with which the expression can change.
-    For example:
-        - If you have a joint position constraint, the normalization factor should be the joint velocity limit.
-        - If you have a cartesian position constraint, the normalization factor should be the cartesian velocity limit.
-    For other derivatives, the normalization factor is the same unit as the expression.
-    For example:
-        - Joint velocity constraint -> joint velocity limit
-        - Cartesian velocity constraint -> cartesian velocity limit
-    .. Warning: This number is different from the bounds of the expression. 
-                If you want to enforce a bound below the actual limit, the normalization factor should still be the true limit.
-    In practice, use joint limits from the URDF for joint space constraints and define two values for cartesian constraints:
-        - a m/s limit for translation
-        - a rad/s value for rotation
-    """
-    """
     Equality constraints have the form:
     .. math::
         f(q) = b
@@ -768,7 +901,7 @@ class VelocityStrategy(EnforcementStrategy):
 
     .. math::
 
-        target - f = \Delta t \sum_{k=0}^{N-1} J_{f} * sp_k
+        target - f = \\Delta t \\sum_{k=0}^{N-1} J_{f} * sp_k
 
     ::
 
@@ -784,6 +917,10 @@ class VelocityStrategy(EnforcementStrategy):
     """
 
     def create_matrix(self) -> Matrix:
+        """
+        Builds the constraint matrix applying the expression jacobian at each velocity step of the
+        horizon, padding the jerk columns with zeros.
+        """
         number_of_vel_rows = len(self.constraints) * (
             self.config.prediction_horizon - 2
         )
@@ -811,6 +948,9 @@ class VelocityStrategy(EnforcementStrategy):
         )
 
     def create_slack_matrix(self) -> Matrix:
+        """
+        Builds the diagonal slack matrix with one slack variable per constraint and velocity step.
+        """
         if len(self.constraints) == 0:
             return sm.Matrix()
         num_slack_variables = sum(
@@ -819,6 +959,9 @@ class VelocityStrategy(EnforcementStrategy):
         return sm.Matrix.eye(num_slack_variables) * self.config.mpc_dt
 
     def create_slack_variables(self) -> DirectLimits:
+        """
+        Creates one slack variable per constraint and velocity step with normalized weights.
+        """
         lower_slack = []
         upper_slack = []
         quadratic_weights = []
@@ -847,6 +990,9 @@ class VelocityStrategy(EnforcementStrategy):
     def create_bounds(
         self, bounds_getter: Callable[GiskardConstraint, Scalar]
     ) -> Vector:
+        """
+        Builds the bounds, one per constraint and control step.
+        """
         bounds2 = []
         for t in range(self.config.control_horizon):
             for c in self.constraints:
@@ -854,6 +1000,9 @@ class VelocityStrategy(EnforcementStrategy):
         return Vector(bounds2)
 
     def create_names(self) -> list[str]:
+        """
+        Creates a name per constraint and control step, prefixed with the time step.
+        """
         names = []
         for t in range(self.config.control_horizon):
             for c in self.constraints:
@@ -912,6 +1061,10 @@ class SystemDynamicsStrategy(EnforcementStrategy):
     """
 
     def create_matrix(self) -> Matrix:
+        """
+        Builds the equality matrix encoding the velocity, acceleration, and jerk integration over
+        the horizon.
+        """
         matrix = np.zeros(
             (
                 self.number_of_jerk_columns,
@@ -956,12 +1109,21 @@ class SystemDynamicsStrategy(EnforcementStrategy):
         return sm.Matrix(matrix)
 
     def create_slack_matrix(self) -> Matrix:
+        """
+        Returns an empty slack matrix, as the system dynamics need no slack variables.
+        """
         return sm.Matrix.zeros(self.number_of_jerk_columns, 0)
 
     def create_slack_variables(self) -> DirectLimits:
+        """
+        Returns empty limits, as the system dynamics introduce no slack variables.
+        """
         return DirectLimits.empty()
 
     def create_names(self) -> list[str]:
+        """
+        Creates a name for every velocity/jerk integration row.
+        """
         names = []
         for k in range(self.config.prediction_horizon):
             for dof in self.degrees_of_freedom:
@@ -970,9 +1132,16 @@ class SystemDynamicsStrategy(EnforcementStrategy):
 
     def create_bounds(
         self, bounds_getter: Callable[GiskardConstraint, Scalar]
-    ) -> Vector: ...
+    ) -> Vector:
+        """
+        Unused; the system dynamics provide equality bounds via :meth:`create_equality_bounds`.
+        """
+        ...
 
     def create_equality_bounds(self) -> Vector:
+        """
+        Builds the equality bounds linking the first horizon steps to the current state.
+        """
         res = sm.Vector.zeros(self.number_of_jerk_columns)
         res[: self.number_of_free_variables] = (
             -self.velocity_variables - self.acceleration_variables * self.config.mpc_dt
@@ -990,6 +1159,9 @@ class GiskardConstraint(ABC):
     """
 
     name: str
+    """
+    Human readable name of the constraint, used for debugging.
+    """
 
     expression: Scalar
     """
@@ -1025,15 +1197,40 @@ class GiskardConstraint(ABC):
     """
 
     lower_slack_limit: sm.ScalarData = field(default=-LargeNumber)
+    """
+    How far the constraint may be violated below its bound.
+    """
+
     upper_slack_limit: sm.ScalarData = field(default=LargeNumber)
+    """
+    How far the constraint may be violated above its bound.
+    """
 
 
 @dataclass
 class GiskardEqualityConstraint(GiskardConstraint):
+    """
+    A constraint that drives the expression to a single target value.
+    """
+
     bound: Scalar
+    """
+    The target value the expression should reach.
+    """
 
 
 @dataclass
 class GiskardInequalityConstraint(GiskardConstraint):
+    """
+    A constraint that keeps the expression between a lower and upper bound.
+    """
+
     lower_bound: Scalar
+    """
+    The lowest allowed value of the expression.
+    """
+
     upper_bound: Scalar
+    """
+    The highest allowed value of the expression.
+    """
