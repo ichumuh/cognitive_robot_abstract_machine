@@ -209,7 +209,7 @@ class WrappedField:
     def is_many_to_one_relationship(self) -> bool:
         """
         ..note:: One-to-one relationships are not possible as its not enforceable that nobody references to the other side.
-        https://docs.sqlalchemy.org/en/21/orm/basic_relationships.html#one-to-one
+        See `one-to-one relationships <https://docs.sqlalchemy.org/en/21/orm/basic_relationships.html#one-to-one>`_
         """
         return not self.is_container and not self.is_builtin_type
 
