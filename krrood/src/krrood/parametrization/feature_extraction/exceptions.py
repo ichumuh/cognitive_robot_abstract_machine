@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing_extensions import Type
+from typing_extensions import Type, Any
 
 from krrood.exceptions import DataclassException, InputError
 
