@@ -21,7 +21,7 @@ class QPSolverPIQP(QPSolver[QPDataExplicit]):
     """
     If the QP is known to be feasible, ignore non-SOLVED solver statuses and return the (possibly
     suboptimal) solution instead of raising.
-    .. warning:: This might lead to instability if the QP was actually infeasible. Only enable it
+    .. warning:: This is unsafe because it might lead to instability if the QP was actually infeasible. Only enable it
         when you are certain the problem is feasible.
     """
 
