@@ -520,20 +520,21 @@ class TestMotionStatechartLogic:
         assert changer.life_cycle_state == LifeCycleValues.NOT_STARTED
         assert changer.state == "on_reset"
 
-    def test_not_not_in_motion_statechart(self):
+    def test_live_state_requires_motion_statechart_membership(self):
         node = ConstTrueNode()
+        # State variables and conditions are available before the node is added.
+        assert node.observation_variable is not None
+        assert node.life_cycle_variable is not None
+        node.pause_condition = node.observation_variable
+        node.end_condition = node.observation_variable
+        node.reset_condition = node.observation_variable
+        # Reading the live state still requires membership in a motion statechart.
         with pytest.raises(NotInMotionStatechartError):
-            muh = node.observation_variable
+            _ = node.motion_statechart
         with pytest.raises(NotInMotionStatechartError):
-            muh = node.life_cycle_variable
+            _ = node.observation_state
         with pytest.raises(NotInMotionStatechartError):
-            node.start_condition = node.observation_variable
-        with pytest.raises(NotInMotionStatechartError):
-            node.pause_condition = node.observation_variable
-        with pytest.raises(NotInMotionStatechartError):
-            node.end_condition = node.observation_variable
-        with pytest.raises(NotInMotionStatechartError):
-            node.reset_condition = node.observation_variable
+            _ = node.life_cycle_state
 
     def test_cancel_motion(self, tmp_path):
         msc = MotionStatechart()
@@ -1890,3 +1891,67 @@ class TestMaxManipulability:
             pr2_world_state_reset.root, tip
         )
         assert np.allclose(fk, goal_pose.to_np(), atol=cart_goal.threshold)
+
+
+class TestEagerStateVariables:
+    """
+    A node's observation and life cycle variables are available right after construction,
+    before it is added to a motion statechart, so conditions can be wired on nested nodes.
+    """
+
+    def test_state_variables_available_before_adding_to_statechart(self):
+        node = ConstTrueNode()
+        assert node.observation_variable is node.observation_variable
+        assert node.life_cycle_variable is node.life_cycle_variable
+
+    def test_nested_self_referential_end_condition_before_compile(self):
+        msc = MotionStatechart()
+        msc.add_node(
+            Sequence(
+                [
+                    ConstTrueNode(),
+                    barrier := Parallel(
+                        [ConstTrueNode(), ConstFalseNode()], minimum_success=1
+                    ),
+                ]
+            )
+        )
+        barrier.end_condition = barrier.observation_variable
+        msc._expand_goals(MotionStatechartContext.empty())
+        msc._add_transitions()
+        assert barrier in barrier._end_condition.node_dependencies
+
+    def test_nested_end_condition_survives_json_round_trip(self):
+        msc = MotionStatechart()
+        msc.add_node(
+            sequence := Sequence(
+                [
+                    ConstTrueNode(),
+                    barrier := Parallel(
+                        [ConstTrueNode(), ConstFalseNode()], minimum_success=1
+                    ),
+                ]
+            )
+        )
+        barrier.end_condition = barrier.observation_variable
+        msc.add_node(EndMotion.when_true(sequence))
+
+        msc._expand_goals(MotionStatechartContext.empty())
+        json_data = msc.create_structure_copy().to_json()
+        new_json_data = json.loads(json.dumps(json_data))
+        msc_copy = MotionStatechart.from_json(new_json_data)
+        msc_copy._add_transitions()
+
+        barrier_copy = msc_copy.get_node_by_index(barrier.index)
+        assert barrier_copy in barrier_copy._end_condition.node_dependencies
+        assert barrier_copy.unique_name in str(barrier_copy._end_condition)
+
+    def test_nodes_with_same_name_have_distinct_variable_names(self):
+        first = ConstTrueNode(name="same")
+        second = ConstTrueNode(name="same")
+        assert first.observation_variable.name != second.observation_variable.name
+
+    def test_self_referential_start_condition_raises_before_add(self):
+        node = ConstTrueNode()
+        with pytest.raises(SelfInStartConditionError):
+            node.start_condition = node.observation_variable

@@ -420,7 +420,6 @@ class MotionStatechart(SubclassJSONSerializer):
         """
         node.motion_statechart = self
         node.index = self.rx_graph.add_node(node)
-        node._post_add_to_motion_statechart()
         self.life_cycle_state.grow()
         self.observation_state.grow()
 
