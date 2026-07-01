@@ -32,6 +32,7 @@ from giskardpy.motion_statechart.monitors.payload_monitors import (
     Pulse,
     CountSeconds,
     CountControlCycles,
+    CountSimulationTimeSeconds,
 )
 from giskardpy.motion_statechart.motion_statechart import (
     MotionStatechart,
@@ -969,6 +970,51 @@ def test_count_ticks():
     kin_sim.tick_until_end()
     # ending tacks 4 ticks, one to turn EndMotion to true
     assert kin_sim.control_cycles == 3 + 1
+
+
+def test_count_control_cycles_returns_false_until_target():
+    node = CountControlCycles(control_cycles=3)
+    context = MotionStatechartContext(world=World())
+    node.on_start(context)
+    assert node.on_tick(context) == ObservationStateValues.FALSE
+    assert node.on_tick(context) == ObservationStateValues.FALSE
+    assert node.on_tick(context) == ObservationStateValues.TRUE
+
+
+def test_count_simulation_time_seconds_reaches_target_on_exact_tick():
+    context = MotionStatechartContext(world=World())
+    ticks_until_true = 4
+    seconds = context.qp_controller_config.control_dt * ticks_until_true
+    node = CountSimulationTimeSeconds(seconds=seconds)
+    node.on_start(context)
+    for _ in range(ticks_until_true - 1):
+        assert node.on_tick(context) == ObservationStateValues.FALSE
+    assert node.on_tick(context) == ObservationStateValues.TRUE
+
+
+def test_count_simulation_time_seconds_on_start_resets_counter():
+    context = MotionStatechartContext(world=World())
+    seconds = context.qp_controller_config.control_dt * 2
+    node = CountSimulationTimeSeconds(seconds=seconds)
+    node.on_start(context)
+    node.on_tick(context)
+    node.on_tick(context)
+    node.on_start(context)
+    assert node.on_tick(context) == ObservationStateValues.FALSE
+
+
+def test_count_simulation_time_seconds_with_executor():
+    context = MotionStatechartContext(world=World())
+    ticks_until_true = 20
+    seconds = context.qp_controller_config.control_dt * ticks_until_true
+    msc = MotionStatechart()
+    msc.add_node(counter := CountSimulationTimeSeconds(seconds=seconds))
+    msc.add_node(EndMotion.when_true(counter))
+    kin_sim = Executor(context)
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+    # +1 for EndMotion to turn True, as in test_count_ticks
+    assert kin_sim.control_cycles == ticks_until_true + 1
 
 
 class TestEndMotion:
