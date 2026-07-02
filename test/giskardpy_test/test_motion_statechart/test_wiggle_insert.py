@@ -103,10 +103,7 @@ def test_wiggle_insert_on_tick_updates_noise(pr2_world_state_reset: World):
     assert not np.allclose(first_translation, second_translation)
 
 
-def test_wiggle_insert(hsr_world_state_reset, rclpy_node):
-    VizMarkerPublisher(
-        _world=hsr_world_state_reset, node=rclpy_node
-    ).with_tf_publisher()
+def test_wiggle_insert(hsr_world_state_reset):
     goal_state = {
         "arm_flex_joint": -1.5,
         "arm_lift_joint": 0.5,
@@ -152,7 +149,6 @@ def test_wiggle_insert(hsr_world_state_reset, rclpy_node):
                                     weight=DefaultWeights.WEIGHT_ABOVE_CA,
                                 ),
                             ],
-                            minimum_success=1,
                         ),
                     ]
                 ),
@@ -162,11 +158,9 @@ def test_wiggle_insert(hsr_world_state_reset, rclpy_node):
     barrier.end_condition = barrier.observation_variable
     msc.add_node(EndMotion.when_true(motion))
 
-    kin_sim = Ros2Executor(
+    kin_sim = Executor(
         MotionStatechartContext(world=hsr_world_state_reset),
         pacer=SimulationPacer(real_time_factor=1),
-        ros_node=rclpy_node,
-        publish_debug_expressions=True,
     )
     kin_sim.compile(motion_statechart=msc)
     kin_sim.tick_until_end()
