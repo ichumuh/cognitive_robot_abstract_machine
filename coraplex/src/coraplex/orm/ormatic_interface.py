@@ -97,7 +97,7 @@ import giskardpy.motion_statechart.tasks.feature_functions
 import giskardpy.motion_statechart.tasks.joint_tasks
 import giskardpy.motion_statechart.tasks.pointing
 import giskardpy.motion_statechart.tasks.weight_scaling_goals
-import giskardpy.motion_statechart.test_nodes.test_nodes
+import giskardpy.motion_statechart.nodes_for_testing.test_nodes
 import giskardpy.qp.constraint
 import giskardpy.qp.constraint_collection
 import giskardpy.qp.dof_limits
