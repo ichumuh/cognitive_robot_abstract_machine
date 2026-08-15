@@ -482,9 +482,37 @@ class CartesianPositionStraight(CartesianTask):
     threshold: float = field(default=0.01, kw_only=True)
     """Distance threshold for goal achievement in meters."""
 
+    _line_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
+    """
+    Where the tip stood when this move began, which is one end of the line it travels.
+    """
+
     @property
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_point.reference_frame
+
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+        """
+        Bind the end of the line the tip starts from, before the constraints describing
+        that line are built against it.
+        """
+        self._line_start_binding = ForwardKinematicsBinding(
+            name=PrefixedName("line_start", str(self.name)),
+            root=self.tip_link,
+            tip=self.root_link,
+            float_variable_data=context.float_variable_data,
+        )
+        self._line_start_binding.bind(context.world)
+        return super().build(context)
+
+    def on_start(self, context: MotionStatechartContext) -> None:
+        """
+        Run the line from where the tip stands now rather than from wherever it stood
+        when the chart was built, which for any move but the first is somewhere else.
+        """
+        super().on_start(context)
+        if self.binding_policy == GoalBindingPolicy.Bind_on_start:
+            self._line_start_binding.bind(context.world)
 
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         """
@@ -536,14 +564,14 @@ class CartesianPositionStraight(CartesianTask):
             x=tip_V_intermediate_error, y=-z, z=y
         )
 
-        # Transform tip kinematics into aligned frame
-        tip_T_root_evaluated = context.world.compute_forward_kinematics(
-            self.tip_link, self.root_link
-        )
+        # Transform tip kinematics into aligned frame, measured from where the tip stood
+        # when this move began.
         root_T_tip = context.world.compose_forward_kinematics_expression(
             self.root_link, self.tip_link
         )
-        aligned_T_tip = tip_R_aligned.inverse() @ tip_T_root_evaluated @ root_T_tip
+        aligned_T_tip = (
+            tip_R_aligned.inverse() @ self._line_start_binding.root_T_tip @ root_T_tip
+        )
 
         expr_p = aligned_T_tip.to_position()
         dist = (root_P_goal - root_P_tip).norm()

@@ -1021,6 +1021,54 @@ class TestCartesianTasks:
         # Verify goal was achieved
         assert cart_straight.observation_state == ObservationStateValues.TRUE
 
+    def test_cartesian_position_straight_after_the_tip_has_already_moved(
+        self, pr2_world_state_reset: World
+    ):
+        """
+        A straight-line move that only starts once something else has carried the tip
+        somewhere else still has to reach its goal.
+
+        The line runs from wherever the tip is when the move begins, which for anything
+        but the first node of a chart is not where it was when the chart was built.
+        """
+        tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "base_footprint"
+        )
+        root = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+            "odom_combined"
+        )
+        destination = Point3(1.0, 1.0, 0, reference_frame=root)
+
+        motion_statechart = MotionStatechart()
+        moves = Sequence(
+            nodes=[
+                CartesianPosition(
+                    name="carry the tip away",
+                    root_link=root,
+                    tip_link=tip,
+                    goal_point=Point3(2.0, -1.0, 0, reference_frame=root),
+                ),
+                CartesianPositionStraight(
+                    name="then go straight",
+                    root_link=root,
+                    tip_link=tip,
+                    goal_point=destination,
+                ),
+            ]
+        )
+        motion_statechart.add_nodes([moves, EndMotion.when_true(moves)])
+
+        executor = Executor(MotionStatechartContext(world=pr2_world_state_reset))
+        executor.compile(motion_statechart=motion_statechart)
+        executor.tick_until_end()
+
+        reached = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)[:3, 3]
+        assert np.allclose(
+            reached,
+            destination.to_np().flatten()[:3],
+            atol=moves.nodes[1].threshold,
+        )
+
     def test_cartesian_pose_straight(self, pr2_world_state_reset: World):
         """
         Test CartesianPositionStraight basic functionality.

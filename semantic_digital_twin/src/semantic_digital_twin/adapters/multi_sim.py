@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
 from types import NoneType
-from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union
+from typing_extensions import Dict, List, Any, ClassVar, Set, Type, Optional, Union
 
 import numpy
 import mujoco
@@ -321,9 +321,17 @@ class KinematicStructureEntityConverter(EntityConverter, ABC):
         kinematic_structure_entity_props = EntityConverter._convert(self, entity)
         # The simulator joint supplies the variable part, so the static frame must
         # exclude it (see Connection.reference_origin_expression).
-        [px, py, pz, qx, qy, qz, qw] = (
-            entity.parent_connection.reference_origin_as_position_quaternion().evaluate()[0]
-        )
+        [
+            px,
+            py,
+            pz,
+            qx,
+            qy,
+            qz,
+            qw,
+        ] = entity.parent_connection.reference_origin_as_position_quaternion().evaluate()[
+            0
+        ]
         kinematic_structure_entity_pos = [px, py, pz]
         kinematic_structure_entity_quat = [qw, qx, qy, qz]
         kinematic_structure_entity_props.update(
@@ -1340,7 +1348,9 @@ class MujocoCylinderConverter(MujocoGeomConverter, CylinderConverter):
         shape_props.update(
             MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
         )
-        shape_props.update({"size": [entity.width / 2, entity.height, 0.0]})
+        # MuJoCo measures a cylinder by its radius and half its length, the way it
+        # measures a box by its half-extents.
+        shape_props.update({"size": [entity.radius, entity.height / 2, 0.0]})
         return shape_props
 
 
@@ -1765,12 +1775,19 @@ class MujocoBuilder(MultiSimBuilder):
 
     spec: mujoco.MjSpec = field(default=mujoco.MjSpec())
 
+    _excluded_contacts: Set[str] = field(default_factory=set, init=False)
+    """
+    Names of the body pairs already excluded, so a pair named by two rules is added once.
+    """
+
     def _start_build(self, file_path: str):
         self.spec = mujoco.MjSpec()
         self.spec.modelname = "scene"
         self.spec.compiler.degree = 0
+        self._excluded_contacts = set()
 
     def _end_build(self, file_path: str):
+        self._build_contact_exclusions()
         self._build_equalities()
         self._build_tendons()
         self.spec.compile()
@@ -2167,6 +2184,64 @@ class MujocoBuilder(MultiSimBuilder):
                 entity_type=mujoco.mjtObj.mjOBJ_BODY,
                 action="add",
             )
+
+    def _build_contact_exclusions(self):
+        """
+        Tell MuJoCo which of a robot's own body pairs never to check for contact.
+
+        A description's neighbouring links overlap where they meet, so a joint whose two
+        links are left to collide is held still by the very contact the world's rules
+        exist to ignore, and no actuator can drive it.
+
+        Only pairs within one robot are exported, and only from the rules that
+        permanently allow a collision. A rule excusing two bodies that merely belong to
+        no robot says the planner need not check them, not that they pass through each
+        other: a block resting on a table is such a pair, and so is the block a robot is
+        pushing.
+        """
+        body_to_robot = self.world.robot_body_to_robot_mapping
+        for rule in self.world.collision_manager.ignore_collision_rules:
+            rule.update(self.world)
+            for collision_check in rule.allowed_collision_pairs:
+                self._exclude_self_contact(
+                    collision_check.body_a, collision_check.body_b, body_to_robot
+                )
+            for body in rule.allowed_collision_bodies:
+                for other in self.world.bodies_with_collision:
+                    self._exclude_self_contact(body, other, body_to_robot)
+
+    def _exclude_self_contact(
+        self, body_a: Body, body_b: Body, body_to_robot: Dict[Body, Any]
+    ):
+        """
+        Exclude a pair, if both bodies are parts of the same robot.
+
+        :param body_a: One of the two bodies.
+        :param body_b: The other.
+        :param body_to_robot: Which robot each body belongs to, if any.
+        """
+        if body_a is body_b:
+            return
+        robot = body_to_robot.get(body_a)
+        if robot is None or body_to_robot.get(body_b) is not robot:
+            return
+        self._exclude_contact(body_a, body_b)
+
+    def _exclude_contact(self, body_a: Body, body_b: Body):
+        """
+        Add one pair MuJoCo should never check, ignoring a pair already added.
+
+        :param body_a: One of the two bodies.
+        :param body_b: The other.
+        """
+        names = sorted((body_a.name.name, body_b.name.name))
+        exclusion_name = "_".join(names)
+        if exclusion_name in self._excluded_contacts:
+            return
+        self._excluded_contacts.add(exclusion_name)
+        self.spec.add_exclude(
+            name=exclusion_name, bodyname1=names[0], bodyname2=names[1]
+        )
 
     def _build_equalities(self):
         """

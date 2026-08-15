@@ -600,6 +600,55 @@ def test_pr2_tighten_dof_velocity_limits_proportionally_no_op_when_within_bounds
         assert connection.raw_dof.limits.upper.velocity == pytest.approx(initial_limit)
 
 
+def test_pr2_relax_dof_velocity_limits_proportionally(pr2_world_state_reset):
+    """
+    All limits scale by the same factor; the joint with the highest limit reaches
+    maximum_velocity, even though that means raising it.
+    """
+    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
+
+    connections_with_limits = [
+        (connection, connection.raw_dof.limits.upper.velocity)
+        for connection in pr2._world.get_connections_by_type(ActiveConnection1DOF)
+        if connection.raw_dof.limits.upper.velocity is not None
+    ]
+    initial_maximum = max(velocity for _, velocity in connections_with_limits)
+    maximum_velocity = initial_maximum * 10
+
+    pr2.relax_dof_velocity_limits_proportionally(maximum_velocity=maximum_velocity)
+
+    for connection, initial_limit in connections_with_limits:
+        expected = initial_limit * (maximum_velocity / initial_maximum)
+        assert connection.raw_dof.limits.upper.velocity == pytest.approx(expected)
+        # Symmetry: lower bound is the negative of the upper bound
+        assert connection.raw_dof.limits.lower.velocity == pytest.approx(-expected)
+
+
+def test_pr2_relax_dof_velocity_limits_proportionally_no_op_when_already_faster(
+    pr2_world_state_reset,
+):
+    """
+    Relaxing to a speed the robot already exceeds would slow it down, which is the other
+    method's job, so it changes nothing.
+    """
+    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
+
+    initial_limits = {
+        connection: connection.raw_dof.limits.upper.velocity
+        for connection in pr2._world.get_connections_by_type(ActiveConnection1DOF)
+        if connection.raw_dof.limits.upper.velocity is not None
+    }
+    initial_maximum = max(initial_limits.values())
+
+    pr2.relax_dof_velocity_limits_proportionally(maximum_velocity=initial_maximum)
+    for connection, initial_limit in initial_limits.items():
+        assert connection.raw_dof.limits.upper.velocity == pytest.approx(initial_limit)
+
+    pr2.relax_dof_velocity_limits_proportionally(maximum_velocity=initial_maximum / 10)
+    for connection, initial_limit in initial_limits.items():
+        assert connection.raw_dof.limits.upper.velocity == pytest.approx(initial_limit)
+
+
 def test_split_chain_of_connections(pr2_world_state_reset):
     body1 = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
         "r_gripper_r_finger_link"

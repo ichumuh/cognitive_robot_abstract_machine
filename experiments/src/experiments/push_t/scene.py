@@ -169,6 +169,98 @@ def build_t_shapes(color: Color) -> List[Shape]:
 
 
 @dataclass
+class TBlockAndTarget:
+    """
+    A T-shaped block lying on a flat surface, and the marker showing where it should end
+    up.
+
+    The marker carries no collision geometry, so it neither obstructs the block nor is
+    moved by it, and both are built from one shape description so the marker can never
+    show a pose the block is unable to match.
+    """
+
+    block: Body
+    """The T-shaped block to be pushed."""
+
+    target: Body
+    """The marker showing the pose the block should be pushed onto."""
+
+    block_connection: Connection6DoF
+    """Carries the block, leaving it free to be moved by contact alone."""
+
+    @classmethod
+    def add_to_world(
+        cls,
+        world: World,
+        surface: Body,
+        surface_height: float,
+        block_pose: PlanarPose,
+        target_pose: PlanarPose,
+    ) -> TBlockAndTarget:
+        """
+        Add a block and its target marker, both resting on a surface.
+
+        :param world: The world to add them to, inside its own modification block.
+        :param surface: The entity the two poses are expressed relative to.
+        :param surface_height: Height of the face they rest on above ``surface``, in
+            metres.
+        :param block_pose: Where the block lies before it is pushed.
+        :param target_pose: The pose it should be pushed onto.
+        :return: The newly added block and marker.
+        """
+        # The shapes are shared between the visual and the collision collection rather
+        # than duplicated, so each is built as a single geom that is both drawn and
+        # collided with.
+        block_shapes = build_t_shapes(BLOCK_COLOR)
+        block = Body(
+            name=PrefixedName("t_block"),
+            visual=ShapeCollection(block_shapes),
+            collision=ShapeCollection(block_shapes),
+        )
+        target = Body(
+            name=PrefixedName("t_target"),
+            visual=ShapeCollection(build_t_shapes(TARGET_COLOR)),
+        )
+        with world.modify_world():
+            world.add_connection(
+                FixedConnection(
+                    parent=surface,
+                    child=target,
+                    parent_T_connection_expression=cls._resting_pose(
+                        target_pose, surface_height, surface
+                    ),
+                )
+            )
+            block_connection = Connection6DoF.create_with_dofs(
+                world=world, parent=surface, child=block
+            )
+            world.add_connection(block_connection)
+        block_connection.origin = cls._resting_pose(block_pose, surface_height, surface)
+        world.notify_state_change()
+        return cls(block=block, target=target, block_connection=block_connection)
+
+    @staticmethod
+    def _resting_pose(
+        pose: PlanarPose, surface_height: float, surface: Body
+    ) -> HomogeneousTransformationMatrix:
+        """
+        Raise a pose on the surface to where a block resting on it actually sits.
+
+        :param pose: The pose on the surface.
+        :param surface_height: Height of the face the block rests on.
+        :param surface: The entity the pose is expressed relative to.
+        :return: The pose with the block's own half-height added.
+        """
+        return HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=pose.x,
+            y=pose.y,
+            z=surface_height + BLOCK_HEIGHT / 2,
+            yaw=pose.yaw,
+            reference_frame=surface,
+        )
+
+
+@dataclass
 class PushTScene:
     """
     A T-shaped block lying on a plane, a marker showing where it should end up, and a
@@ -226,26 +318,13 @@ class PushTScene:
         world = World.create_with_root_body("world")
         root = world.root
 
-        # Each shape is shared between the visual and the collision collection rather
-        # than duplicated, so it is built as a single geom that is both drawn and
-        # collided with.
         ground_shapes = [Box(scale=GROUND_SCALE, color=GROUND_COLOR)]
-        block_shapes = build_t_shapes(BLOCK_COLOR)
         pusher_shapes = [Sphere(radius=PUSHER_RADIUS, color=PUSHER_COLOR)]
 
         ground = Body(
             name=PrefixedName("ground"),
             visual=ShapeCollection(ground_shapes),
             collision=ShapeCollection(ground_shapes),
-        )
-        block = Body(
-            name=PrefixedName("t_block"),
-            visual=ShapeCollection(block_shapes),
-            collision=ShapeCollection(block_shapes),
-        )
-        target = Body(
-            name=PrefixedName("t_target"),
-            visual=ShapeCollection(build_t_shapes(TARGET_COLOR)),
         )
         pusher_x_slide = Body(
             name=PrefixedName("pusher_x_slide"),
@@ -271,20 +350,6 @@ class PushTScene:
                     ),
                 )
             )
-            world.add_connection(
-                FixedConnection(
-                    parent=root,
-                    child=target,
-                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        z=BLOCK_HEIGHT / 2, reference_frame=root
-                    ),
-                )
-            )
-            block_connection = Connection6DoF.create_with_dofs(
-                world=world, parent=root, child=block
-            )
-            world.add_connection(block_connection)
-
             # The pusher hangs off three slide joints rather than a 6DoF connection:
             # those are actively controllable, so a motion controller can command them.
             pusher_x_connection = cls._add_pusher_slide(
@@ -319,26 +384,26 @@ class PushTScene:
             pusher_y_actuator = cls._add_pusher_servo(world, pusher_y_connection)
             pusher_z_actuator = cls._add_pusher_servo(world, pusher_z_connection)
 
+        block_and_target = TBlockAndTarget.add_to_world(
+            world=world,
+            surface=root,
+            surface_height=0.0,
+            block_pose=block_pose,
+            target_pose=PlanarPose(),
+        )
         scene = cls(
             world=world,
             ground=ground,
-            block=block,
-            target=target,
+            block=block_and_target.block,
+            target=block_and_target.target,
             pusher=pusher,
-            block_connection=block_connection,
+            block_connection=block_and_target.block_connection,
             pusher_x_connection=pusher_x_connection,
             pusher_y_connection=pusher_y_connection,
             pusher_z_connection=pusher_z_connection,
             pusher_x_actuator=pusher_x_actuator,
             pusher_y_actuator=pusher_y_actuator,
             pusher_z_actuator=pusher_z_actuator,
-        )
-        scene.block_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=block_pose.x,
-            y=block_pose.y,
-            z=BLOCK_HEIGHT / 2,
-            yaw=block_pose.yaw,
-            reference_frame=root,
         )
         world.state[pusher_x_connection.raw_dof.id].position = pusher_position.x
         world.state[pusher_y_connection.raw_dof.id].position = pusher_position.y

@@ -876,8 +876,8 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         self, maximum_velocity: float
     ) -> None:
         """
-        Tightens the velocity limits of all 1-DOF active connections proportionally,
-        preserving the relative magnitudes defined in the original robot description.
+        Slows every 1-DOF active connection down proportionally, preserving the relative
+        magnitudes defined in the original robot description.
 
         The joint with the highest current velocity limit is mapped to
         ``maximum_velocity``; all others are scaled by the same factor.
@@ -889,25 +889,79 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         :param maximum_velocity: The target velocity for the joint with the
             highest current velocity limit.
         """
-        connections_with_velocity_limits = [
-            (connection, connection.raw_dof.limits.upper.velocity)
-            for connection in self._one_dof_connections
-            if connection.raw_dof.limits.upper.velocity is not None
-        ]
-        if not connections_with_velocity_limits:
+        fastest = self._fastest_dof_velocity_limit()
+        if fastest is None or fastest <= maximum_velocity:
             return
-        original_maximum = max(
-            velocity for _, velocity in connections_with_velocity_limits
-        )
-        if original_maximum <= maximum_velocity:
+        self._scale_dof_velocity_limits_proportionally(fastest, maximum_velocity)
+
+    def relax_dof_velocity_limits_proportionally(self, maximum_velocity: float) -> None:
+        """
+        Speeds every 1-DOF active connection up proportionally, preserving the relative
+        magnitudes defined in the original robot description.
+
+        The counterpart of :meth:`tighten_dof_velocity_limits_proportionally`, for
+        undoing a limit a robot description imposes for its own safety in a setting where
+        that reason does not apply, such as a simulation.
+
+        If the current maximum is already at or above ``maximum_velocity``, no changes
+        are applied, so that asking for more speed can never yield less.
+
+        :param maximum_velocity: The target velocity for the joint with the
+            highest current velocity limit.
+        """
+        fastest = self._fastest_dof_velocity_limit()
+        if fastest is None or fastest >= maximum_velocity:
             return
-        scale_factor = maximum_velocity / original_maximum
-        for connection, current_velocity in connections_with_velocity_limits:
-            scaled_limit = current_velocity * scale_factor
-            connection.raw_dof._overwrite_dof_limits(
-                new_lower_limits=DerivativeMap(None, -scaled_limit, None, None),
-                new_upper_limits=DerivativeMap(None, scaled_limit, None, None),
+        self._scale_dof_velocity_limits_proportionally(fastest, maximum_velocity)
+
+    def _dofs_with_velocity_limits(self) -> list[DegreeOfFreedom]:
+        """
+        :return: The degrees of freedom behind this robot's 1-DOF active connections that
+            have a velocity limit at all, each listed once.
+
+        Mimicking connections share the degree of freedom they follow, so a limit scaled
+        per connection would be scaled once per follower.
+        """
+        return list(
+            dict.fromkeys(
+                connection.raw_dof
+                for connection in self._one_dof_connections
+                if connection.raw_dof.limits.upper.velocity is not None
             )
+        )
+
+    def _fastest_dof_velocity_limit(self) -> Optional[float]:
+        """
+        :return: The highest velocity limit among this robot's joints, or ``None`` if
+            none of them has one, which leaves nothing to scale.
+        """
+        limits = [
+            dof.limits.upper.velocity for dof in self._dofs_with_velocity_limits()
+        ]
+        if not limits:
+            return None
+        return max(limits)
+
+    def _scale_dof_velocity_limits_proportionally(
+        self, fastest_velocity: float, maximum_velocity: float
+    ) -> None:
+        """
+        Map the fastest of this robot's joints onto ``maximum_velocity`` and scale the
+        rest by the same factor, in whichever direction that turns out to be.
+
+        The limits are written rather than merged, since
+        :meth:`DegreeOfFreedom._overwrite_dof_limits` keeps whichever limit is the more
+        restrictive and so can only ever slow a joint down.
+
+        :param fastest_velocity: The highest velocity limit the robot currently has.
+        :param maximum_velocity: The velocity that limit should become.
+        """
+        scale_factor = maximum_velocity / fastest_velocity
+        for degree_of_freedom in self._dofs_with_velocity_limits():
+            limits = degree_of_freedom.limits
+            scaled_limit = limits.upper.velocity * scale_factor
+            limits.lower.velocity = -scaled_limit
+            limits.upper.velocity = scaled_limit
 
     def get_end_effectors(self) -> list[EndEffector]:
         return [p for p in self._robot_parts if isinstance(p, EndEffector)]
