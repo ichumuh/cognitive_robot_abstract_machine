@@ -7,6 +7,8 @@ be watched while it happens.
 
 import math
 import os
+import random
+from dataclasses import dataclass
 
 import numpy
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from experiments.push_t.push_contacts import (
     BLOCK_CENTROID,
     BLOCK_GYRATION_RADIUS,
+    BLOCK_RADIUS,
     build_push_contacts,
 )
 from experiments.push_t.real_time_simulation import (
@@ -267,31 +270,120 @@ CONTROL_FREQUENCY = 50
 How often per second the motion statechart is ticked.
 """
 
-RUN_TIME_LIMIT = 20.0
+CHOSEN_START_TIME_LIMIT = 20.0
 """
-Simulated seconds after which a run counts as having failed to converge.
+Simulated seconds a run from one of the chosen start poses may take, at most.
 
-The start poses below take between three and ten seconds, so this is a guard on how fast
-the block is placed as much as on whether it is placed at all.
+Those poses take between five and ten seconds, so this is a guard on how fast the block
+is placed as much as on whether it is placed at all.
 """
 
-ROTATION_HEAVY_START = PlanarPose(x=0.12, y=0.06, yaw=0.9)
+RANDOM_START_TIME_LIMIT = 30.0
+"""
+Simulated seconds a run from a randomly drawn start pose may take, at most.
+
+Looser than :data:`CHOSEN_START_TIME_LIMIT` because a drawn pose can be worse than any
+that was picked by hand: over seventy-five draws the slowest took twenty seconds. It asks
+whether an arbitrary pose converges at all, which is a different question from how
+quickly the chosen ones do.
+"""
+
+
+@dataclass
+class PushTStart:
+    """
+    A pose the block starts from, and how long it may take to be pushed onto its target.
+    """
+
+    pose: PlanarPose
+    """
+    Where the block lies before it is pushed.
+    """
+
+    time_limit: float
+    """
+    Simulated seconds after which the run counts as having failed to converge.
+    """
+
+
+ROTATION_HEAVY_START = PushTStart(
+    pose=PlanarPose(x=0.12, y=0.06, yaw=0.9), time_limit=CHOSEN_START_TIME_LIMIT
+)
 """
 A start pose the block mostly has to be turned out of.
 """
 
-TRANSLATION_HEAVY_START = PlanarPose(x=0.25, y=0.12, yaw=0.05)
+TRANSLATION_HEAVY_START = PushTStart(
+    pose=PlanarPose(x=0.25, y=0.12, yaw=0.05), time_limit=CHOSEN_START_TIME_LIMIT
+)
 """
 A start pose the block mostly has to be shoved out of.
 """
 
-TURNED_AROUND_START = PlanarPose(x=0.20, y=0.20, yaw=2.6)
+TURNED_AROUND_START = PushTStart(
+    pose=PlanarPose(x=0.20, y=0.20, yaw=2.6), time_limit=CHOSEN_START_TIME_LIMIT
+)
 """
 A start pose the block has to be turned nearly all the way round from.
 
-The hardest of the three: a push cannot turn a body without also sliding it, so a large
-heading error is corrected over many attempts that keep undoing each other's progress on
-position unless the two are traded off against each other properly.
+The hardest of the fixed three: a push cannot turn a body without also sliding it, so a
+large heading error is corrected over many attempts that keep undoing each other's
+progress on position unless the two are traded off against each other properly.
+"""
+
+# %% a start pose nobody chose
+
+PUSHER_CLEARANCE = 0.02
+"""
+Metres of gap left between the block and the waiting pusher, at their closest.
+
+The two would otherwise be free to start out inside one another, which is not a pose the
+physics can recover from.
+"""
+
+RANDOM_START_REACH = PUSHER_START.x - PUSHER_RADIUS - BLOCK_RADIUS - PUSHER_CLEARANCE
+"""
+How far from its target a randomly placed block may start, in metres.
+
+Far enough out that the block still has to be carried most of the way, and no further
+than leaves it clear of the waiting pusher whichever way it is turned.
+"""
+
+RANDOM_START_SEED = int(os.environ.get("PUSH_T_RANDOM_SEED", "0"))
+"""
+Seed for the randomly drawn start pose.
+
+Fixed by default, so that a failure can be looked into rather than merely reported and so
+that the suite does not report a different result every time it is run. Set
+``PUSH_T_RANDOM_SEED`` to sweep other poses; the seed a run used names its own test case.
+"""
+
+
+def random_start_pose(generator: random.Random) -> PlanarPose:
+    """
+    Draw a start pose from anywhere the block can be placed and turned.
+
+    :param generator: The source of randomness, so that a pose can be reproduced.
+    :return: A pose within :data:`RANDOM_START_REACH` of the target, turned any way at
+        all.
+    """
+    bearing = generator.uniform(-math.pi, math.pi)
+    # Taking the root spreads the draws evenly over the disc rather than crowding them
+    # towards its centre.
+    distance = RANDOM_START_REACH * math.sqrt(generator.random())
+    return PlanarPose(
+        x=distance * math.cos(bearing),
+        y=distance * math.sin(bearing),
+        yaw=generator.uniform(-math.pi, math.pi),
+    )
+
+
+RANDOM_START = PushTStart(
+    pose=random_start_pose(random.Random(RANDOM_START_SEED)),
+    time_limit=RANDOM_START_TIME_LIMIT,
+)
+"""
+A start pose nobody picked, to catch whatever the three chosen ones have in common.
 """
 
 
@@ -343,7 +435,13 @@ def planar_error(block_pose: numpy.ndarray, target_pose: numpy.ndarray):
 
 @pytest.mark.parametrize(
     "block_start",
-    [ROTATION_HEAVY_START, TRANSLATION_HEAVY_START, TURNED_AROUND_START],
+    [ROTATION_HEAVY_START, TRANSLATION_HEAVY_START, TURNED_AROUND_START, RANDOM_START],
+    ids=[
+        "rotation heavy",
+        "translation heavy",
+        "turned around",
+        f"random seed {RANDOM_START_SEED}",
+    ],
 )
 def test_the_statechart_pushes_the_block_onto_the_target(
     block_start, mujoco_scene_file
@@ -352,7 +450,7 @@ def test_the_statechart_pushes_the_block_onto_the_target(
     A statechart given only the block's live pose has to work out where to push it, one
     contact at a time, until it sits on the marker.
     """
-    scene = PushTScene.create(block_pose=block_start, pusher_position=PUSHER_START)
+    scene = PushTScene.create(block_pose=block_start.pose, pusher_position=PUSHER_START)
     goal = build_push_goal(scene)
     motion_statechart = MotionStatechart()
     motion_statechart.add_nodes([goal, EndMotion.when_true(goal)])
@@ -364,12 +462,12 @@ def test_the_statechart_pushes_the_block_onto_the_target(
         )
     )
     executor.compile(motion_statechart=motion_statechart)
-    motion_statechart.draw('/tmp/he_said_tities_hehe.pdf')
+    motion_statechart.draw("/tmp/he_said_tities_hehe.pdf")
 
     with RealTimeSimulation(
         world=scene.world, headless=VIEWER_IS_UNAVAILABLE
     ) as simulation:
-        for _ in range(round(RUN_TIME_LIMIT * CONTROL_FREQUENCY)):
+        for _ in range(round(block_start.time_limit * CONTROL_FREQUENCY)):
             if motion_statechart.is_end_motion():
                 break
             executor.tick()

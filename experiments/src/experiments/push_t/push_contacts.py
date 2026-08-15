@@ -60,6 +60,17 @@ The stem meets the crossbar in the middle of its underside, so what is left to p
 is a pair of ledges either side of it.
 """
 
+BLOCK_RADIUS = max(
+    math.hypot(CROSSBAR_HALF_WIDTH, CROSSBAR_HALF_DEPTH),
+    math.hypot(STEM_HALF_WIDTH, abs(STEM_END)),
+)
+"""
+Radius of the smallest circle about the block's frame holding the whole T, in metres.
+
+Whichever way the T is turned it stays inside this circle, so it is what says how close
+to something else the T may be placed.
+"""
+
 # %% the T's centroid
 
 CROSSBAR_AREA = CROSSBAR_SCALE.x * CROSSBAR_SCALE.y
