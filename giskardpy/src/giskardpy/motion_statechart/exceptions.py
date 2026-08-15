@@ -590,32 +590,19 @@ class EmptyDebugExpressionTrajectoryError(MotionStatechartError):
 
 
 @dataclass
-class UncorrectableOrientationError(NodeInitializationError):
+class NoImprovingPushError(MotionStatechartError):
     """
-    Raised when a pushing goal would stop correcting a body's orientation before it is
-    close enough to count as reached.
-    """
-
-    orientation_tolerance: float
-    """
-    The error above which the goal keeps turning the body, in radians.
-    """
-
-    orientation_threshold: float
-    """
-    The error at or below which the body counts as pointing the right way, in radians.
+    Raised when none of a body's contacts would bring it any closer to its target pose.
     """
 
     def error_message(self) -> str:
         return (
-            f'"{self.node.unique_name}" stops turning the body once its orientation error '
-            f"is within {self.orientation_tolerance} rad, but only counts it as reached "
-            f"within {self.orientation_threshold} rad, so it can never finish."
+            "No available contact would reduce the body's pose error, so there is no "
+            "push worth making."
         )
 
     def suggest_correction(self) -> str:
         return (
-            "Give the push selector an orientation_tolerance smaller than the goal's "
-            "orientation_threshold, so that every orientation the goal keeps working on is "
-            "one it could still accept."
+            "Check that the body is not already on its target, and that its contacts "
+            "cover enough directions for one of them to push it the way it has to go."
         )

@@ -7,6 +7,8 @@ reshaping the T moves its contacts with it.
 
 from __future__ import annotations
 
+import math
+
 from typing_extensions import List, Sequence
 
 from experiments.push_t.scene import (
@@ -16,6 +18,7 @@ from experiments.push_t.scene import (
 )
 from giskardpy.motion_statechart.goals.pushing import PushContact
 from semantic_digital_twin.spatial_types.spatial_types import Point3, Vector3
+from semantic_digital_twin.world_description.geometry import Scale
 
 # %% the T's outline
 
@@ -69,17 +72,48 @@ STEM_AREA = STEM_SCALE.x * STEM_SCALE.y
 Face area of the stem, used to weigh it against the crossbar.
 """
 
-BLOCK_CENTROID = Point3(
-    x=0.0,
-    y=STEM_AREA * STEM_CENTRE / (CROSSBAR_AREA + STEM_AREA),
-    z=0.0,
-)
+CENTROID_OFFSET = STEM_AREA * STEM_CENTRE / (CROSSBAR_AREA + STEM_AREA)
 """
-The T's centroid, in the block's own frame.
+Where the T's centroid sits along the block frame's y axis.
 
 The block's frame sits on the crossbar rather than on the centroid, and a push's turning
 effect is about the centroid, so the two must not be confused.
 """
+
+BLOCK_CENTROID = Point3(x=0.0, y=CENTROID_OFFSET, z=0.0)
+"""
+The T's centroid, in the block's own frame.
+"""
+
+
+def box_second_moment(scale: Scale, centre_offset: float) -> float:
+    """
+    How far one of the T's two boxes has its area spread from the block's centroid.
+
+    :param scale: Extents of the box.
+    :param centre_offset: How far the box's own centre sits from :data:`BLOCK_CENTROID`.
+    :return: The box's second moment of area about the centroid, in metres to the
+        fourth.
+    """
+    own_spread = (scale.x**2 + scale.y**2) / 12
+    return scale.x * scale.y * (own_spread + centre_offset**2)
+
+
+BLOCK_GYRATION_RADIUS = math.sqrt(
+    (
+        box_second_moment(CROSSBAR_SCALE, -CENTROID_OFFSET)
+        + box_second_moment(STEM_SCALE, STEM_CENTRE - CENTROID_OFFSET)
+    )
+    / (CROSSBAR_AREA + STEM_AREA)
+)
+"""
+The radius of gyration of the T's footprint about its centroid, in metres.
+
+It is the distance at which the whole footprint could be concentrated and still resist
+turning as much as it does, so it sets how much of a push off the centre goes into
+spinning the T rather than sliding it.
+"""
+
 
 # %% sampling the outline
 

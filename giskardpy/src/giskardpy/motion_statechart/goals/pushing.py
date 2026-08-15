@@ -1,23 +1,22 @@
 """
 Push a free-moving body onto a target pose with a single point of contact.
 
-A body that is only touched, never held, cannot be moved along an arbitrary path: a point
-contact can push but not pull, so reaching a pose takes a sequence of pushes, each chosen
-against the pose the body has by then.
+A body that is only touched, never held, cannot be moved along an arbitrary path: a
+point contact can push but not pull, so reaching a pose takes a sequence of pushes, each
+chosen against the pose the body has by then.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from enum import Enum
 
 import numpy
 from typing_extensions import List, Optional
 
 from krrood.symbolic_math.symbolic_math import trinary_logic_not, trinary_logic_or
 from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.exceptions import UncorrectableOrientationError
+from giskardpy.motion_statechart.exceptions import NoImprovingPushError
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts
 from giskardpy.motion_statechart.monitors.cartesian_monitors import PoseReached
@@ -59,19 +58,94 @@ class PushContact:
     """
 
 
-class PushPhase(Enum):
+# %% weighing a slide against a turn
+
+
+@dataclass
+class PoseTolerance:
     """
-    Which part of a body's pose error the next push is meant to correct.
+    How close to a target pose counts as being there.
     """
 
-    ROTATE = 1
+    position: float
     """
-    The body is pointing the wrong way, so it is pushed off-centre to turn it.
+    How far the body may be from where it belongs, in metres.
     """
 
-    TRANSLATE = 2
+    orientation: float
     """
-    The body is pointing about right, so it is pushed towards where it belongs.
+    How far the body may be turned from the way it should point, in radians.
+    """
+
+    @property
+    def rotation_radius(self) -> float:
+        """
+        :return: The distance, in metres, at which a radian of turn is worth as much as a
+            metre of slide.
+
+        Being turned by the whole of :attr:`orientation` is exactly as much of a miss as
+        being displaced by the whole of :attr:`position`, so the ratio of the two is the
+        rate at which the one converts into the other.
+        """
+        return self.position / self.orientation
+
+
+@dataclass
+class PlanarDisplacement:
+    """
+    How far a body slides and how far it turns, in the plane.
+    """
+
+    translation: numpy.ndarray
+    """
+    How far the body moves, as an ``(x, y)`` vector in metres.
+    """
+
+    rotation: float
+    """
+    How far the body turns, in radians, positive anticlockwise.
+    """
+
+    def to_lengths(self, rotation_radius: float) -> numpy.ndarray:
+        """
+        Express this displacement as three lengths, so that slides and turns of
+        different bodies and different sizes can be compared and combined.
+
+        :param rotation_radius: The distance at which the turn is measured, so that it
+            contributes the arc a point that far from the centroid travels.
+        :return: The two translation components and the turn's arc, in metres.
+        """
+        return numpy.array(
+            [
+                self.translation[0],
+                self.translation[1],
+                rotation_radius * self.rotation,
+            ]
+        )
+
+
+# %% choosing the next push
+
+
+@dataclass
+class ScoredPush:
+    """
+    What pushing one contact would achieve.
+    """
+
+    contact: PushContact
+    """
+    The contact that was scored.
+    """
+
+    progress: float
+    """
+    How much of the pose error one metre of pushing this contact removes, in metres.
+    """
+
+    ideal_distance: float
+    """
+    The push length that would leave the least error, in metres.
     """
 
 
@@ -101,19 +175,16 @@ class SelectedPush:
     Where the pusher travels to, past the body, in the root frame.
     """
 
-    phase: PushPhase
-    """
-    The part of the pose error this push was chosen to correct.
-    """
-
-
-# %% choosing the next push
-
 
 @dataclass
 class PushSelector:
     """
     Chooses which contact to push next from a body's pose error.
+
+    A body sliding on a flat surface answers a push with both a slide and a turn at
+    once, in a ratio fixed by where the push acts relative to the centroid. Each contact
+    therefore promises one particular mixture of the two, and the one to push is the one
+    whose mixture best matches what the body's pose error asks for.
 
     Restricting the choice to a fixed list of contacts, rather than solving for an
     arbitrary push, keeps the decision to a comparison between a handful of candidates
@@ -129,8 +200,17 @@ class PushSelector:
     """
     The body's centroid, in the body's own frame.
 
-    A body's frame need not sit on its centroid, and both scores are about how a push
-    acts relative to the centroid rather than the frame.
+    A body's frame need not sit on its centroid, and a push acts relative to the
+    centroid rather than the frame.
+    """
+
+    gyration_radius: float
+    """
+    The radius of gyration of the body's contact with the ground, in metres.
+
+    How much of a push goes into turning the body rather than sliding it is set by how
+    far the push acts from the centroid measured against this length, so a push off the
+    centre of a small body spins it where the same push barely turns a large one.
     """
 
     pusher_radius: float
@@ -162,97 +242,120 @@ class PushSelector:
     Height above the root frame at which contact is made, in metres.
     """
 
-    orientation_tolerance: float
+    push_gain: float = 1.0
     """
-    Orientation error above which turning the body takes priority, in radians.
-    """
+    How much of the correction a push could make it aims to make.
 
-    translation_lever_penalty: float = 5.0
-    """
-    How strongly a push that would also turn the body is passed over when the body only
-    needs moving, relative to how well that push is aimed.
-
-    Aim is a fraction and a lever arm is a length, so this also carries the scale between
-    the two: at a value near one, a lever arm of a few centimetres would barely register
-    against an aim of up to one.
-    """
-
-    push_gain: float = 0.5
-    """
-    What fraction of the remaining error one push aims to correct.
-
-    Aiming for the whole of it overshoots, because a pushed body keeps sliding after the
-    pusher has stopped driving it, and an overshoot has to be undone from the other side.
-    Aiming short converges instead, at the cost of more attempts.
+    One aims for the whole of what the push is predicted to achieve. A body follows its
+    pusher only partly, though, since the contact slips and some of the push is spent on
+    friction, so a value above one buys back what is lost that way and a value below one
+    holds back on a push that would otherwise overshoot.
     """
 
     def select(
-        self, root_T_body: NpMatrix4x4, root_T_target: NpMatrix4x4
+        self,
+        root_T_body: NpMatrix4x4,
+        root_T_target: NpMatrix4x4,
+        tolerance: PoseTolerance,
     ) -> SelectedPush:
         """
-        Choose the push that best corrects the body's pose error.
+        Choose the push that corrects the most of the body's pose error.
 
         :param root_T_body: The body's current pose.
         :param root_T_target: The pose the body should end up at.
+        :param tolerance: How close counts as there, which is also what says whether the
+            body's heading or its position is the more pressing part of the error.
         :return: The chosen push.
+        :raises NoImprovingPushError: If no contact would bring the body any closer.
         """
-        orientation_error = self._orientation_error(root_T_body, root_T_target)
-        phase = (
-            PushPhase.ROTATE
-            if abs(orientation_error) > self.orientation_tolerance
-            else PushPhase.TRANSLATE
-        )
-        position_error = root_T_target[:2, 3] - root_T_body[:2, 3]
-        contact = max(
-            self.contacts,
-            key=lambda candidate: self._score(
-                candidate, root_T_body, phase, orientation_error, position_error
+        rotation_radius = tolerance.rotation_radius
+        error = self._pose_error(root_T_body, root_T_target).to_lengths(rotation_radius)
+        best = max(
+            (
+                self._score(contact, root_T_body, error, rotation_radius)
+                for contact in self.contacts
             ),
+            key=lambda scored: scored.progress,
         )
+        if best.progress <= 0.0:
+            raise NoImprovingPushError()
         return self._push_through(
-            contact,
-            root_T_body,
-            phase,
-            self._push_distance(contact, phase, orientation_error, position_error),
+            best.contact, root_T_body, self._push_distance(best.ideal_distance)
         )
 
-    def _push_distance(
+    def _score(
         self,
         contact: PushContact,
-        phase: PushPhase,
-        orientation_error: float,
-        position_error: numpy.ndarray,
-    ) -> float:
+        root_T_body: NpMatrix4x4,
+        error: numpy.ndarray,
+        rotation_radius: float,
+    ) -> ScoredPush:
         """
-        How far past the contact this push should travel.
+        Work out what pushing ``contact`` would achieve.
 
-        A push as long as the error is large is what keeps the body from being shoved
-        past its target and having to be brought back from the other side.
+        The body moves along a direction fixed by the contact, so the best a push there
+        can do is cancel the part of the error lying along that direction. How much that
+        is, and how long a push it takes, both fall out of the same projection.
+
+        :param contact: The contact being scored.
+        :param root_T_body: The body's current pose.
+        :param error: The pose error as three lengths.
+        :param rotation_radius: The distance at which a turn is measured.
+        :return: The score.
+        """
+        motion = self._motion_per_metre(contact, root_T_body).to_lengths(
+            rotation_radius
+        )
+        correction = float(numpy.dot(error, motion))
+        return ScoredPush(
+            contact=contact,
+            progress=correction / float(numpy.linalg.norm(motion)),
+            ideal_distance=correction / float(numpy.dot(motion, motion)),
+        )
+
+    def _motion_per_metre(
+        self, contact: PushContact, root_T_body: NpMatrix4x4
+    ) -> PlanarDisplacement:
+        """
+        How the body moves for every metre the pusher travels into ``contact``.
 
         :param contact: The contact being pushed.
-        :param phase: The part of the error this push corrects.
-        :param orientation_error: How far the body has to turn.
-        :param position_error: How far the body has to move, in the plane.
-        :return: The distance in metres.
+        :param root_T_body: The body's current pose.
+        :return: The slide and the turn the push produces, in the root frame.
         """
-        if phase == PushPhase.ROTATE:
-            # Turning the body moves the contact along an arc about the centroid, so the
-            # push has to be as long as that arc.
-            wanted = abs(orientation_error) * self._distance_to_centroid(contact)
-        else:
-            wanted = float(numpy.linalg.norm(position_error))
+        direction = self._in_root_frame(contact.direction, root_T_body)
+        return PlanarDisplacement(
+            translation=direction[:2],
+            rotation=self._lever_arm(contact, root_T_body, direction)
+            / self.gyration_radius**2,
+        )
+
+    def _push_distance(self, ideal_distance: float) -> float:
+        """
+        How far past the contact a push should actually travel.
+
+        :param ideal_distance: The push length that would leave the least error.
+        :return: The distance in metres, held between the two limits a push has to
+            respect to move the body at all without shoving it past its target.
+        """
         return min(
-            max(wanted * self.push_gain, self.minimum_push_distance),
+            max(ideal_distance * self.push_gain, self.minimum_push_distance),
             self.maximum_push_distance,
         )
 
-    def _distance_to_centroid(self, contact: PushContact) -> float:
+    def _pose_error(
+        self, root_T_body: NpMatrix4x4, root_T_target: NpMatrix4x4
+    ) -> PlanarDisplacement:
         """
-        :param contact: The contact to measure.
-        :return: How far ``contact`` sits from the body's centroid, in the plane.
+        How the body would have to move to land on its target.
+
+        :param root_T_body: The body's current pose.
+        :param root_T_target: The pose the body should end up at.
+        :return: The slide and the turn still to be made, in the root frame.
         """
-        return math.hypot(
-            contact.point.x - self.centroid.x, contact.point.y - self.centroid.y
+        return PlanarDisplacement(
+            translation=root_T_target[:2, 3] - root_T_body[:2, 3],
+            rotation=self._orientation_error(root_T_body, root_T_target),
         )
 
     @staticmethod
@@ -260,8 +363,8 @@ class PushSelector:
         root_T_body: NpMatrix4x4, root_T_target: NpMatrix4x4
     ) -> float:
         """
-        The heading the body has to turn through to match the target, taken the short way
-        around.
+        The heading the body has to turn through to match the target, taken the short
+        way around.
 
         :param root_T_body: The body's current pose.
         :param root_T_target: The pose the body should end up at.
@@ -270,34 +373,6 @@ class PushSelector:
         body_yaw = math.atan2(root_T_body[1, 0], root_T_body[0, 0])
         target_yaw = math.atan2(root_T_target[1, 0], root_T_target[0, 0])
         return math.remainder(target_yaw - body_yaw, math.tau)
-
-    def _score(
-        self,
-        contact: PushContact,
-        root_T_body: NpMatrix4x4,
-        phase: PushPhase,
-        orientation_error: float,
-        position_error: numpy.ndarray,
-    ) -> float:
-        """
-        How well pushing ``contact`` would correct the part of the error ``phase`` names.
-
-        :param contact: The contact being scored.
-        :param root_T_body: The body's current pose.
-        :param phase: The part of the error to correct.
-        :param orientation_error: How far the body has to turn.
-        :param position_error: How far the body has to move, in the plane.
-        :return: The score, higher being better.
-        """
-        direction = self._in_root_frame(contact.direction, root_T_body)
-        lever_arm = self._lever_arm(contact, root_T_body, direction)
-        if phase == PushPhase.ROTATE:
-            return math.copysign(1.0, orientation_error) * lever_arm
-        distance_to_go = float(numpy.linalg.norm(position_error))
-        if distance_to_go == 0.0:
-            return -abs(lever_arm) * self.translation_lever_penalty
-        aim = float(numpy.dot(direction[:2], position_error / distance_to_go))
-        return aim - self.translation_lever_penalty * abs(lever_arm)
 
     def _lever_arm(
         self,
@@ -341,7 +416,6 @@ class PushSelector:
         self,
         contact: PushContact,
         root_T_body: NpMatrix4x4,
-        phase: PushPhase,
         push_distance: float,
     ) -> SelectedPush:
         """
@@ -349,7 +423,6 @@ class PushSelector:
 
         :param contact: The contact to push.
         :param root_T_body: The body's current pose.
-        :param phase: The part of the error this push corrects.
         :param push_distance: How far past the contact the push travels.
         :return: The push, ready to be driven.
         """
@@ -366,7 +439,6 @@ class PushSelector:
             standoff=contact_point - direction * self.standoff_distance,
             contact_point=contact_point,
             follow_through=contact_point + direction * push_distance,
-            phase=phase,
         )
 
 
@@ -403,6 +475,12 @@ class PushOnce(Goal):
     selector: PushSelector = field(kw_only=True)
     """
     Chooses which contact this push uses.
+    """
+
+    tolerance: PoseTolerance = field(kw_only=True)
+    """
+    How close to its target the body has to end up, which is what says whether its
+    heading or its position is the more pressing part of the error.
     """
 
     travel_height: float = field(kw_only=True)
@@ -520,6 +598,7 @@ class PushOnce(Goal):
             root_T_target=world.compute_forward_kinematics_np(
                 world.root, self.target_body
             ),
+            tolerance=self.tolerance,
         )
         pusher_position = world.compute_forward_kinematics_np(world.root, self.pusher)[
             :3, 3
@@ -581,22 +660,33 @@ class PushToPose(Goal):
     Height at which the pusher crosses the body, in metres.
     """
 
-    position_threshold: float = field(default=0.02, kw_only=True)
+    tolerance: PoseTolerance = field(
+        default_factory=lambda: PoseTolerance(position=0.02, orientation=0.1),
+        kw_only=True,
+    )
     """
-    How close the body has to be to its target to count as there, in metres.
+    How close to its target the body has to end up.
+
+    It decides when this goal is done, and, since it says how much a radian of heading
+    is worth against a metre of position, also how each attempt trades the two off.
     """
 
-    orientation_threshold: float = field(default=0.1, kw_only=True)
+    approach_velocity: float = field(default=PushOnce.approach_velocity, kw_only=True)
     """
-    How closely the body has to point at its target to count as there, in radians.
+    How fast the pusher moves while it is not touching the body, in metres per second.
+    """
+
+    push_velocity: float = field(default=PushOnce.push_velocity, kw_only=True)
+    """
+    How fast the pusher moves while pushing, in metres per second.
     """
 
     stall_timeout: float = field(default=1.0, kw_only=True)
     """
     Seconds a push may make no progress before the next one is started.
 
-    A push ends when the pusher has travelled its whole line, but a push that has run out
-    of effect long before then would otherwise keep shoving a body that is no longer
+    A push ends when the pusher has travelled its whole line, but a push that has run
+    out of effect long before then would otherwise keep shoving a body that is no longer
     moving.
     """
 
@@ -606,19 +696,13 @@ class PushToPose(Goal):
     """
 
     def expand(self, context: MotionStatechartContext) -> None:
-        if self.selector.orientation_tolerance >= self.orientation_threshold:
-            raise UncorrectableOrientationError(
-                node=self,
-                orientation_tolerance=self.selector.orientation_tolerance,
-                orientation_threshold=self.orientation_threshold,
-            )
         self._on_target = PoseReached(
             name="on target",
             root_link=context.world.root,
             tip_link=self.pushed_body,
             goal_pose=HomogeneousTransformationMatrix(reference_frame=self.target_body),
-            position_threshold=self.position_threshold,
-            orientation_threshold=self.orientation_threshold,
+            position_threshold=self.tolerance.position,
+            orientation_threshold=self.tolerance.orientation,
         )
         push_once = PushOnce(
             name="push once",
@@ -626,7 +710,10 @@ class PushToPose(Goal):
             target_body=self.target_body,
             pusher=self.pusher,
             selector=self.selector,
+            tolerance=self.tolerance,
             travel_height=self.travel_height,
+            approach_velocity=self.approach_velocity,
+            push_velocity=self.push_velocity,
         )
         stalled = ProgressStalled(
             name="push stalled", monitored_node=push_once, timeout=self.stall_timeout

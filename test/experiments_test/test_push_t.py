@@ -11,7 +11,11 @@ import os
 import numpy
 import pytest
 
-from experiments.push_t.push_contacts import BLOCK_CENTROID, build_push_contacts
+from experiments.push_t.push_contacts import (
+    BLOCK_CENTROID,
+    BLOCK_GYRATION_RADIUS,
+    build_push_contacts,
+)
 from experiments.push_t.real_time_simulation import (
     RealTimeSimulation,
     SimulationNotStartedError,
@@ -213,9 +217,12 @@ VIEWER_IS_UNAVAILABLE = os.environ.get("CI", "false").lower() == "true"
 Whether to run without MuJoCo's viewer, as CI has no display to open one on.
 """
 
-STANDOFF_DISTANCE = 0.05
+STANDOFF_DISTANCE = 0.02
 """
 Metres behind the contact at which a push starts, clear of the block.
+
+The pusher comes straight down onto this point, so it only has to clear the block's
+face, and every millimetre of it is then crossed again at pushing speed.
 """
 
 MINIMUM_PUSH_DISTANCE = 0.03
@@ -230,13 +237,29 @@ MAXIMUM_PUSH_DISTANCE = 0.08
 The furthest past the contact one push may travel, in metres.
 """
 
-ORIENTATION_TOLERANCE = 0.08
+PUSH_GAIN = 1.3
 """
-Radians of heading error above which turning the block takes priority over moving it.
+How much of the correction a push is predicted to make it aims to make.
 
-Kept under the goal's own success threshold, so that every heading the goal stops
-correcting is one it would accept, and loose enough that shoving the block gets a turn at
-all - turning it always drags it off course, so a tolerance near zero never converges.
+Above one because this block follows the pusher only partly, and measured rather than
+derived: the block is nowhere near its target after a push aiming for the whole of it.
+"""
+
+PUSH_VELOCITY = 0.6
+"""
+How fast the pusher travels while pushing, in metres per second.
+
+As fast as it moves when it is not touching the block, which the servos allow and which
+converges fastest; pushing harder than this starts to overshoot on the poses that need
+the block turned right around.
+"""
+
+STALL_TIMEOUT = 0.3
+"""
+Seconds a push may move the block no further before the next one is chosen.
+
+A push that has stopped moving the block has stopped for good, and every attempt pays
+this wait.
 """
 
 CONTROL_FREQUENCY = 50
@@ -244,12 +267,12 @@ CONTROL_FREQUENCY = 50
 How often per second the motion statechart is ticked.
 """
 
-RUN_TIME_LIMIT = 150.0
+RUN_TIME_LIMIT = 20.0
 """
-Simulated seconds after which a run that has not converged is given up on.
+Simulated seconds after which a run counts as having failed to converge.
 
-Generous against the roughly 60 to 100 seconds the two start poses take, since a push is
-a coarse way to place something and the count of attempts it takes varies.
+The start poses below take between three and ten seconds, so this is a guard on how fast
+the block is placed as much as on whether it is placed at all.
 """
 
 ROTATION_HEAVY_START = PlanarPose(x=0.12, y=0.06, yaw=0.9)
@@ -260,6 +283,15 @@ A start pose the block mostly has to be turned out of.
 TRANSLATION_HEAVY_START = PlanarPose(x=0.25, y=0.12, yaw=0.05)
 """
 A start pose the block mostly has to be shoved out of.
+"""
+
+TURNED_AROUND_START = PlanarPose(x=0.20, y=0.20, yaw=2.6)
+"""
+A start pose the block has to be turned nearly all the way round from.
+
+The hardest of the three: a push cannot turn a body without also sliding it, so a large
+heading error is corrected over many attempts that keep undoing each other's progress on
+position unless the two are traded off against each other properly.
 """
 
 
@@ -278,14 +310,17 @@ def build_push_goal(scene: PushTScene) -> PushToPose:
         selector=PushSelector(
             contacts=build_push_contacts(),
             centroid=BLOCK_CENTROID,
+            gyration_radius=BLOCK_GYRATION_RADIUS,
             pusher_radius=PUSHER_RADIUS,
             standoff_distance=STANDOFF_DISTANCE,
             minimum_push_distance=MINIMUM_PUSH_DISTANCE,
             maximum_push_distance=MAXIMUM_PUSH_DISTANCE,
             pushing_height=PUSHING_HEIGHT,
-            orientation_tolerance=ORIENTATION_TOLERANCE,
+            push_gain=PUSH_GAIN,
         ),
         travel_height=PUSHER_TRAVEL_HEIGHT,
+        push_velocity=PUSH_VELOCITY,
+        stall_timeout=STALL_TIMEOUT,
     )
 
 
@@ -306,7 +341,10 @@ def planar_error(block_pose: numpy.ndarray, target_pose: numpy.ndarray):
     return distance, heading
 
 
-@pytest.mark.parametrize("block_start", [ROTATION_HEAVY_START, TRANSLATION_HEAVY_START])
+@pytest.mark.parametrize(
+    "block_start",
+    [ROTATION_HEAVY_START, TRANSLATION_HEAVY_START, TURNED_AROUND_START],
+)
 def test_the_statechart_pushes_the_block_onto_the_target(
     block_start, mujoco_scene_file
 ):
@@ -342,5 +380,5 @@ def test_the_statechart_pushes_the_block_onto_the_target(
         )
 
     assert motion_statechart.is_end_motion()
-    assert distance <= goal.position_threshold
-    assert abs(heading) <= goal.orientation_threshold
+    assert distance <= goal.tolerance.position
+    assert abs(heading) <= goal.tolerance.orientation
