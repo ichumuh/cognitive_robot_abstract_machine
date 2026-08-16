@@ -7,8 +7,10 @@ The pushing algorithm itself is exercised against the point-contact scene in
 can carry that algorithm's chosen points.
 """
 
+import itertools
 import math
 
+import mujoco
 import numpy
 import pytest
 
@@ -34,6 +36,7 @@ from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from semantic_digital_twin.adapters.multi_sim import MujocoBuilder
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.definitions import (
     GripperState,
@@ -42,7 +45,14 @@ from semantic_digital_twin.datastructures.definitions import (
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.spatial_types.spatial_types import Point3, Vector3
 from semantic_digital_twin.utils import tracy_installed
+from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
 
+from ..semantic_digital_twin_test.test_adapters.test_mujoco_contact_exclusions import (
+    excluded_body_pairs,
+)
+from ..semantic_digital_twin_test.test_adapters.test_mujoco_mimic_joints import (
+    joint_couplings,
+)
 from .test_push_t import (
     MAXIMUM_PUSH_DISTANCE,
     MINIMUM_PUSH_DISTANCE,
@@ -62,9 +72,22 @@ BLOCK_START = PlanarPose(x=0.78, y=0.14, yaw=0.6)
 Where the block lies before it is pushed.
 
 Displaced from its target and turned out of line, so that a run has to correct both.
+"""
 
-..warning:: Only this one pose is exercised. A run converges from it, but not yet from
-    every pose: see :class:`TracyPushTScene` for what still goes wrong elsewhere.
+ROTATION_HEAVY_START = PlanarPose(x=0.65, y=0.0, yaw=1.2)
+"""
+The block already on its target, but turned well off it.
+
+Nothing to carry and a large angle to correct, which a push can only do by acting off
+the block's centre.
+"""
+
+TURNED_AROUND_START = PlanarPose(x=0.72, y=-0.16, yaw=math.pi)
+"""
+The block facing backwards, on the far side of the target from :data:`BLOCK_START`.
+
+The worst case of the three: the stem points the wrong way, so the arm has to work round
+the block rather than push it straight on.
 """
 
 CONTROL_FREQUENCY = 50
@@ -72,7 +95,7 @@ CONTROL_FREQUENCY = 50
 How often per second the motion statechart is ticked.
 """
 
-TIME_LIMIT = 30.0
+TIME_LIMIT = 3000.0
 """
 Simulated seconds a run may take, at most.
 
@@ -290,6 +313,102 @@ def test_the_arm_moves_faster_than_it_would_beside_a_person():
         assert speed == pytest.approx(described * scale)
 
 
+# %% what the simulation is left to work out
+
+
+def build_scene_file(scene: TracyPushTScene, tmp_path) -> str:
+    """
+    Write the scene out the way the simulation would build it.
+
+    :param scene: The scene to build.
+    :param tmp_path: Directory to build it in.
+    :return: Path of the built scene.
+    """
+    scene_path = str(tmp_path / "scene.xml")
+    MujocoBuilder().build_world(scene.world, scene_path)
+    return scene_path
+
+
+def test_the_robot_never_meets_itself(tmp_path):
+    """
+    A description's links overlap wherever they meet, and the pairs its own collision
+    matrix names are not all of them.
+
+    Every contact left between two links a joint holds together is a force the servo
+    between them has to fight, which shows up as both arms shaking.
+    """
+    scene = TracyPushTScene.create(block_pose=BLOCK_START)
+    excluded = excluded_body_pairs(build_scene_file(scene, tmp_path))
+
+    own_pairs = {
+        frozenset({body_a.name.name, body_b.name.name})
+        for body_a, body_b in itertools.combinations(
+            scene.robot.bodies_with_collision, 2
+        )
+    }
+    assert own_pairs <= excluded
+
+
+def test_the_stick_never_meets_the_gripper_holding_it(tmp_path):
+    """
+    The stick is bolted below the robot's root, which makes it one of the robot's own
+    bodies, and it sits in a gripper closed around it.
+
+    Held rigidly, it cannot move relative to the fingers, so that contact can never
+    resolve however hard the solver pushes on it.
+    """
+    scene = TracyPushTScene.create(block_pose=BLOCK_START)
+    excluded = excluded_body_pairs(build_scene_file(scene, tmp_path))
+
+    finger_names = {
+        body.name.name
+        for body in scene.arm.end_effector.bodies_with_collision
+        if body is not scene.stick
+    }
+    assert finger_names
+    for finger in finger_names:
+        assert frozenset({scene.stick.name.name, finger}) in excluded
+
+
+def test_the_block_still_meets_the_table_and_the_stick(tmp_path):
+    """
+    The contacts the benchmark is made of survive: the table is what holds the block up,
+    and the stick is what moves it.
+    """
+    scene = TracyPushTScene.create(block_pose=BLOCK_START)
+    excluded = excluded_body_pairs(build_scene_file(scene, tmp_path))
+
+    block = scene.block.name.name
+    assert frozenset({block, scene.robot.root.name.name}) not in excluded
+    assert frozenset({block, scene.stick.name.name}) not in excluded
+
+
+def test_every_gripper_joint_follows_the_one_that_is_driven(tmp_path):
+    """
+    A gripper's fingers are one linkage turning on one degree of freedom, which the
+    description writes as several joints sharing it.
+
+    Only one of them can carry the servo, so the rest have to be held to it. Left free
+    they fall open, hammer against the palm, and shake the arm they hang off.
+    """
+    scene = TracyPushTScene.create(block_pose=BLOCK_START)
+    couplings = joint_couplings(
+        mujoco.MjModel.from_xml_path(build_scene_file(scene, tmp_path))
+    )
+
+    followers = [
+        connection
+        for connection in scene.robot.connections
+        if isinstance(connection, ActiveConnection1DOF)
+        and (connection.multiplier != 1.0 or connection.offset != 0.0)
+    ]
+    assert followers
+    for follower in followers:
+        coupling = couplings[follower.name.name]
+        assert coupling.multiplier == pytest.approx(follower.multiplier)
+        assert coupling.offset == pytest.approx(follower.offset)
+
+
 # %% reaching over the table
 
 
@@ -395,12 +514,19 @@ def test_the_servos_hold_the_arm_up(mujoco_scene_file):
 # %% pushing under a motion statechart
 
 
-def test_the_statechart_pushes_the_block_onto_the_target(mujoco_scene_file):
+@pytest.mark.parametrize(
+    "block_start",
+    [BLOCK_START, ROTATION_HEAVY_START, TURNED_AROUND_START],
+    ids=["displaced and turned", "rotation heavy", "turned around"],
+)
+def test_the_statechart_pushes_the_block_onto_the_target(
+    block_start, mujoco_scene_file
+):
     """
     Given only the block's live pose, the statechart has to work out where to push it
     and the arm has to carry the stick there, until the block sits on the marker.
     """
-    scene = TracyPushTScene.create(block_pose=BLOCK_START)
+    scene = TracyPushTScene.create(block_pose=block_start)
     goal = build_push_goal(scene)
     motion_statechart = MotionStatechart()
     motion_statechart.add_nodes([goal, upright_stick(scene), EndMotion.when_true(goal)])

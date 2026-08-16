@@ -1788,6 +1788,7 @@ class MujocoBuilder(MultiSimBuilder):
 
     def _end_build(self, file_path: str):
         self._build_contact_exclusions()
+        self._build_mimic_couplings()
         self._build_equalities()
         self._build_tendons()
         self.spec.compile()
@@ -1844,6 +1845,10 @@ class MujocoBuilder(MultiSimBuilder):
         A :class:`Connection6DoF` is built as a free joint, whose ``qpos`` orders the
         quaternion scalar-first, while the connection's own degrees of freedom order it
         scalar-last.
+
+        A joint following another turns by a multiplier of their shared degree of freedom
+        and offset from it, so it is its own angle that is written rather than the degree
+        of freedom's.
         """
         state = self.world.state
         if isinstance(connection, Connection6DoF):
@@ -1857,6 +1862,8 @@ class MujocoBuilder(MultiSimBuilder):
                 connection.qz,
             ]
             return [state[dof.id].position for dof in free_joint_dofs]
+        if isinstance(connection, ActiveConnection1DOF):
+            return [connection.position]
         return [
             state[dof.id].position
             for dof in connection.active_dofs + connection.passive_dofs
@@ -2080,13 +2087,18 @@ class MujocoBuilder(MultiSimBuilder):
         dof_names = actuator_props.pop("dof_names")
         assert len(dof_names) == 1, "Actuator must be associated with exactly one DOF."
         dof_name = dof_names[0]
-        connection = next(
-            (
-                conn
-                for conn in actuator._world.connections
-                if dof_name in [dof.name.name for dof in conn.dofs]
-            ),
-            None,
+        connections = self._connections_driven_by(dof_name)
+        connection = (
+            self._reference_connection(connections)
+            if connections
+            else next(
+                (
+                    candidate
+                    for candidate in self.world.connections
+                    if dof_name in [dof.name.name for dof in candidate.dofs]
+                ),
+                None,
+            )
         )
         if connection is not None:
             connection_name = connection.name.name
@@ -2242,6 +2254,88 @@ class MujocoBuilder(MultiSimBuilder):
         self.spec.add_exclude(
             name=exclusion_name, bodyname1=names[0], bodyname2=names[1]
         )
+
+    def _connections_driven_by(self, dof_name: str) -> List[ActiveConnection1DOF]:
+        """
+        Every joint that turns with the degree of freedom named ``dof_name``.
+
+        :param dof_name: Name of the degree of freedom.
+        :return: The joints sharing it, in the order the world holds them.
+        """
+        return [
+            connection
+            for connection in self.world.connections
+            if isinstance(connection, ActiveConnection1DOF)
+            and connection.raw_dof.name.name == dof_name
+        ]
+
+    @staticmethod
+    def _reference_connection(
+        connections: List[ActiveConnection1DOF],
+    ) -> ActiveConnection1DOF:
+        """
+        The joint of a linkage that turns one for one with its degree of freedom.
+
+        An actuator drives that joint and the rest are held to it, so both have to pick
+        the same one: driving a linkage at one end while constraining it from the other
+        leaves the two fighting.
+
+        :param connections: The joints sharing one degree of freedom.
+        :return: The one to drive, or the first if none turns one for one.
+        """
+        return next(
+            (
+                connection
+                for connection in connections
+                if connection.multiplier == 1.0 and connection.offset == 0.0
+            ),
+            connections[0],
+        )
+
+    def _linkages_sharing_a_degree_of_freedom(
+        self,
+    ) -> List[List[ActiveConnection1DOF]]:
+        """
+        The joints of every linkage that turns on a single degree of freedom.
+
+        :return: One entry per degree of freedom more than one joint turns with, each
+            holding those joints in the order the world holds them.
+        """
+        joints_by_degree_of_freedom: Dict[str, List[ActiveConnection1DOF]] = {}
+        for connection in self.world.connections:
+            if isinstance(connection, ActiveConnection1DOF):
+                joints_by_degree_of_freedom.setdefault(
+                    connection.raw_dof.name.name, []
+                ).append(connection)
+        return [
+            joints for joints in joints_by_degree_of_freedom.values() if len(joints) > 1
+        ]
+
+    def _build_mimic_couplings(self):
+        """
+        Hold every joint that follows another at the ratio its description gives it.
+
+        A description couples a linkage by giving several joints one degree of freedom,
+        each turning it by a multiplier of its own and offset from it. MuJoCo has no such
+        joint, so the followers are built as ordinary ones and held to the joint they
+        follow by an equality constraint, which is that same relation:
+        ``follower = offset + multiplier * reference``.
+
+        Left out, a follower is a free hinge that nothing drives and nothing holds.
+        """
+        for connections in self._linkages_sharing_a_degree_of_freedom():
+            reference = self._reference_connection(connections)
+            for follower in connections:
+                if follower is reference:
+                    continue
+                equality = self.spec.add_equality()
+                equality.type = mujoco.mjtEq.mjEQ_JOINT
+                equality.objtype = mujoco.mjtObj.mjOBJ_JOINT
+                equality.name1 = follower.name.name
+                equality.name2 = reference.name.name
+                equality.data = [follower.offset, follower.multiplier] + [0.0] * (
+                    mujoco.mjNEQDATA - 2
+                )
 
     def _build_equalities(self):
         """
@@ -3153,11 +3247,14 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         """
         Push the 1DoF world state for ``connection`` into the MuJoCo qpos slot
         at ``qpos_adr``. No-op if the DoF value is unchanged.
+
+        A joint following another turns by a multiplier of their shared degree of
+        freedom and offset from it, so it is its own angle that is written.
         """
         idx = state_index[connection.raw_dof.id]
         if positions[idx] == previous_positions[idx]:
             return
-        self.simulator._mj_data.qpos[qpos_adr] = positions[idx]
+        self.simulator._mj_data.qpos[qpos_adr] = connection.position
 
     def _command_actuator(
         self,

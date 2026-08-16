@@ -23,6 +23,7 @@ from experiments.push_t.scene import (
 )
 from semantic_digital_twin.adapters.multi_sim import MujocoActuator
 from semantic_digital_twin.adapters.urdf import URDFParser
+from semantic_digital_twin.collision_checking.collision_rules import AllowSelfCollisions
 from semantic_digital_twin.datastructures.definitions import (
     GripperState,
     StaticJointState,
@@ -113,30 +114,45 @@ arm moving that fast reaches the block before the push meant to meet it has begu
 launches it off the table rather than sliding it.
 """
 
-# %% driving the arm
+# %% driving the joints
 
-ARM_STIFFNESS = 300_000.0
+
+@dataclass(frozen=True)
+class ServoGains:
+    """
+    How hard a position servo pulls its joint towards the angle it was given.
+    """
+
+    stiffness: float
+    """Restoring torque per radian away from the set point, in newton metres."""
+
+    damping: float
+    """Opposing torque per radian per second, in newton metre seconds."""
+
+    torque_limit: float
+    """The largest torque the servo may exert, in newton metres."""
+
+
+ARM_SERVO = ServoGains(stiffness=300_000.0, damping=6000.0, torque_limit=500.0)
 """
-Restoring torque per radian the arm's servos pull towards their set point with.
+Gains for the arm's own joints.
 
-A servo holds its pose only as far off it as the load it carries divided by this, so an
-arm this heavy needs a large one to settle within a centimetre of where it was sent. Past
-roughly ten times this the servos ring at the simulation's millisecond step.
+A servo holds its pose only as far off it as the load it carries divided by its
+stiffness, so an arm this heavy needs a large one to settle within a centimetre of where
+it was sent. Past roughly ten times this the servos ring at the simulation's millisecond
+step. The torque limit is around the UR10e's own, which is enough to hold the arm up and
+to push the block without the arm being what gives way first.
 """
 
-ARM_DAMPING = 6000.0
+GRIPPER_SERVO = ServoGains(stiffness=100.0, damping=5.0, torque_limit=50.0)
 """
-Opposing torque per radian per second the arm's servos damp their motion with.
+Gains for the joints of a gripper.
 
-Set against :data:`ARM_STIFFNESS` so a joint settles rather than overshooting.
-"""
-
-ARM_TORQUE_LIMIT = 500.0
-"""
-The largest torque, in newton metres, one of the arm's servos may exert.
-
-Around the UR10e's own effort limits, which is enough to hold the arm up and to push the
-block without the arm being what gives way first.
+Three thousand times softer than :data:`ARM_SERVO`, because the links are three thousand
+times lighter: a Robotiq 2F-85's fingers weigh grams against the arm's tens of
+kilogrammes, and driven at the arm's stiffness they ring at hundreds of radians a second
+and shake the arm they hang off. The torque limit is the gripper's own, from its
+description.
 """
 
 
@@ -146,12 +162,9 @@ class TracyPushTScene:
     Tracy standing at its table, a T-shaped block lying on it, a marker showing where the
     block should end up, and a stick held in one gripper to push it with.
 
-    ..warning:: The arm carries the stick where it is sent, to within a centimetre, and
-        the block is pushed. Whole runs converge from some start poses and not from
-        others: a push sometimes meets the block hard enough that MuJoCo resolves the
-        overlap explosively and throws it off the table. What is left to find is why the
-        stick reaches that far into the block, since the same push against the
-        point-contact scene's servo-driven sphere is gentle.
+    The block, the table and the stick are the only things that touch: the robot is left
+    to pass through itself, so that nothing the description gets wrong about its own
+    overlapping links reaches the physics.
     """
 
     world: World
@@ -207,6 +220,7 @@ class TracyPushTScene:
             target_pose=PlanarPose(x=TARGET_POSITION.x, y=TARGET_POSITION.y),
         )
         cls._apply_start_configuration(world, robot)
+        cls._let_the_robot_pass_through_itself(world, robot)
         return cls(
             world=world,
             robot=robot,
@@ -313,6 +327,31 @@ class TracyPushTScene:
         return stick
 
     @staticmethod
+    def _let_the_robot_pass_through_itself(world: World, robot: Tracy) -> None:
+        """
+        Stop the simulation checking the robot against itself, leaving the block, the
+        table and the stick as the only things that touch.
+
+        A description's links overlap wherever they meet, and only the pairs the robot's
+        own collision matrix names are excused. What it leaves in is enough to shake the
+        arms: the pairs it never anticipated meet, and every contact between two links a
+        joint holds together is a force the servo between them has to fight.
+
+        The stick counts as one of the robot's bodies, being bolted below its root, so
+        this covers the gripper closed around it as well.
+
+        ..note:: It also stops the *planner* checking the robot against itself, which
+            this scene does not ask it to do.
+
+        :param world: The world to relax.
+        :param robot: The robot that may pass through itself.
+        """
+        with world.modify_world():
+            world.collision_manager.add_ignore_collision_rule(
+                AllowSelfCollisions(robot=robot)
+            )
+
+    @staticmethod
     def _apply_start_configuration(world: World, robot: Tracy) -> None:
         """
         Park both arms and close both grippers.
@@ -345,25 +384,34 @@ class TracyPushTScene:
         :param robot: The robot whose joints are driven.
         :return: One servo per joint, in the order the joints are declared.
         """
-        driven = list(
-            dict.fromkeys(
-                connection.raw_dof
-                for connection in robot.connections
+        gains_by_joint = {
+            connection.raw_dof: ARM_SERVO
+            for connection in robot.connections
+            if isinstance(connection, ActiveConnection1DOF)
+        }
+        gains_by_joint.update(
+            {
+                connection.raw_dof: GRIPPER_SERVO
+                for arm in robot.arms
+                for connection in arm.end_effector.connections
                 if isinstance(connection, ActiveConnection1DOF)
-            )
+            }
         )
         return [
-            cls._add_joint_servo(world, degree_of_freedom)
-            for degree_of_freedom in driven
+            cls._add_joint_servo(world, degree_of_freedom, gains)
+            for degree_of_freedom, gains in gains_by_joint.items()
         ]
 
     @staticmethod
-    def _add_joint_servo(world: World, degree_of_freedom: DegreeOfFreedom) -> Actuator:
+    def _add_joint_servo(
+        world: World, degree_of_freedom: DegreeOfFreedom, gains: ServoGains
+    ) -> Actuator:
         """
         Add a position servo driving one joint towards a commanded angle.
 
         :param world: The world to add the actuator to.
         :param degree_of_freedom: The joint the servo drives.
+        :param gains: How hard the servo pulls towards its set point.
         :return: The newly added actuator.
         """
         limits = degree_of_freedom.limits
@@ -373,11 +421,11 @@ class TracyPushTScene:
             MujocoActuator(
                 dynamics_type=mujoco.mjtDyn.mjDYN_NONE,
                 gain_type=mujoco.mjtGain.mjGAIN_FIXED,
-                gain_parameters=[ARM_STIFFNESS] + [0.0] * 9,
+                gain_parameters=[gains.stiffness] + [0.0] * 9,
                 bias_type=mujoco.mjtBias.mjBIAS_AFFINE,
-                bias_parameters=[0.0, -ARM_STIFFNESS, -ARM_DAMPING] + [0.0] * 7,
+                bias_parameters=[0.0, -gains.stiffness, -gains.damping] + [0.0] * 7,
                 control_range=[limits.lower.position, limits.upper.position],
-                force_range=[-ARM_TORQUE_LIMIT, ARM_TORQUE_LIMIT],
+                force_range=[-gains.torque_limit, gains.torque_limit],
             )
         )
         with world.modify_world():

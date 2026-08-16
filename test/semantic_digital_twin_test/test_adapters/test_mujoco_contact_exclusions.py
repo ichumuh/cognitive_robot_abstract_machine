@@ -13,6 +13,7 @@ import pytest
 from semantic_digital_twin.adapters.multi_sim import MujocoBuilder
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionCheck
 from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
     SelfCollisionMatrixRule,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -218,3 +219,93 @@ def test_a_link_and_a_body_outside_its_robot_still_collide(
         )
 
     assert frozenset({"wrist", "block"}) not in build_scene(world, tmp_path)
+
+
+# %% what a robot carries
+
+
+WRIST_OFFSET_ALONG_X = 0.15
+"""
+How far along the arm's last link something it carries is attached, in metres.
+"""
+
+
+def wrist_offset() -> HomogeneousTransformationMatrix:
+    """
+    :return: Where on the arm's last link something it carries sits.
+
+    ..note:: Built per call, because adding a connection stamps the frame it is
+        expressed in into the matrix it is given.
+    """
+    return HomogeneousTransformationMatrix.from_xyz_rpy(x=WRIST_OFFSET_ALONG_X)
+
+
+def ignore_against_the_arm(world: World, carried: Body) -> None:
+    """
+    Have the world stop checking ``carried`` against the arm's own links.
+
+    Only pairs a rule names are ever excluded, so a body the arm carries has to be named
+    before the question of whether to exclude it can arise at all.
+
+    :param world: The world holding the arm.
+    :param carried: The body the arm carries.
+    """
+    world.collision_manager.add_ignore_collision_rule(
+        AllowCollisionBetweenGroups(
+            body_group_a=[carried],
+            body_group_b=[world.get_body_by_name(link) for link in LINK_NAMES],
+        )
+    )
+
+
+def bolt_to_wrist(world: World, name: str) -> Body:
+    """
+    Attach a body to the arm's last link so that it cannot move relative to it.
+
+    :param world: The world holding the arm.
+    :param name: Name of the body to attach.
+    :return: The attached body.
+    """
+    bolted = add_body(world, name)
+    with world.modify_world():
+        world.add_connection(
+            FixedConnection(
+                parent=world.get_body_by_name("wrist"),
+                child=bolted,
+                parent_T_connection_expression=wrist_offset(),
+            )
+        )
+        ignore_against_the_arm(world, bolted)
+    return bolted
+
+
+def test_a_body_attached_below_a_robots_root_does_not_collide_with_it(
+    tmp_path, world_with_an_arm_and_loose_bodies
+):
+    """
+    A tool a robot carries hangs below the robot's own root, which makes it one of the
+    robot's bodies and its contacts with the robot the robot's own.
+
+    A stick bolted into a gripper cannot move relative to it, so that contact can never
+    resolve: it only loads the solver and shakes the arm.
+    """
+    world = world_with_an_arm_and_loose_bodies
+    bolt_to_wrist(world, "stick")
+
+    excluded = build_scene(world, tmp_path)
+    assert frozenset({"stick", "wrist"}) in excluded
+    assert frozenset({"stick", "shoulder"}) in excluded
+
+
+def test_a_tool_bolted_to_a_robot_still_collides_with_everything_else(
+    tmp_path, world_with_an_arm_and_loose_bodies
+):
+    """
+    Belonging to the arm for the arm's own sake is the whole of it.
+
+    A stick a robot holds is what meets the block it is pushing.
+    """
+    world = world_with_an_arm_and_loose_bodies
+    bolt_to_wrist(world, "stick")
+
+    assert frozenset({"stick", "block"}) not in build_scene(world, tmp_path)
