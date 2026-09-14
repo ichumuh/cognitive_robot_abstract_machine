@@ -11,6 +11,11 @@ from giskardpy.qp.constraint import LargeNumber
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from semantic_digital_twin.spatial_types import Point3, Vector3, RotationMatrix
 
+CARTESIAN_AXIS_COUNT = 3
+"""
+Number of axes of a Cartesian frame.
+"""
+
 
 @dataclass
 class GeometricConstraintBuilder:
@@ -53,7 +58,7 @@ class GeometricConstraintBuilder:
         :param reference_velocity: m/s
         """
         frame_V_error = frame_P_goal - frame_P_current
-        for i in range(3):
+        for i in range(CARTESIAN_AXIS_COUNT):
             self.collection.add_equality_constraint(
                 task_expression=frame_P_current[i],
                 equality_bound=frame_V_error[i],
@@ -116,7 +121,7 @@ class GeometricConstraintBuilder:
         )
 
         error = root_V_goal_normal_intermediate - frame_V_current
-        for i in range(3):
+        for i in range(CARTESIAN_AXIS_COUNT):
             self.collection.add_equality_constraint(
                 task_expression=frame_V_current[i],
                 equality_bound=error[i],
@@ -171,53 +176,72 @@ class GeometricConstraintBuilder:
         name: Optional[str] = None,
     ) -> None:
         """
-        Adds constraints to limit the translational velocity of frame_P_current.
+        Adds three constraints that keep the speed of frame_P_current at or below
+        max_velocity in every direction.
 
-        Be aware that the velocity is relative to frame.
+        Each axis of frame is limited to ``max_velocity / sqrt(3)``, so motion along a
+        single axis is limited to about 58% of max_velocity and only motion along a
+        diagonal reaches it.
         :param frame_P_current: a vector describing a 3D point. It should depend on
             active dofs.
+        :param max_velocity: m/s
         :param max_violation: m/s
         """
-        translation_error = frame_P_current.norm()
-        translation_error = sm.if_eq_zero(
-            translation_error, sm.Scalar(0.01), translation_error
-        )
-        self.collection.add_velocity_constraint(
-            upper_velocity_limit=max_velocity,
-            lower_velocity_limit=-max_velocity,
-            quadratic_weight=quadratic_weight,
-            task_expression=translation_error,
-            lower_slack_limit=-max_violation,
-            upper_slack_limit=max_violation,
-            velocity_limit=max_velocity,
-            name=name,
-        )
+        axis_velocity_limit = max_velocity / np.sqrt(CARTESIAN_AXIS_COUNT)
+        for i in range(CARTESIAN_AXIS_COUNT):
+            self.collection.add_velocity_constraint(
+                upper_velocity_limit=axis_velocity_limit,
+                lower_velocity_limit=-axis_velocity_limit,
+                quadratic_weight=quadratic_weight,
+                task_expression=frame_P_current[i],
+                lower_slack_limit=-max_violation,
+                upper_slack_limit=max_violation,
+                velocity_limit=axis_velocity_limit,
+                name=self._indexed_constraint_name(name, i),
+            )
 
     def add_rotational_velocity_limit(
         self,
         frame_R_current: RotationMatrix,
+        frame_R_measured: RotationMatrix,
         max_velocity: sm.ScalarData,
         quadratic_weight: sm.ScalarData,
         max_violation: sm.ScalarData = LargeNumber,
         name: Optional[str] = None,
     ) -> None:
         """
-        Add velocity constraints to limit the velocity of frame_R_current.
+        Adds three constraints that keep the angular speed of frame_R_current at or
+        below max_velocity about every axis.
 
-        Be aware that the velocity is relative to frame.
+        Each constraint limits one component of the angular velocity, expressed in the
+        rotated frame, to ``max_velocity / sqrt(3)``, so turning about a single axis is
+        limited to about 58% of max_velocity.
+
+        .. warning:: The constraints describe the angular velocity only where
+            frame_R_measured equals frame_R_current, so frame_R_measured has to be
+            updated to the current state before every control cycle.
+
         :param frame_R_current: Rotation matrix describing the current rotation. It
             should depend on active dofs.
+        :param frame_R_measured: frame_R_current at the current state, held constant.
         :param max_velocity: rad/s
         """
-        root_Q_tipCurrent = frame_R_current.to_quaternion()
-        angle_error = root_Q_tipCurrent.to_axis_angle()[1]
-        self.collection.add_velocity_constraint(
-            upper_velocity_limit=max_velocity,
-            lower_velocity_limit=-max_velocity,
-            quadratic_weight=quadratic_weight,
-            task_expression=angle_error,
-            lower_slack_limit=-max_violation,
-            upper_slack_limit=max_violation,
-            name=name,
-            velocity_limit=max_velocity,
-        )
+        # Off-diagonal entries of frame_R_measured^T * frame_R_current, one per axis,
+        # whose time derivatives are the angular velocity while both rotations are equal.
+        task_expressions = [
+            frame_R_measured.z_vector().dot(frame_R_current.y_vector()),
+            frame_R_measured.x_vector().dot(frame_R_current.z_vector()),
+            frame_R_measured.y_vector().dot(frame_R_current.x_vector()),
+        ]
+        axis_velocity_limit = max_velocity / np.sqrt(CARTESIAN_AXIS_COUNT)
+        for i, task_expression in enumerate(task_expressions):
+            self.collection.add_velocity_constraint(
+                upper_velocity_limit=axis_velocity_limit,
+                lower_velocity_limit=-axis_velocity_limit,
+                quadratic_weight=quadratic_weight,
+                task_expression=task_expression,
+                lower_slack_limit=-max_violation,
+                upper_slack_limit=max_violation,
+                velocity_limit=axis_velocity_limit,
+                name=self._indexed_constraint_name(name, i),
+            )

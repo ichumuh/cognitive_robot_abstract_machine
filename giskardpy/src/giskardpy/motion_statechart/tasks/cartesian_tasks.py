@@ -23,7 +23,6 @@ from giskardpy.motion_statechart.error_signals import (
     SampledErrorSignal,
     SymbolicErrorSignal,
     joint_position_and_velocity_variables,
-    time_derivative_from_joint_motion,
 )
 from giskardpy.motion_statechart.graph_node import (
     NodeArtifacts,
@@ -720,35 +719,34 @@ class CartesianPose(Parallel):
 @dataclass(eq=False, repr=False)
 class CartesianPositionVelocityLimit(Task):
     """
-    Limit the Cartesian (translational) velocity of a tip link relative to a root link.
+    Limit the linear speed of a tip link relative to a root link.
 
-    This goal enforces a strict cap on the linear speed of the frame defined by
-    the kinematic transform from `root_link` to `tip_link`. Enforcement is performed
-    by adding constraints to the optimizer and by providing an observation expression
-    that evaluates whether the current translational speed is within the limit.
+    The speed of the tip stays at or below :attr:`max_linear_velocity` in every
+    direction. Each axis of the root link is limited separately, so motion along a
+    single axis is limited to about 58% of :attr:`max_linear_velocity` and only motion
+    along a diagonal reaches it. The observation is true while the speed of the tip is
+    within the limit.
 
     .. warning::
-       Strict Cartesian velocity limits require as many constraints as the prediction
-       horizon size, making the optimization problem more complex. This can impact
-       solve time especially at high control frequencies. If computation time is critical,
-       consider using larger limits or reducing the prediction horizon.
+       The limit adds three constraints per step of the prediction horizon, making the
+       optimization problem larger. This can impact solve time especially at high
+       control frequencies. If computation time is critical, consider using larger
+       limits or reducing the prediction horizon.
     """
 
     root_link: KinematicStructureEntity = field(kw_only=True)
     """
-    Root link of the kinematic chain. 
+    Root link of the kinematic chain.
     Defines the reference frame from which the tip's motion is measured.
     """
     tip_link: KinematicStructureEntity = field(kw_only=True)
     """
-    Tip link of the kinematic chain. 
-    The translational velocity of this link (expressed in the root link frame) is constrained.
+    Tip link of the kinematic chain.
+    The linear velocity of this link, relative to the root link, is constrained.
     """
     max_linear_velocity: float = field(default=0.1, kw_only=True)
     """
     Maximum allowed linear speed of the tip in meters per second (m/s).
-    Default: 0.1 m/s. The enforcement ensures the Euclidean norm of the
-    tip-frame translational velocity does not exceed this value.
     """
     weight: float = field(
         default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True
@@ -785,36 +783,62 @@ class CartesianPositionVelocityLimit(Task):
 @dataclass(eq=False, repr=False)
 class CartesianRotationVelocityLimit(Task):
     """
-    Represents a Cartesian rotational velocity limit task within a kinematic chain.
+    Limit the angular speed of a tip link relative to a root link.
 
-    This task constrains the angular velocity of a specified tip link relative
-    to a root link to not exceed a maximum allowed angular velocity. It uses
-    optimization weights to prioritize its enforcement in solving problems
-    involving kinematic motion. The task calculates and enforces constraints
-    based on the rotation matrix between the root and tip links, ensuring
-    compliance with the defined angular velocity limits.
+    The angular speed of the tip stays at or below :attr:`max_angular_velocity` about
+    every axis. Each axis of the tip link is limited separately, so turning about a
+    single axis is limited to about 58% of :attr:`max_angular_velocity`. The
+    observation is true while the angular speed of the tip is within the limit.
 
     .. warning::
-       Strict Cartesian velocity limits require as many constraints as the prediction
-       horizon size, making the optimization problem more complex. This can impact
-       solve time especially at high control frequencies. If computation time is critical,
-       consider using larger limits or reducing the prediction horizon.
+       The limit adds three constraints per step of the prediction horizon, making the
+       optimization problem larger. This can impact solve time especially at high
+       control frequencies. If computation time is critical, consider using larger
+       limits or reducing the prediction horizon.
     """
 
     root_link: KinematicStructureEntity = field(kw_only=True)
     """Root link of the kinematic chain. Defines the reference frame from which the tip's motion is measured."""
     tip_link: KinematicStructureEntity = field(kw_only=True)
-    """Tip link of the kinematic chain. The translational velocity of this link (expressed in the root link frame) is constrained."""
+    """Tip link of the kinematic chain. The angular velocity of this link, relative to the root link, is constrained."""
     max_angular_velocity: float = field(default=0.4, kw_only=True)
-    """Maximum allowed angular speed. Interpreted in radians per second (rad/s).
-    The enforcement ensures the magnitude of the instantaneous
-    rotation rate does not exceed this threshold."""
+    """Maximum allowed angular speed of the tip in radians per second (rad/s)."""
     weight: float = field(
         default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True
     )
     """Optimization weight determining how strongly the rotational velocity
     limit is enforced. Higher weights give this constraint soft priority
     over lower weighted constraints when conflicts occur."""
+
+    _measured_rotation_binding: ForwardKinematicsBinding = field(init=False)
+    """Binding for the pose of the tip at the start of the current control cycle."""
+
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+        """
+        Bind the measured pose of the tip before the constraints are described against
+        it.
+        """
+        self._measured_rotation_binding = ForwardKinematicsBinding(
+            name=PrefixedName("root_T_tip_measured", str(self.name)),
+            root=self.root_link,
+            tip=self.tip_link,
+            float_variable_data=context.float_variable_data,
+        )
+        self._measured_rotation_binding.bind(context.world)
+        return super().build(context)
+
+    def on_start(self, context: MotionStatechartContext) -> None:
+        """
+        Measure the pose of the tip for the first control cycle, on which
+        :meth:`on_tick` is not called.
+        """
+        self._measured_rotation_binding.bind(context.world)
+
+    def on_tick(self, context: MotionStatechartContext) -> None:
+        """
+        Measure the pose of the tip for the coming control cycle.
+        """
+        self._measured_rotation_binding.bind(context.world)
 
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
@@ -825,14 +849,23 @@ class CartesianRotationVelocityLimit(Task):
 
         artifacts.geometry.add_rotational_velocity_limit(
             frame_R_current=root_R_tip,
+            frame_R_measured=self._measured_rotation_binding.root_T_tip.to_rotation_matrix(),
             max_velocity=self.max_angular_velocity,
             quadratic_weight=self.weight,
         )
 
-        _, angle = root_R_tip.to_axis_angle()
-        angle_dot = time_derivative_from_joint_motion(angle)
+        position_variables, velocity_variables = joint_position_and_velocity_variables(
+            root_R_tip
+        )
+        root_R_tip_dot = root_R_tip.flatten().total_derivative(
+            position_variables, velocity_variables
+        )
+        # The derivative of a rotation matrix is the rotation matrix times the skew
+        # symmetric matrix of the angular velocity, whose norm is sqrt(2) times the
+        # angular speed.
+        angular_speed = root_R_tip_dot.norm() / np.sqrt(2)
 
-        artifacts.observation = sm.abs(angle_dot) <= self.max_angular_velocity
+        artifacts.observation = angular_speed <= self.max_angular_velocity
 
         return artifacts
 
@@ -842,29 +875,25 @@ class CartesianVelocityLimit(Parallel):
     """
     Combines both linear and angular velocity limits for a kinematic chain.
 
-    This task enforces strict caps on both the linear and angular velocities of
-    a tip link relative to a root link by combining CartesianPositionVelocityLimit
-    and CartesianRotationVelocityLimit tasks in parallel.
+    Runs a :class:`CartesianPositionVelocityLimit` and a
+    :class:`CartesianRotationVelocityLimit` in parallel, so both the linear and the
+    angular speed of a tip link relative to a root link stay within their limits.
 
     .. warning::
-       Strict Cartesian velocity limits require as many constraints as the prediction
-       horizon size, making the optimization problem more complex. This can impact
-       solve time especially at high control frequencies. If computation time is critical,
-       consider using larger limits or reducing the prediction horizon.
+       The limits add six constraints per step of the prediction horizon, making the
+       optimization problem larger. This can impact solve time especially at high
+       control frequencies. If computation time is critical, consider using larger
+       limits or reducing the prediction horizon.
     """
 
     root_link: KinematicStructureEntity = field(kw_only=True)
     """Root link of the kinematic chain. Defines the reference frame from which the tip's motion is measured."""
     tip_link: KinematicStructureEntity = field(kw_only=True)
-    """Tip link of the kinematic chain. Both translational and rotational velocities of this link (expressed in the root link frame) are constrained."""
+    """Tip link of the kinematic chain. Both the linear and the angular velocity of this link, relative to the root link, are constrained."""
     max_linear_velocity: float = field(default=0.1, kw_only=True)
-    """Maximum allowed linear speed of the tip in meters per second (m/s).
-    Default: 0.1 m/s. The enforcement ensures the Euclidean norm of the
-    tip-frame translational velocity does not exceed this value."""
+    """Maximum allowed linear speed of the tip in meters per second (m/s)."""
     max_angular_velocity: float = field(default=0.4, kw_only=True)
-    """Maximum allowed angular speed. Interpreted in radians per second (rad/s).
-    Default: 0.5 rad/s. The enforcement ensures the magnitude of the instantaneous
-    rotation rate does not exceed this threshold."""
+    """Maximum allowed angular speed of the tip in radians per second (rad/s)."""
     weight: float = field(
         default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True
     )

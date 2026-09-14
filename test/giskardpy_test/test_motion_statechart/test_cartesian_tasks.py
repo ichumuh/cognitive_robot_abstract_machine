@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
+from scipy.spatial.transform import Rotation
 
 from giskardpy.executor import Executor
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
@@ -44,17 +45,25 @@ from krrood.symbolic_math.symbolic_math import trinary_logic_not
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
     Point3,
     RotationMatrix,
 )
-from semantic_digital_twin.spatial_types.derivatives import Derivatives
+from semantic_digital_twin.spatial_types.derivatives import Derivatives, DerivativeMap
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
+    ActiveConnection1DOF,
     FixedConnection,
+    PrismaticConnection,
+    RevoluteConnection,
+)
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
 )
 from semantic_digital_twin.world_description.geometry import (
     Box,
@@ -115,6 +124,44 @@ class StraightLine:
         return max(self.distance_from(position) for position in positions)
 
 
+def record_tip_poses(
+    executor: Executor,
+    task: MotionStatechartNode,
+    root_link: KinematicStructureEntity,
+    tip_link: KinematicStructureEntity,
+    maximum_ticks: int = 2000,
+) -> list[np.ndarray]:
+    """
+    Tick until the motion ends and collect the poses of the tip while `task` was
+    running.
+
+    The first entry is the pose the tip had when `task` started.
+
+    :return: Homogeneous transformation matrices from `root_link` to `tip_link`, one
+        per control cycle.
+    :raises TimeoutError: if the motion does not end within `maximum_ticks`.
+    """
+    world = executor.context.world
+    life_cycle_state = executor.motion_statechart.life_cycle_state
+
+    def tip_pose() -> np.ndarray:
+        return world.compute_forward_kinematics_np(root_link, tip_link).copy()
+
+    poses = []
+    if life_cycle_state[task] == LifeCycleValues.RUNNING:
+        poses.append(tip_pose())
+    for _ in range(maximum_ticks):
+        pose_before_tick = tip_pose()
+        executor.tick()
+        if not poses and life_cycle_state[task] == LifeCycleValues.RUNNING:
+            poses.append(pose_before_tick)
+        if poses:
+            poses.append(tip_pose())
+        if executor.motion_statechart.is_end_motion():
+            return poses
+    raise TimeoutError(f"{task.name} did not finish within {maximum_ticks} ticks")
+
+
 def record_tip_path(
     executor: Executor,
     task: MotionStatechartNode,
@@ -130,25 +177,8 @@ def record_tip_path(
 
     :raises TimeoutError: if the motion does not end within `maximum_ticks`.
     """
-    world = executor.context.world
-    life_cycle_state = executor.motion_statechart.life_cycle_state
-
-    def tip_position() -> np.ndarray:
-        return world.compute_forward_kinematics_np(root_link, tip_link)[:3, 3].copy()
-
-    path = []
-    if life_cycle_state[task] == LifeCycleValues.RUNNING:
-        path.append(tip_position())
-    for _ in range(maximum_ticks):
-        position_before_tick = tip_position()
-        executor.tick()
-        if not path and life_cycle_state[task] == LifeCycleValues.RUNNING:
-            path.append(position_before_tick)
-        if path:
-            path.append(tip_position())
-        if executor.motion_statechart.is_end_motion():
-            return path
-    raise TimeoutError(f"{task.name} did not finish within {maximum_ticks} ticks")
+    poses = record_tip_poses(executor, task, root_link, tip_link, maximum_ticks)
+    return [pose[:3, 3] for pose in poses]
 
 
 class TestCartesianPositionTrajectory:
@@ -1646,3 +1676,391 @@ class TestDebugExpressions:
             "pose/orientation/goal",
             "pose/orientation/current",
         }
+
+
+# %% speed measured under Cartesian velocity limits
+
+SPEED_TOLERANCE = 1e-3
+"""
+How far the measured speed of the tip may exceed a Cartesian velocity limit, in units
+per second.
+"""
+
+LIMIT_UNDER_TEST = 0.1
+"""
+Cartesian velocity limit imposed on the tip, in m/s or rad/s, below the speed its goal
+would otherwise move it at.
+"""
+
+
+JOINT_VELOCITY_LIMIT = 1.0
+"""
+Velocity limit of every joint in the worlds below, in units per second, well above the
+Cartesian limits the tests impose.
+"""
+
+
+@dataclass
+class RecordedTipMotion:
+    """
+    The poses a tip passed through, one per control cycle.
+    """
+
+    poses: list[np.ndarray]
+    """Homogeneous transformation matrices from the root to the tip."""
+
+    control_dt: float
+    """Time between two consecutive poses, in seconds."""
+
+    @classmethod
+    def record(
+        cls,
+        executor: Executor,
+        task: MotionStatechartNode,
+        root_link: KinematicStructureEntity,
+        tip_link: KinematicStructureEntity,
+    ) -> RecordedTipMotion:
+        """
+        Tick until the motion ends and record the tip while `task` is running.
+
+        :raises TimeoutError: if the motion does not end.
+        """
+        return cls(
+            poses=record_tip_poses(executor, task, root_link, tip_link),
+            control_dt=executor.context.qp_controller_config.control_dt,
+        )
+
+    def linear_speeds(self) -> np.ndarray:
+        """
+        :return: Distance travelled by the tip in each control cycle, divided by its
+            duration.
+        """
+        positions = np.array([pose[:3, 3] for pose in self.poses])
+        return np.linalg.norm(np.diff(positions, axis=0), axis=1) / self.control_dt
+
+    def angular_speeds(self) -> np.ndarray:
+        """
+        :return: Angle the tip turned by in each control cycle, divided by its duration.
+        """
+        rotations = Rotation.from_matrix([pose[:3, :3] for pose in self.poses])
+        return (rotations[:-1].inv() * rotations[1:]).magnitude() / self.control_dt
+
+
+def _connect_with_joint(
+    world: World,
+    connection_type: type[ActiveConnection1DOF],
+    parent: KinematicStructureEntity,
+    child: KinematicStructureEntity,
+    axis: Vector3,
+    parent_T_joint: HomogeneousTransformationMatrix | None = None,
+) -> None:
+    """
+    Adds a controllable joint between `parent` and `child` whose only bound is
+    :data:`JOINT_VELOCITY_LIMIT`.
+    """
+    limits = DegreeOfFreedomLimits(
+        lower=DerivativeMap(
+            position=None,
+            velocity=-JOINT_VELOCITY_LIMIT,
+            acceleration=None,
+            jerk=None,
+        ),
+        upper=DerivativeMap(
+            position=None, velocity=JOINT_VELOCITY_LIMIT, acceleration=None, jerk=None
+        ),
+    )
+    dof = DegreeOfFreedom(
+        name=PrefixedName(str(child.name.name), "dof"),
+        limits=limits,
+        has_hardware_interface=True,
+    )
+    world.add_degree_of_freedom(dof)
+    world.add_connection(
+        connection_type(
+            parent=parent,
+            child=child,
+            raw_dof=dof,
+            axis=axis,
+            parent_T_connection_expression=parent_T_joint,
+        )
+    )
+
+
+def _make_sideways_prismatic_world() -> World:
+    """
+    Builds a world whose tip slides along the root's x-axis on a line 1 m away from the
+    root's origin, so its motion is mostly across the direction to that origin.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        tip = Body(name=PrefixedName("tip"))
+        _connect_with_joint(
+            world,
+            PrismaticConnection,
+            root,
+            tip,
+            Vector3.X(),
+            HomogeneousTransformationMatrix.from_xyz_rpy(y=1, reference_frame=root),
+        )
+    MinimalRobot.from_world(world)
+    return world
+
+
+def _make_diagonal_prismatic_world() -> World:
+    """
+    Builds a world whose tip is moved by one prismatic joint along each axis of the
+    root.
+    """
+    world = World()
+    with world.modify_world():
+        parent = Body(name=PrefixedName("map"))
+        for index, axis in enumerate([Vector3.X(), Vector3.Y(), Vector3.Z()]):
+            child = Body(name=PrefixedName("tip" if index == 2 else f"link{index}"))
+            _connect_with_joint(world, PrismaticConnection, parent, child, axis)
+            parent = child
+    MinimalRobot.from_world(world)
+    return world
+
+
+def _make_revolute_world(joint_roll: float, tip_distance: float) -> World:
+    """
+    Builds a world with one revolute joint at the root's origin and a tip mounted on it.
+
+    :param joint_roll: Rotation of the joint about the root's x-axis, in radians. The
+        joint turns about its own z-axis.
+    :param tip_distance: Distance of the tip from the joint along the joint's x-axis,
+        in meters.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        arm = Body(name=PrefixedName("arm"))
+        tip = Body(name=PrefixedName("tip"))
+        _connect_with_joint(
+            world,
+            RevoluteConnection,
+            root,
+            arm,
+            Vector3.Z(),
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                roll=joint_roll, reference_frame=root
+            ),
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=arm,
+                child=tip,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=tip_distance, reference_frame=arm
+                ),
+            )
+        )
+    MinimalRobot.from_world(world)
+    return world
+
+
+@dataclass
+class LimitedMotion:
+    """
+    A goal for the tip of a world, and the Cartesian velocity limit it moves under.
+    """
+
+    goal: CartesianPosition | CartesianOrientation
+    """Goal that moves the tip, ending the motion once reached."""
+
+    limit: CartesianPositionVelocityLimit | CartesianRotationVelocityLimit
+    """Limit on the speed of the tip."""
+
+    @classmethod
+    def to_point(cls, world: World, goal_point: Point3) -> LimitedMotion:
+        """
+        :return: A motion of the tip to `goal_point` under a linear velocity limit.
+        """
+        tip = world.get_kinematic_structure_entity_by_name("tip")
+        return cls(
+            goal=CartesianPosition(
+                root_link=world.root, tip_link=tip, goal_point=goal_point
+            ),
+            limit=CartesianPositionVelocityLimit(
+                root_link=world.root,
+                tip_link=tip,
+                max_linear_velocity=LIMIT_UNDER_TEST,
+            ),
+        )
+
+    @classmethod
+    def quarter_turn(cls, world: World) -> LimitedMotion:
+        """
+        :return: A quarter turn of the tip about its own z-axis under an angular
+            velocity limit.
+        """
+        tip = world.get_kinematic_structure_entity_by_name("tip")
+        return cls(
+            goal=CartesianOrientation(
+                root_link=world.root,
+                tip_link=tip,
+                goal_orientation=RotationMatrix.from_rpy(
+                    yaw=np.pi / 2, reference_frame=tip
+                ),
+            ),
+            limit=CartesianRotationVelocityLimit(
+                root_link=world.root,
+                tip_link=tip,
+                max_angular_velocity=LIMIT_UNDER_TEST,
+            ),
+        )
+
+    def compile(self, world: World) -> Executor:
+        """
+        :return: An executor for a motion that ends once the goal is reached.
+        """
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_nodes(
+            [self.goal, self.limit, EndMotion.when_true(self.goal)]
+        )
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        return executor
+
+    def record(self, executor: Executor) -> RecordedTipMotion:
+        """
+        Run the compiled motion until the goal is reached.
+
+        :raises TimeoutError: if the goal is not reached.
+        """
+        return RecordedTipMotion.record(
+            executor, self.limit, self.limit.root_link, self.limit.tip_link
+        )
+
+
+class TestVelocityLimitBoundsSpeed:
+    """
+    Cartesian velocity limits bound the speed of the tip in every direction, measured
+    from the poses the tip actually passes through.
+
+    Every motion ends when its goal is reached, so a motion the limit stalls fails with
+    a :class:`TimeoutError` instead of passing.
+    """
+
+    def test_linear_speed_moving_across_the_direction_to_the_root(self):
+        world = _make_sideways_prismatic_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(1, 1, 0, reference_frame=world.root)
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    def test_linear_speed_moving_along_an_arc(self):
+        world = _make_revolute_world(joint_roll=0, tip_distance=1)
+        motion = LimitedMotion.to_point(
+            world, Point3(0, 1, 0, reference_frame=world.root)
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    def test_linear_speed_reaches_the_limit_moving_diagonally(self):
+        """
+        Motion along the diagonal of the root's axes may use the full limit.
+        """
+        world = _make_diagonal_prismatic_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(1, 1, 1, reference_frame=world.root)
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert recorded.linear_speeds().max() == pytest.approx(
+            motion.limit.max_linear_velocity, abs=SPEED_TOLERANCE
+        )
+
+    def test_angular_speed_turning_about_an_axis_across_the_rotation_axis(self):
+        world = _make_revolute_world(joint_roll=np.pi / 2, tip_distance=0)
+        motion = LimitedMotion.quarter_turn(world)
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.angular_speeds().max()
+            <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+    def test_angular_speed_starting_aligned_with_the_root(self):
+        world = _make_revolute_world(joint_roll=0, tip_distance=0)
+        motion = LimitedMotion.quarter_turn(world)
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.angular_speeds().max()
+            <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+    def test_angular_speed_when_the_limit_starts_after_another_motion(self):
+        """
+        The limit must describe the angular velocity at the pose the tip has when the
+        limit starts running, not at the pose it had when the statechart was compiled.
+        """
+        world = _make_revolute_world(joint_roll=0, tip_distance=0)
+        motion = LimitedMotion.quarter_turn(world)
+        [joint] = world.get_connections_by_type(RevoluteConnection)
+        joint_goal = JointPositionList(
+            goal_state=JointState.from_mapping({joint: np.pi / 2})
+        )
+        joint_goal.end_condition = joint_goal.observation_variable
+        motion.goal.start_condition = joint_goal.observation_variable
+        motion.limit.start_condition = joint_goal.observation_variable
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_nodes(
+            [joint_goal, motion.goal, motion.limit, EndMotion.when_true(motion.goal)]
+        )
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+
+        recorded = motion.record(executor)
+
+        assert (
+            recorded.angular_speeds().max()
+            <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+
+class TestRotationVelocityLimitObservation:
+    """
+    The observation of a rotation velocity limit compares the angular speed of the tip
+    to the limit.
+    """
+
+    @pytest.mark.parametrize(
+        "speed_factor, expected_observation",
+        [(0.9, ObservationStateValues.TRUE), (1.1, ObservationStateValues.FALSE)],
+        ids=["below", "above"],
+    )
+    def test_observation_compares_the_angular_speed_to_the_limit(
+        self, speed_factor: float, expected_observation: ObservationStateValues
+    ):
+        world = _make_revolute_world(joint_roll=np.pi / 2, tip_distance=0)
+        limit = CartesianRotationVelocityLimit(
+            root_link=world.root,
+            tip_link=world.get_kinematic_structure_entity_by_name("tip"),
+            max_angular_velocity=LIMIT_UNDER_TEST,
+        )
+        artifacts = limit.build(MotionStatechartContext(world=world))
+
+        [degree_of_freedom] = world.active_degrees_of_freedom
+        world.state[degree_of_freedom.id].velocity = (
+            speed_factor * limit.max_angular_velocity
+        )
+        world.notify_state_change()
+
+        assert artifacts.observation.evaluate()[0] == expected_observation
