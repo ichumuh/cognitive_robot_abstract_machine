@@ -100,7 +100,8 @@ class QPDataSymbolic:
 
     equality_matrix_degrees_of_freedom: Matrix = field(init=False)
     """
-    Equality constraint matrix block acting on the degree-of-freedom variables.
+    Equality constraint matrix block acting on the degree-of-freedom variables, followed
+    by the auxiliary variables.
     """
     equality_matrix_slack: Matrix = field(init=False)
     """
@@ -117,7 +118,8 @@ class QPDataSymbolic:
 
     inequality_matrix_degrees_of_freedom: Matrix = field(init=False)
     """
-    Inequality constraint matrix block acting on the degree-of-freedom variables.
+    Inequality constraint matrix block acting on the degree-of-freedom variables, followed
+    by the auxiliary variables.
     """
     inequality_matrix_slack: Matrix = field(init=False)
     """
@@ -156,9 +158,19 @@ class QPDataSymbolic:
         return strategy.create_matrix(), strategy.create_slack_matrix()
 
     def __post_init__(self):
+        equality_strategies = self._instantiate_strategies(
+            self.constraint_collection.get_equality_constraint_blocks()
+        )
+        inequality_strategies = self._instantiate_strategies(
+            self.constraint_collection.get_inequality_constraint_blocks()
+        )
         accumulator = self._collect_degree_of_freedom_limits()
-        self._assemble_equality_constraints(accumulator)
-        self._assemble_inequality_constraints(accumulator)
+        auxiliary_matrix = self._collect_auxiliary_variables(
+            equality_strategies + inequality_strategies, accumulator
+        )
+        self._assemble_equality_constraints(equality_strategies, accumulator)
+        self._assemble_inequality_constraints(inequality_strategies, accumulator)
+        self._append_auxiliary_columns(auxiliary_matrix)
         self._store_box_constraints(accumulator)
 
     def _collect_degree_of_freedom_limits(self) -> QPVariableAccumulator:
@@ -192,8 +204,75 @@ class QPDataSymbolic:
             constraints=constraints,
         )
 
+    def _instantiate_strategies(
+        self,
+        constraint_blocks: dict[type[EnforcementStrategy], list[GiskardConstraint]],
+    ) -> list[EnforcementStrategy]:
+        """
+        Instantiates one enforcement strategy per constraint block.
+        """
+        return [
+            self._instantiate_strategy(enforcement_strategy, constraints)
+            for enforcement_strategy, constraints in constraint_blocks.items()
+        ]
+
+    def _collect_auxiliary_variables(
+        self,
+        strategies: list[EnforcementStrategy],
+        accumulator: QPVariableAccumulator,
+    ) -> Matrix:
+        """
+        Appends the auxiliary variables of all strategies to the accumulator, directly
+        after the degree-of-freedom variables.
+
+        :return: The auxiliary columns of the equality rows, starting with the system
+            dynamics, followed by those of the inequality rows.
+        """
+        system_dynamics_rows = len(
+            self._instantiate_strategy(SystemDynamicsStrategy, []).create_names()
+        )
+        auxiliary_matrices = [sm.Matrix.zeros(system_dynamics_rows, 0)]
+        for strategy in strategies:
+            auxiliary_variables = strategy.create_auxiliary_variables()
+            accumulator.quadratic_weights.append(auxiliary_variables.quadratic_weights)
+            accumulator.linear_weights.append(auxiliary_variables.linear_weights)
+            accumulator.box_lower_constraints.append(auxiliary_variables.lower_bounds)
+            accumulator.box_upper_constraints.append(auxiliary_variables.upper_bounds)
+            accumulator.free_variable_names.extend(auxiliary_variables.names)
+            auxiliary_matrices.append(strategy.create_auxiliary_matrix())
+        return sm.diag_stack(auxiliary_matrices)
+
+    def _append_auxiliary_columns(self, auxiliary_matrix: Matrix) -> None:
+        """
+        Extends the degree-of-freedom blocks of the equality and inequality matrices by
+        the columns of the auxiliary variables.
+
+        :param auxiliary_matrix: The auxiliary columns of the equality rows followed by
+            those of the inequality rows.
+        """
+        number_of_auxiliary_variables = auxiliary_matrix.shape[1]
+        if number_of_auxiliary_variables == 0:
+            return
+        number_of_equality_rows = self.equality_matrix_degrees_of_freedom.shape[0]
+        self.equality_matrix_degrees_of_freedom = sm.hstack(
+            [
+                self.equality_matrix_degrees_of_freedom,
+                auxiliary_matrix[:number_of_equality_rows, :],
+            ]
+        )
+        if len(self.inequality_constraint_names) == 0:
+            return
+        self.inequality_matrix_degrees_of_freedom = sm.hstack(
+            [
+                self.inequality_matrix_degrees_of_freedom,
+                auxiliary_matrix[number_of_equality_rows:, :],
+            ]
+        )
+
     def _assemble_equality_constraints(
-        self, accumulator: QPVariableAccumulator
+        self,
+        strategies: list[EnforcementStrategy],
+        accumulator: QPVariableAccumulator,
     ) -> None:
         """
         Builds and stores the equality constraint matrices, slack blocks, bounds, and row names,
@@ -207,11 +286,7 @@ class QPDataSymbolic:
         bounds = [system_dynamics_strategy.create_equality_bounds()]
         self.equality_constraint_names = list(system_dynamics_strategy.create_names())
 
-        for (
-            enforcement_strategy,
-            constraints,
-        ) in self.constraint_collection.get_equality_constraint_blocks().items():
-            strategy = self._instantiate_strategy(enforcement_strategy, constraints)
+        for strategy in strategies:
             matrix, slack_matrix = self._append_slack_block(
                 strategy, self.equality_constraint_names, accumulator
             )
@@ -224,7 +299,9 @@ class QPDataSymbolic:
         self.equality_bounds = sm.concatenate(*bounds)
 
     def _assemble_inequality_constraints(
-        self, accumulator: QPVariableAccumulator
+        self,
+        strategies: list[EnforcementStrategy],
+        accumulator: QPVariableAccumulator,
     ) -> None:
         """
         Builds and stores the inequality constraint matrices, slack blocks, lower/upper bounds,
@@ -236,11 +313,7 @@ class QPDataSymbolic:
         upper_bounds = []
         self.inequality_constraint_names = []
 
-        for (
-            enforcement_strategy,
-            constraints,
-        ) in self.constraint_collection.get_inequality_constraint_blocks().items():
-            strategy = self._instantiate_strategy(enforcement_strategy, constraints)
+        for strategy in strategies:
             matrix, slack_matrix = self._append_slack_block(
                 strategy, self.inequality_constraint_names, accumulator
             )

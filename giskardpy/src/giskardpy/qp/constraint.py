@@ -9,13 +9,24 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import krrood.symbolic_math.symbolic_math as sm
-from krrood.symbolic_math.symbolic_math import Scalar
+from krrood.symbolic_math.symbolic_math import FloatVariable, Scalar
 
 if TYPE_CHECKING:
     from giskardpy.qp.enforcement_strategy import EnforcementStrategy
 
 
 LargeNumber = 1e4
+
+
+@dataclass(repr=False, eq=False, init=False)
+class AuxiliaryVariable(FloatVariable):
+    """
+    A variable of the quadratic program that belongs to no degree of freedom.
+
+    Constraint expressions may be linear in it. The quadratic program then decides the
+    rate of change of the variable in every control step, just as it decides the
+    velocities of the degrees of freedom.
+    """
 
 
 @dataclass(kw_only=True)
@@ -70,6 +81,11 @@ class GiskardConstraint(ABC):
     upper_slack_limit: sm.ScalarData = field(default=LargeNumber)
     """
     How far the constraint may be violated above its bound.
+    """
+
+    auxiliary_variables: list[AuxiliaryVariable] = field(default_factory=list)
+    """
+    The auxiliary variables the expression is linear in.
     """
 
 

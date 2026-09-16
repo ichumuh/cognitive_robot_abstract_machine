@@ -14,6 +14,7 @@ from typing_extensions import Callable
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.qp.constraint import (
+    AuxiliaryVariable,
     GiskardConstraint,
     GiskardEqualityConstraint,
     GiskardInequalityConstraint,
@@ -26,6 +27,15 @@ from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFr
 
 if TYPE_CHECKING:
     from giskardpy.qp.qp_controller_config import QPControllerConfig
+
+AUXILIARY_VARIABLE_WEIGHT = 1e-4
+"""
+Quadratic weight of every auxiliary variable.
+
+It keeps the quadratic program strictly convex in the auxiliary variables, including
+while the constraints using them are inactive; without it PIQP can report the problem as
+infeasible. At 1e-2 it starts to slow motion under a speed limit by about 1%.
+"""
 
 
 def normalize_slack_weight(
@@ -91,6 +101,21 @@ class EnforcementStrategy(ABC):
         Creates the limits and weights of the slack variables introduced by this
         strategy.
         """
+
+    def create_auxiliary_matrix(self) -> Matrix:
+        """
+        Builds the matrix coupling the auxiliary variables of the constraints to the
+        constraint rows.
+
+        Strategies whose constraints use no auxiliary variables add no columns.
+        """
+        return sm.Matrix.zeros(len(self.create_names()), 0)
+
+    def create_auxiliary_variables(self) -> DirectLimits:
+        """
+        Creates the limits and weights of the auxiliary variables of the constraints.
+        """
+        return DirectLimits.empty()
 
     @property
     def number_of_free_variables(self) -> int:
@@ -395,6 +420,53 @@ class VelocityStrategy(ExpressionEnforcementStrategy):
                     J_vel_limit_block.shape[0], self.number_of_jerk_columns
                 ),
             ]
+        )
+
+    @property
+    def auxiliary_variables(self) -> list[AuxiliaryVariable]:
+        """
+        The auxiliary variables of all constraints, each once, in order of appearance.
+        """
+        return list(
+            dict.fromkeys(
+                variable
+                for constraint in self.constraints
+                for variable in constraint.auxiliary_variables
+            )
+        )
+
+    def create_auxiliary_matrix(self) -> Matrix:
+        """
+        Builds the matrix applying the constraints' coefficients of the auxiliary
+        variables at each velocity step of the horizon, like :meth:`create_matrix` does
+        for the degrees of freedom.
+        """
+        auxiliary_variables = self.auxiliary_variables
+        if len(auxiliary_variables) == 0:
+            return super().create_auxiliary_matrix()
+        jacobian = (
+            sm.Vector([c.expression for c in self.constraints]).jacobian(
+                variables=auxiliary_variables
+            )
+            * self.qp_controller_config.model_predictive_control_time_step
+        )
+        return sm.Matrix.eye(self.qp_controller_config.control_horizon).kron(jacobian)
+
+    def create_auxiliary_variables(self) -> DirectLimits:
+        """
+        Creates one variable per auxiliary variable and velocity step.
+        """
+        names = [
+            f"t{t:03}/{variable.name}"
+            for t in range(self.qp_controller_config.control_horizon)
+            for variable in self.auxiliary_variables
+        ]
+        return DirectLimits(
+            lower_bounds=sm.Vector([-LargeNumber] * len(names)),
+            upper_bounds=sm.Vector([LargeNumber] * len(names)),
+            quadratic_weights=sm.Vector([AUXILIARY_VARIABLE_WEIGHT] * len(names)),
+            linear_weights=sm.Vector.zeros(len(names)),
+            names=names,
         )
 
     def create_slack_matrix(self) -> Matrix:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing_extensions import List, Optional, Tuple
 
 from krrood.symbolic_math.symbolic_math import Scalar, SymbolicMathType
+from semantic_digital_twin.spatial_types import RotationMatrix, Vector3
 from semantic_digital_twin.world_description.degree_of_freedom import (
     PositionVariable,
     VelocityVariable,
@@ -55,6 +56,34 @@ def time_derivative_from_joint_motion(expression: Scalar) -> Scalar:
     if not position_variables:
         return Scalar(0)
     return expression.total_derivative(position_variables, velocity_variables)[0]
+
+
+def angular_velocity_from_joint_motion(frame_R_current: RotationMatrix) -> Vector3:
+    """
+    The angular velocity of a rotation caused by the robot's joints moving.
+
+    :param frame_R_current: The rotation, depending on joint positions.
+    :return: The angular velocity in rad/s, expressed in the rotated frame.
+    """
+    position_variables, velocity_variables = joint_position_and_velocity_variables(
+        frame_R_current
+    )
+    x_axis, y_axis, z_axis = (
+        frame_R_current.x_vector(),
+        frame_R_current.y_vector(),
+        frame_R_current.z_vector(),
+    )
+    x_axis_rate, y_axis_rate, z_axis_rate = (
+        Vector3.from_iterable(
+            axis.total_derivative(position_variables, velocity_variables)
+        )
+        for axis in (x_axis, y_axis, z_axis)
+    )
+    return Vector3(
+        x=z_axis.dot(y_axis_rate),
+        y=x_axis.dot(z_axis_rate),
+        z=y_axis.dot(x_axis_rate),
+    )
 
 
 # %% error signals

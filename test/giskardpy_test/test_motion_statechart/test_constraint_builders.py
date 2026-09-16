@@ -8,6 +8,10 @@ from semantic_digital_twin.spatial_types import Point3, RotationMatrix, Vector3
 
 from giskardpy.motion_statechart.constraint_builders import GeometricConstraintBuilder
 from giskardpy.motion_statechart.graph_node import NodeArtifacts
+from giskardpy.motion_statechart.speed_limit_approximations import (
+    AxisVelocityLimit,
+    MotionAlignedAxes,
+)
 from giskardpy.qp.constraint_collection import ConstraintCollection
 
 # %% goals
@@ -134,3 +138,39 @@ def test_rotational_velocity_limit_constrains_the_angular_velocity_in_the_frame_
     )
     angular_velocity = (rotation_before.inv() * rotation_after).as_rotvec() / time_step
     assert constrained_velocity == pytest.approx(angular_velocity, abs=1e-6)
+
+
+def test_velocity_limit_along_axes_constrains_the_velocity_along_each_axis():
+    """
+    Each constraint limits the component of the velocity along one axis, by the limit of
+    that axis.
+    """
+    positions = [FloatVariable("x"), FloatVariable("y"), FloatVariable("z")]
+    velocity = np.array([0.2, -0.1, 0.3])
+    axes = Rotation.from_rotvec([0.4, -0.7, 1.1]).as_matrix()
+    axis_limits = [
+        AxisVelocityLimit(
+            direction=Vector3.from_iterable(axes[:, index]), velocity_limit=limit
+        )
+        for index, limit in enumerate(MotionAlignedAxes().velocity_limits(0.5))
+    ]
+    collection = ConstraintCollection()
+    GeometricConstraintBuilder(collection).add_velocity_limit_along_axes(
+        task_expressions=Vector3(*positions),
+        axis_limits=axis_limits,
+        quadratic_weight=1.0,
+        name="limit",
+    )
+
+    constraints = collection.inequality_constraints
+    expressions = sm.Vector([constraint.expression for constraint in constraints])
+    jacobian = expressions.jacobian(positions).compile(
+        VariableParameters.from_lists(positions)
+    )(np.zeros(3))
+    assert jacobian @ velocity == pytest.approx(axes.T @ velocity)
+    assert [constraint.upper_bound for constraint in constraints] == [
+        axis_limit.velocity_limit for axis_limit in axis_limits
+    ]
+    assert [constraint.lower_bound for constraint in constraints] == [
+        -axis_limit.velocity_limit for axis_limit in axis_limits
+    ]

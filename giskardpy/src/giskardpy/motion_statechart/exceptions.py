@@ -388,6 +388,118 @@ class InvalidConstraintExpressionShapeError(MotionStatechartError):
 
 
 @dataclass
+class AcrossMotionFractionOutOfRangeError(MotionStatechartError):
+    """
+    Raised when the velocity allowed across the direction of motion either locks that
+    direction or leaves no velocity along it.
+    """
+
+    across_motion_fraction: float
+    """
+    The rejected fraction of the velocity limit.
+    """
+
+    largest_fraction: float
+    """
+    The fraction above which the velocity across the motion alone reaches the limit.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The across motion fraction must lie strictly between 0 and "
+            f"{self.largest_fraction}, but is {self.across_motion_fraction}."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "At 0 the axes can never turn away from the direction of motion, and at "
+            "the largest fraction the velocity across the motion alone reaches the "
+            "limit."
+        )
+
+
+@dataclass
+class TiltedAxesError(MotionStatechartError):
+    """
+    Raised when the axes tilted from the direction of motion do not close a cap around
+    it.
+    """
+
+    tilted_axis_count: int
+    """
+    The rejected number of tilted axes.
+    """
+
+    tilt_angle: float
+    """
+    The rejected angle between each tilted axis and the direction of motion, in radians.
+    """
+
+    minimum_tilted_axis_count: int
+    """
+    The fewest tilted axes that close a cap.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"A cap needs at least {self.minimum_tilted_axis_count} tilted axes and a "
+            f"tilt angle strictly between 0 and pi/2, but got "
+            f"{self.tilted_axis_count} axes tilted by {self.tilt_angle}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Use 4 axes tilted by 10 to 30 degrees."
+
+
+@dataclass
+class PolygonSidesError(MotionStatechartError):
+    """
+    Raised when the polygons approximating a speed limit cannot be built by repeatedly
+    halving the angle of a square's side.
+    """
+
+    polygon_sides: int
+    """
+    The rejected number of polygon sides.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The number of polygon sides must be a power of two of at least 4, "
+            f"but is {self.polygon_sides}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Use 8, 16 or 32 sides."
+
+
+@dataclass
+class FacePairCountError(MotionStatechartError):
+    """
+    Raised when too few pairs of opposite faces are requested to enclose a polyhedron.
+    """
+
+    face_pair_count: int
+    """
+    The rejected number of face pairs.
+    """
+
+    minimum_face_pair_count: int
+    """
+    The fewest face pairs that enclose a polyhedron.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"At least {self.minimum_face_pair_count} pairs of opposite faces are "
+            f"needed, but {self.face_pair_count} were requested."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Use 16 to 64 face pairs."
+
+
+@dataclass
 class NodeNotFoundError(MotionStatechartError):
     """
     Raised when a node is looked up by name and the statechart has no such node.

@@ -9,12 +9,15 @@ import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.qp.constraint import LargeNumber
 from giskardpy.qp.constraint_collection import ConstraintCollection
+from giskardpy.motion_statechart.speed_limit_approximations import (
+    AxisVelocityLimit,
+    CARTESIAN_AXIS_COUNT,
+    FixedVelocityLimitFrame,
+    NestedPolygonRows,
+    NestedPolygons,
+    SpeedLimitConstraints,
+)
 from semantic_digital_twin.spatial_types import Point3, Vector3, RotationMatrix
-
-CARTESIAN_AXIS_COUNT = 3
-"""
-Number of axes of a Cartesian frame.
-"""
 
 
 @dataclass
@@ -167,6 +170,73 @@ class GeometricConstraintBuilder:
                 name=self._indexed_constraint_name(name, i),
             )
 
+    def add_velocity_limit_along_axes(
+        self,
+        task_expressions: Vector3,
+        axis_limits: list[AxisVelocityLimit],
+        quadratic_weight: sm.ScalarData,
+        max_violation: sm.ScalarData = np.inf,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Adds one constraint per axis that keeps the velocity of task_expressions along
+        that axis within the limit of the axis.
+
+        :param task_expressions: Three expressions whose time derivatives are the
+            components of the limited velocity. They should depend on active dofs.
+        :param axis_limits: The axes and the limit of the velocity along each of them.
+        :param max_violation: Largest allowed violation of each limit.
+        """
+        for i, axis_limit in enumerate(axis_limits):
+            self.collection.add_velocity_constraint(
+                upper_velocity_limit=axis_limit.velocity_limit,
+                lower_velocity_limit=-axis_limit.velocity_limit,
+                quadratic_weight=quadratic_weight,
+                task_expression=axis_limit.direction.dot(task_expressions),
+                lower_slack_limit=-max_violation,
+                upper_slack_limit=max_violation,
+                velocity_limit=axis_limit.velocity_limit,
+                name=self._indexed_constraint_name(name, i),
+            )
+
+    def add_speed_limit_with_nested_polygons(
+        self,
+        task_expressions: Vector3,
+        max_velocity: float,
+        polygon_sides: int,
+        quadratic_weight: sm.ScalarData,
+        name: str,
+        max_violation: sm.ScalarData = np.inf,
+    ) -> None:
+        """
+        Adds constraints and auxiliary variables that keep the length of the velocity of
+        task_expressions within max_velocity, by nested regular polygons.
+
+        :param task_expressions: Three expressions whose time derivatives are the
+            components of the limited velocity. They should depend on active dofs.
+        :param polygon_sides: Number of sides of the polygons approximating each circle.
+        :param name: Prefix of the names of the constraints and auxiliary variables.
+        :param max_violation: Largest allowed violation of each constraint.
+        """
+        rows = NestedPolygonRows(
+            task_expressions=task_expressions,
+            max_velocity=max_velocity,
+            approximation=NestedPolygons(polygon_sides=polygon_sides),
+            name=name,
+        )
+        for row in rows.rows:
+            self.collection.add_velocity_constraint(
+                lower_velocity_limit=row.lower_bound,
+                upper_velocity_limit=row.upper_bound,
+                quadratic_weight=quadratic_weight,
+                task_expression=row.expression,
+                velocity_limit=max_velocity,
+                name=row.name,
+                lower_slack_limit=-max_violation,
+                upper_slack_limit=max_violation,
+                auxiliary_variables=rows.auxiliary_variables,
+            )
+
     def add_translational_velocity_limit(
         self,
         frame_P_current: Point3,
@@ -174,31 +244,27 @@ class GeometricConstraintBuilder:
         quadratic_weight: sm.ScalarData,
         max_violation: sm.ScalarData = np.inf,
         name: Optional[str] = None,
+        limit: Optional[SpeedLimitConstraints] = None,
     ) -> None:
         """
-        Adds three constraints that keep the speed of frame_P_current at or below
-        max_velocity in every direction.
+        Adds constraints that keep the speed of frame_P_current at or below max_velocity
+        in every direction.
 
-        Each axis of frame is limited to ``max_velocity / sqrt(3)``, so motion along a
-        single axis is limited to about 58% of max_velocity and only motion along a
-        diagonal reaches it.
         :param frame_P_current: a vector describing a 3D point. It should depend on
             active dofs.
         :param max_velocity: m/s
         :param max_violation: m/s
+        :param limit: The constraints of the limit, expressed in frame. Defaults to
+            limiting each axis of frame to ``max_velocity / sqrt(3)``.
         """
-        axis_velocity_limit = max_velocity / np.sqrt(CARTESIAN_AXIS_COUNT)
-        for i in range(CARTESIAN_AXIS_COUNT):
-            self.collection.add_velocity_constraint(
-                upper_velocity_limit=axis_velocity_limit,
-                lower_velocity_limit=-axis_velocity_limit,
-                quadratic_weight=quadratic_weight,
-                task_expression=frame_P_current[i],
-                lower_slack_limit=-max_violation,
-                upper_slack_limit=max_violation,
-                velocity_limit=axis_velocity_limit,
-                name=self._indexed_constraint_name(name, i),
-            )
+        (limit or FixedVelocityLimitFrame()).add_to(
+            builder=self,
+            task_expressions=frame_P_current.to_vector3(),
+            max_velocity=max_velocity,
+            quadratic_weight=quadratic_weight,
+            max_violation=max_violation,
+            name=name,
+        )
 
     def add_rotational_velocity_limit(
         self,
@@ -208,14 +274,11 @@ class GeometricConstraintBuilder:
         quadratic_weight: sm.ScalarData,
         max_violation: sm.ScalarData = LargeNumber,
         name: Optional[str] = None,
+        limit: Optional[SpeedLimitConstraints] = None,
     ) -> None:
         """
-        Adds three constraints that keep the angular speed of frame_R_current at or
-        below max_velocity about every axis.
-
-        Each constraint limits one component of the angular velocity, expressed in the
-        rotated frame, to ``max_velocity / sqrt(3)``, so turning about a single axis is
-        limited to about 58% of max_velocity.
+        Adds constraints that keep the angular speed of frame_R_current at or below
+        max_velocity about every axis.
 
         .. warning:: The constraints describe the angular velocity only where
             frame_R_measured equals frame_R_current, so frame_R_measured has to be
@@ -225,23 +288,22 @@ class GeometricConstraintBuilder:
             should depend on active dofs.
         :param frame_R_measured: frame_R_current at the current state, held constant.
         :param max_velocity: rad/s
+        :param limit: The constraints of the limit, expressed in the rotated frame.
+            Defaults to limiting each axis of the rotated frame to ``max_velocity /
+            sqrt(3)``.
         """
         # Off-diagonal entries of frame_R_measured^T * frame_R_current, one per axis,
         # whose time derivatives are the angular velocity while both rotations are equal.
-        task_expressions = [
-            frame_R_measured.z_vector().dot(frame_R_current.y_vector()),
-            frame_R_measured.x_vector().dot(frame_R_current.z_vector()),
-            frame_R_measured.y_vector().dot(frame_R_current.x_vector()),
-        ]
-        axis_velocity_limit = max_velocity / np.sqrt(CARTESIAN_AXIS_COUNT)
-        for i, task_expression in enumerate(task_expressions):
-            self.collection.add_velocity_constraint(
-                upper_velocity_limit=axis_velocity_limit,
-                lower_velocity_limit=-axis_velocity_limit,
-                quadratic_weight=quadratic_weight,
-                task_expression=task_expression,
-                lower_slack_limit=-max_violation,
-                upper_slack_limit=max_violation,
-                velocity_limit=axis_velocity_limit,
-                name=self._indexed_constraint_name(name, i),
-            )
+        task_expressions = Vector3(
+            x=frame_R_measured.z_vector().dot(frame_R_current.y_vector()),
+            y=frame_R_measured.x_vector().dot(frame_R_current.z_vector()),
+            z=frame_R_measured.y_vector().dot(frame_R_current.x_vector()),
+        )
+        (limit or FixedVelocityLimitFrame()).add_to(
+            builder=self,
+            task_expressions=task_expressions,
+            max_velocity=max_velocity,
+            quadratic_weight=quadratic_weight,
+            max_violation=max_violation,
+            name=name,
+        )

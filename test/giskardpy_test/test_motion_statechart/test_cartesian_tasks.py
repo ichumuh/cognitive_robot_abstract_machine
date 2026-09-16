@@ -41,6 +41,15 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPositionTrajectory,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
+from giskardpy.motion_statechart.speed_limit_approximations import (
+    FixedAxes,
+    MotionAlignedAxes,
+    MotionAlignedCap,
+    EvenlySpreadFaces,
+    FixedPolyhedron,
+    NestedPolygons,
+    SpeedLimitApproximation,
+)
 from krrood.symbolic_math.symbolic_math import trinary_logic_not
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import EndEffector
@@ -1738,6 +1747,21 @@ class RecordedTipMotion:
         positions = np.array([pose[:3, 3] for pose in self.poses])
         return np.linalg.norm(np.diff(positions, axis=0), axis=1) / self.control_dt
 
+    def direction_changes(self, minimum_speed: float) -> np.ndarray:
+        """
+        :param minimum_speed: Control cycles in which the tip moved slower are skipped.
+        :return: Angle between the directions the tip moved in during consecutive
+            remaining control cycles, in radians.
+        """
+        positions = np.array([pose[:3, 3] for pose in self.poses])
+        displacements = np.diff(positions, axis=0)
+        displacements = displacements[self.linear_speeds() >= minimum_speed]
+        directions = displacements / np.linalg.norm(
+            displacements, axis=1, keepdims=True
+        )
+        cosines = np.sum(directions[:-1] * directions[1:], axis=1)
+        return np.arccos(np.clip(cosines, -1, 1))
+
     def angular_speeds(self) -> np.ndarray:
         """
         :return: Angle the tip turned by in each control cycle, divided by its duration.
@@ -1873,9 +1897,15 @@ class LimitedMotion:
     """Limit on the speed of the tip."""
 
     @classmethod
-    def to_point(cls, world: World, goal_point: Point3) -> LimitedMotion:
+    def to_point(
+        cls,
+        world: World,
+        goal_point: Point3,
+        approximation: SpeedLimitApproximation = FixedAxes(),
+    ) -> LimitedMotion:
         """
-        :return: A motion of the tip to `goal_point` under a linear velocity limit.
+        :return: A motion of the tip to `goal_point` under a linear velocity limit
+            approximated by `approximation`.
         """
         tip = world.get_kinematic_structure_entity_by_name("tip")
         return cls(
@@ -1886,28 +1916,44 @@ class LimitedMotion:
                 root_link=world.root,
                 tip_link=tip,
                 max_linear_velocity=LIMIT_UNDER_TEST,
+                approximation=approximation,
             ),
         )
 
     @classmethod
-    def quarter_turn(cls, world: World) -> LimitedMotion:
+    def quarter_turn(
+        cls, world: World, approximation: SpeedLimitApproximation = FixedAxes()
+    ) -> LimitedMotion:
         """
         :return: A quarter turn of the tip about its own z-axis under an angular
-            velocity limit.
+            velocity limit approximated by `approximation`.
+        """
+        return cls.turn(world, RotationMatrix.from_rpy(yaw=np.pi / 2), approximation)
+
+    @classmethod
+    def turn(
+        cls,
+        world: World,
+        tip_R_goal: RotationMatrix,
+        approximation: SpeedLimitApproximation = FixedAxes(),
+    ) -> LimitedMotion:
+        """
+        :return: A turn of the tip by `tip_R_goal` under an angular velocity limit
+            approximated by `approximation`.
         """
         tip = world.get_kinematic_structure_entity_by_name("tip")
+        tip_R_goal.reference_frame = tip
         return cls(
             goal=CartesianOrientation(
                 root_link=world.root,
                 tip_link=tip,
-                goal_orientation=RotationMatrix.from_rpy(
-                    yaw=np.pi / 2, reference_frame=tip
-                ),
+                goal_orientation=tip_R_goal,
             ),
             limit=CartesianRotationVelocityLimit(
                 root_link=world.root,
                 tip_link=tip,
                 max_angular_velocity=LIMIT_UNDER_TEST,
+                approximation=approximation,
             ),
         )
 
@@ -2064,3 +2110,729 @@ class TestRotationVelocityLimitObservation:
         world.notify_state_change()
 
         assert artifacts.observation.evaluate()[0] == expected_observation
+
+
+# %% speed measured under Cartesian velocity limits along motion aligned axes
+
+
+def _make_planar_prismatic_world() -> World:
+    """
+    Builds a world whose tip is moved by one prismatic joint along the root's x-axis and
+    one along its y-axis.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        link = Body(name=PrefixedName("link"))
+        tip = Body(name=PrefixedName("tip"))
+        _connect_with_joint(world, PrismaticConnection, root, link, Vector3.X())
+        _connect_with_joint(world, PrismaticConnection, link, tip, Vector3.Y())
+    MinimalRobot.from_world(world)
+    return world
+
+
+def _make_two_link_arm_world(elbow_angle: float) -> World:
+    """
+    Builds a planar arm of two 1 m links, turning about the root's z-axis at the root
+    and at the elbow.
+
+    :param elbow_angle: Initial position of the elbow joint, in radians. At 0 the arm is
+        stretched out along the root's x-axis, where the tip cannot move towards the
+        root.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        upper_arm = Body(name=PrefixedName("upper_arm"))
+        forearm = Body(name=PrefixedName("forearm"))
+        tip = Body(name=PrefixedName("tip"))
+        _connect_with_joint(world, RevoluteConnection, root, upper_arm, Vector3.Z())
+        _connect_with_joint(
+            world,
+            RevoluteConnection,
+            upper_arm,
+            forearm,
+            Vector3.Z(),
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=1, reference_frame=upper_arm
+            ),
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=forearm,
+                child=tip,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1, reference_frame=forearm
+                ),
+            )
+        )
+    MinimalRobot.from_world(world)
+    elbow = world.get_connection_by_name("upper_arm_T_forearm")
+    world.state[elbow.dof.id].position = elbow_angle
+    world.notify_state_change()
+    return world
+
+
+def _make_two_axis_revolute_world() -> World:
+    """
+    Builds a world whose tip turns about the root's z-axis and about its own x-axis.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        link = Body(name=PrefixedName("link"))
+        tip = Body(name=PrefixedName("tip"))
+        _connect_with_joint(world, RevoluteConnection, root, link, Vector3.Z())
+        _connect_with_joint(world, RevoluteConnection, link, tip, Vector3.X())
+    MinimalRobot.from_world(world)
+    return world
+
+
+@dataclass
+class LimitedWaypointMotion:
+    """
+    Goals the tip of a world reaches one after another, and the linear velocity limit
+    it moves under throughout.
+    """
+
+    goals: list[CartesianPosition]
+    """Goals in the order they are reached, each starting once the previous is reached."""
+
+    limit: CartesianPositionVelocityLimit
+    """Limit on the speed of the tip."""
+
+    @classmethod
+    def through_points(
+        cls,
+        world: World,
+        points: list[Point3],
+        approximation: SpeedLimitApproximation,
+    ) -> LimitedWaypointMotion:
+        """
+        :return: A motion of the tip through `points` under a linear velocity limit
+            approximated by `approximation`.
+        """
+        tip = world.get_kinematic_structure_entity_by_name("tip")
+        return cls(
+            goals=[
+                CartesianPosition(root_link=world.root, tip_link=tip, goal_point=point)
+                for point in points
+            ],
+            limit=CartesianPositionVelocityLimit(
+                root_link=world.root,
+                tip_link=tip,
+                max_linear_velocity=LIMIT_UNDER_TEST,
+                approximation=approximation,
+            ),
+        )
+
+    def record(self, world: World) -> RecordedTipMotion:
+        """
+        Run the motion until the last goal is reached.
+
+        :raises TimeoutError: if the last goal is not reached.
+        """
+        for previous_goal, goal in zip(self.goals, self.goals[1:]):
+            previous_goal.end_condition = previous_goal.observation_variable
+            goal.start_condition = previous_goal.observation_variable
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_nodes(
+            [*self.goals, self.limit, EndMotion.when_true(self.goals[-1])]
+        )
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        return RecordedTipMotion.record(
+            executor, self.limit, self.limit.root_link, self.limit.tip_link
+        )
+
+
+ACROSS_MOTION_FRACTIONS = [0.1, 0.2, 0.5]
+"""
+Fractions of the limit allowed across the motion, from turning slowly to turning nearly
+as fast as the fixed axes allow.
+"""
+
+
+STEADY_DIRECTION_TOLERANCE = 0.01
+"""
+Largest change in the direction of a straight motion from one control cycle to the next,
+in radians.
+"""
+
+
+class TestMotionAlignedVelocityLimit:
+    """
+    Cartesian velocity limits whose axes follow the motion bound the speed of the tip in
+    every direction, and let the tip reach the limit along the motion.
+
+    Every motion ends when its goal is reached, so a motion the limit stalls fails with
+    a :class:`TimeoutError` instead of passing.
+    """
+
+    @pytest.mark.parametrize(
+        "make_world, goal",
+        [
+            (_make_sideways_prismatic_world, (1, 1, 0)),
+            (lambda: _make_revolute_world(joint_roll=0, tip_distance=1), (0, 1, 0)),
+            (_make_diagonal_prismatic_world, (1, 1, 1)),
+            (_make_planar_prismatic_world, (1, 1, 0)),
+        ],
+        ids=[
+            "across the direction to the root",
+            "along an arc",
+            "diagonally",
+            "diagonally, starting across the axes",
+        ],
+    )
+    def test_linear_speed_stays_within_the_limit(self, make_world, goal):
+        world = make_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), MotionAlignedAxes()
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "make_world, goal",
+        [
+            (_make_sideways_prismatic_world, (1, 1, 0)),
+            (lambda: _make_revolute_world(joint_roll=0, tip_distance=1), (0, 1, 0)),
+        ],
+        ids=["along a line", "along an arc"],
+    )
+    @pytest.mark.parametrize("across_motion_fraction", ACROSS_MOTION_FRACTIONS)
+    def test_linear_speed_reaches_the_limit_along_the_motion(
+        self, make_world, goal, across_motion_fraction
+    ):
+        """
+        A tip that can only move in one direction at a time moves at the limit along
+        the motion.
+        """
+        world = make_world()
+        motion = LimitedMotion.to_point(
+            world,
+            Point3(*goal, reference_frame=world.root),
+            MotionAlignedAxes(across_motion_fraction=across_motion_fraction),
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        along_motion_limit, *_ = motion.limit.approximation.velocity_limits(
+            motion.limit.max_linear_velocity
+        )
+        assert recorded.linear_speeds().max() == pytest.approx(
+            along_motion_limit, abs=SPEED_TOLERANCE
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="While the goal asks for more than the limit, the velocity across the "
+        "motion follows the goal instead of the limit, so aligning the axes with the "
+        "velocity overshoots and the direction swings from one side of the goal to "
+        "the other every control cycle.",
+    )
+    def test_direction_stays_steady_moving_diagonally(self):
+        world = _make_planar_prismatic_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(1, 1, 0, reference_frame=world.root), MotionAlignedAxes()
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        # Slower cycles are skipped, as the tip settles at the goal during them.
+        direction_changes = recorded.direction_changes(
+            minimum_speed=motion.limit.max_linear_velocity / 2
+        )
+        assert direction_changes.max() <= STEADY_DIRECTION_TOLERANCE
+
+    @pytest.mark.parametrize("across_motion_fraction", ACROSS_MOTION_FRACTIONS)
+    def test_linear_speed_turning_a_corner(self, across_motion_fraction):
+        world = _make_planar_prismatic_world()
+        motion = LimitedWaypointMotion.through_points(
+            world,
+            [
+                Point3(1, 0, 0, reference_frame=world.root),
+                Point3(1, 1, 0, reference_frame=world.root),
+            ],
+            MotionAlignedAxes(across_motion_fraction=across_motion_fraction),
+        )
+
+        recorded = motion.record(world)
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    def test_linear_speed_reversing(self):
+        world = _make_sideways_prismatic_world()
+        motion = LimitedWaypointMotion.through_points(
+            world,
+            [
+                Point3(1, 1, 0, reference_frame=world.root),
+                Point3(-0.5, 1, 0, reference_frame=world.root),
+            ],
+            MotionAlignedAxes(),
+        )
+
+        recorded = motion.record(world)
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "elbow_angle, goal",
+        [(0.1, (1.5, 0.5, 0)), (0, (1.8, 0.5, 0))],
+        ids=["close to stretched out", "stretched out"],
+    )
+    @pytest.mark.parametrize(
+        "approximation",
+        [
+            FixedAxes(),
+            pytest.param(
+                MotionAlignedAxes(),
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="Close to a stretched out arm the elbow turns fast, so the "
+                    "speed of the tip changes within one control cycle and exceeds the "
+                    "limit the axes allow along the motion.",
+                ),
+            ),
+        ],
+        ids=["fixed", "motion aligned"],
+    )
+    def test_linear_speed_of_an_arm_close_to_a_singularity(
+        self, elbow_angle, goal, approximation
+    ):
+        world = _make_two_link_arm_world(elbow_angle=elbow_angle)
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), approximation
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "joint_roll", [0, np.pi / 2], ids=["aligned with the root", "rolled"]
+    )
+    def test_angular_speed_reaches_the_limit_along_the_motion(self, joint_roll):
+        world = _make_revolute_world(joint_roll=joint_roll, tip_distance=0)
+        motion = LimitedMotion.quarter_turn(world, MotionAlignedAxes())
+
+        recorded = motion.record(motion.compile(world))
+
+        along_motion_limit, *_ = motion.limit.approximation.velocity_limits(
+            motion.limit.max_angular_velocity
+        )
+        assert recorded.angular_speeds().max() == pytest.approx(
+            along_motion_limit, abs=SPEED_TOLERANCE
+        )
+
+    def test_angular_speed_turning_about_an_axis_that_changes_in_the_tip_frame(self):
+        world = _make_two_axis_revolute_world()
+        motion = LimitedMotion.turn(
+            world,
+            RotationMatrix.from_rpy(roll=np.pi / 2, yaw=np.pi / 2),
+            MotionAlignedAxes(),
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.angular_speeds().max()
+            <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+
+# %% speed measured under Cartesian velocity limits by fixed polyhedra
+
+
+LINEAR_MOTIONS = [
+    pytest.param(_make_sideways_prismatic_world, (1, 1, 0), id="along a line"),
+    pytest.param(
+        lambda: _make_revolute_world(joint_roll=0, tip_distance=1),
+        (0, 1, 0),
+        id="along an arc",
+    ),
+    pytest.param(_make_diagonal_prismatic_world, (1, 1, 1), id="diagonally"),
+    pytest.param(_make_planar_prismatic_world, (1, 1, 0), id="diagonally in a plane"),
+]
+"""
+Worlds and goals of the tip, moving it along a line, an arc and diagonals.
+"""
+
+
+OVERSHOOT_CLOSE_TO_A_SINGULARITY = pytest.mark.xfail(
+    strict=True,
+    reason="Close to a stretched out arm the elbow turns fast, so the speed of the tip "
+    "changes within one control cycle and exceeds the limit the polyhedron allows by "
+    "more than the polyhedron's margin below the limit.",
+)
+"""
+Expected failure of a limit by a fixed polyhedron whose margin below the limit is
+smaller than the overshoot close to a singularity.
+"""
+
+
+class TestFixedPolyhedronVelocityLimit:
+    """
+    Cartesian velocity limits by a fixed polyhedron bound the speed of the tip in every
+    direction, and let the tip reach nearly the limit in every direction.
+
+    Every motion ends when its goal is reached, so a motion the limit stalls fails with
+    a :class:`TimeoutError` instead of passing.
+    """
+
+    @pytest.fixture(
+        params=[NestedPolygons(), EvenlySpreadFaces()],
+        ids=["nested polygons", "evenly spread faces"],
+    )
+    def approximation(self, request) -> FixedPolyhedron:
+        return request.param
+
+    @pytest.mark.parametrize("make_world, goal", LINEAR_MOTIONS)
+    def test_linear_speed_stays_within_the_limit(self, approximation, make_world, goal):
+        world = make_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), approximation
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize("make_world, goal", LINEAR_MOTIONS)
+    def test_linear_speed_reaches_the_guaranteed_fraction_of_the_limit(
+        self, approximation, make_world, goal
+    ):
+        world = make_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), approximation
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        guaranteed_speed = (
+            motion.limit.approximation.guaranteed_speed_fraction
+            * motion.limit.max_linear_velocity
+        )
+        assert recorded.linear_speeds().max() >= guaranteed_speed - SPEED_TOLERANCE
+
+    @pytest.mark.parametrize(
+        "approximation",
+        [
+            NestedPolygons(),
+            pytest.param(
+                EvenlySpreadFaces(),
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="The faces are not symmetric about the diagonal, so the tip "
+                    "moves towards a vertex of the polyhedron next to it and turns when "
+                    "it reaches the goal along one axis.",
+                ),
+            ),
+        ],
+        ids=["nested polygons", "evenly spread faces"],
+    )
+    def test_direction_stays_steady_moving_diagonally(self, approximation):
+        world = _make_planar_prismatic_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(1, 1, 0, reference_frame=world.root), approximation
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        # Slower cycles are skipped, as the tip settles at the goal during them.
+        direction_changes = recorded.direction_changes(
+            minimum_speed=motion.limit.max_linear_velocity / 2
+        )
+        assert direction_changes.max() <= STEADY_DIRECTION_TOLERANCE
+
+    @pytest.mark.parametrize(
+        "make_world, points",
+        [
+            pytest.param(
+                _make_planar_prismatic_world,
+                [(1, 0, 0), (1, 1, 0)],
+                id="turning a corner",
+            ),
+            pytest.param(
+                _make_sideways_prismatic_world,
+                [(1, 1, 0), (-0.5, 1, 0)],
+                id="reversing",
+            ),
+        ],
+    )
+    def test_linear_speed_through_waypoints_stays_within_the_limit(
+        self, approximation, make_world, points
+    ):
+        world = make_world()
+        motion = LimitedWaypointMotion.through_points(
+            world,
+            [Point3(*point, reference_frame=world.root) for point in points],
+            approximation,
+        )
+
+        recorded = motion.record(world)
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "approximation, elbow_angle, goal",
+        [
+            pytest.param(
+                NestedPolygons(),
+                0.1,
+                (1.5, 0.5, 0),
+                marks=OVERSHOOT_CLOSE_TO_A_SINGULARITY,
+                id="nested polygons-close to stretched out",
+            ),
+            pytest.param(
+                NestedPolygons(),
+                0,
+                (1.8, 0.5, 0),
+                marks=OVERSHOOT_CLOSE_TO_A_SINGULARITY,
+                id="nested polygons-stretched out",
+            ),
+            pytest.param(
+                EvenlySpreadFaces(),
+                0.1,
+                (1.5, 0.5, 0),
+                id="evenly spread faces-close to stretched out",
+            ),
+            pytest.param(
+                EvenlySpreadFaces(),
+                0,
+                (1.8, 0.5, 0),
+                marks=OVERSHOOT_CLOSE_TO_A_SINGULARITY,
+                id="evenly spread faces-stretched out",
+            ),
+        ],
+    )
+    def test_linear_speed_of_an_arm_close_to_a_singularity(
+        self, approximation, elbow_angle, goal
+    ):
+        world = _make_two_link_arm_world(elbow_angle=elbow_angle)
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), approximation
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "joint_roll", [0, np.pi / 2], ids=["aligned with the root", "rolled"]
+    )
+    def test_angular_speed_reaches_the_guaranteed_fraction_of_the_limit(
+        self, approximation, joint_roll
+    ):
+        world = _make_revolute_world(joint_roll=joint_roll, tip_distance=0)
+        motion = LimitedMotion.quarter_turn(world, approximation)
+
+        recorded = motion.record(motion.compile(world))
+
+        guaranteed_speed = (
+            motion.limit.approximation.guaranteed_speed_fraction
+            * motion.limit.max_angular_velocity
+        )
+        angular_speeds = recorded.angular_speeds()
+        assert angular_speeds.max() >= guaranteed_speed - SPEED_TOLERANCE
+        assert (
+            angular_speeds.max() <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+    def test_angular_speed_turning_about_an_axis_that_changes_in_the_tip_frame(
+        self, approximation
+    ):
+        world = _make_two_axis_revolute_world()
+        motion = LimitedMotion.turn(
+            world,
+            RotationMatrix.from_rpy(roll=np.pi / 2, yaw=np.pi / 2),
+            approximation,
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.angular_speeds().max()
+            <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+
+# %% speed measured under Cartesian velocity limits by a cap around the motion
+
+
+class TestMotionAlignedCapVelocityLimit:
+    """
+    Cartesian velocity limits by a cap of axes around the motion bound the speed of the
+    tip in every direction, and let the tip reach nearly the limit along the motion and
+    slightly off it.
+
+    Every motion ends when its goal is reached, so a motion the limit stalls fails with
+    a :class:`TimeoutError` instead of passing.
+    """
+
+    @pytest.mark.parametrize("make_world, goal", LINEAR_MOTIONS)
+    def test_linear_speed_stays_within_the_limit(self, make_world, goal):
+        world = make_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), MotionAlignedCap()
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize("make_world, goal", LINEAR_MOTIONS)
+    def test_linear_speed_reaches_the_fraction_of_the_limit_along_the_motion(
+        self, make_world, goal
+    ):
+        world = make_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), MotionAlignedCap()
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        along_motion_speed = (
+            motion.limit.approximation.along_motion_fraction
+            * motion.limit.max_linear_velocity
+        )
+        assert recorded.linear_speeds().max() >= along_motion_speed - SPEED_TOLERANCE
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="The axes start along the root's x-axis and turn towards the motion in "
+        "the first control cycles. The cap is fastest along its own first axis, so the "
+        "tip then moves slightly off the diagonal and turns back onto it when it slows "
+        "down at the goal.",
+    )
+    def test_direction_stays_steady_moving_diagonally(self):
+        world = _make_planar_prismatic_world()
+        motion = LimitedMotion.to_point(
+            world, Point3(1, 1, 0, reference_frame=world.root), MotionAlignedCap()
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        # Slower cycles are skipped, as the tip settles at the goal during them.
+        direction_changes = recorded.direction_changes(
+            minimum_speed=motion.limit.max_linear_velocity / 2
+        )
+        assert direction_changes.max() <= STEADY_DIRECTION_TOLERANCE
+
+    @pytest.mark.parametrize(
+        "make_world, points",
+        [
+            pytest.param(
+                _make_planar_prismatic_world,
+                [(1, 0, 0), (1, 1, 0)],
+                id="turning a corner",
+            ),
+            pytest.param(
+                _make_sideways_prismatic_world,
+                [(1, 1, 0), (-0.5, 1, 0)],
+                id="reversing",
+            ),
+        ],
+    )
+    def test_linear_speed_through_waypoints_stays_within_the_limit(
+        self, make_world, points
+    ):
+        world = make_world()
+        motion = LimitedWaypointMotion.through_points(
+            world,
+            [Point3(*point, reference_frame=world.root) for point in points],
+            MotionAlignedCap(),
+        )
+
+        recorded = motion.record(world)
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "elbow_angle, goal",
+        [(0.1, (1.5, 0.5, 0)), (0, (1.8, 0.5, 0))],
+        ids=["close to stretched out", "stretched out"],
+    )
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Close to a stretched out arm the elbow turns fast, so the speed of the "
+        "tip changes within one control cycle and exceeds the limit the cap allows "
+        "along the motion.",
+    )
+    def test_linear_speed_of_an_arm_close_to_a_singularity(self, elbow_angle, goal):
+        world = _make_two_link_arm_world(elbow_angle=elbow_angle)
+        motion = LimitedMotion.to_point(
+            world, Point3(*goal, reference_frame=world.root), MotionAlignedCap()
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.linear_speeds().max()
+            <= motion.limit.max_linear_velocity + SPEED_TOLERANCE
+        )
+
+    @pytest.mark.parametrize(
+        "joint_roll", [0, np.pi / 2], ids=["aligned with the root", "rolled"]
+    )
+    def test_angular_speed_reaches_the_fraction_of_the_limit_along_the_motion(
+        self, joint_roll
+    ):
+        world = _make_revolute_world(joint_roll=joint_roll, tip_distance=0)
+        motion = LimitedMotion.quarter_turn(world, MotionAlignedCap())
+
+        recorded = motion.record(motion.compile(world))
+
+        along_motion_speed = (
+            motion.limit.approximation.along_motion_fraction
+            * motion.limit.max_angular_velocity
+        )
+        angular_speeds = recorded.angular_speeds()
+        assert angular_speeds.max() >= along_motion_speed - SPEED_TOLERANCE
+        assert (
+            angular_speeds.max() <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )
+
+    def test_angular_speed_turning_about_an_axis_that_changes_in_the_tip_frame(self):
+        world = _make_two_axis_revolute_world()
+        motion = LimitedMotion.turn(
+            world,
+            RotationMatrix.from_rpy(roll=np.pi / 2, yaw=np.pi / 2),
+            MotionAlignedCap(),
+        )
+
+        recorded = motion.record(motion.compile(world))
+
+        assert (
+            recorded.angular_speeds().max()
+            <= motion.limit.max_angular_velocity + SPEED_TOLERANCE
+        )

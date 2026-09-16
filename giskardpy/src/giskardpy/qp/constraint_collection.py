@@ -14,6 +14,7 @@ from giskardpy.motion_statechart.exceptions import (
     InvalidConstraintExpressionShapeError,
 )
 from giskardpy.qp.constraint import (
+    AuxiliaryVariable,
     GiskardConstraint,
     GiskardEqualityConstraint,
     GiskardInequalityConstraint,
@@ -254,6 +255,7 @@ class ConstraintCollection:
         name: Optional[str] = None,
         lower_slack_limit: sm.ScalarData = -LargeNumber,
         upper_slack_limit: sm.ScalarData = LargeNumber,
+        auxiliary_variables: Optional[list[AuxiliaryVariable]] = None,
     ) -> None:
         """
         Add a velocity constraint.
@@ -269,8 +271,11 @@ class ConstraintCollection:
         :param name:
         :param lower_slack_limit:
         :param upper_slack_limit:
+        :param auxiliary_variables: The auxiliary variables task_expression is linear
+            in.
         """
         constraint = GiskardInequalityConstraint(
+            auxiliary_variables=auxiliary_variables or [],
             name=name,
             enforcement_strategy=VelocityStrategy,
             expression=task_expression,
