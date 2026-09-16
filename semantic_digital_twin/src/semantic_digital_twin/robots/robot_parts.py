@@ -546,13 +546,29 @@ class EndEffector(AbstractRobotPart, ABC):
 
     front_facing_axis: Vector3 = field(init=False)
     """
-    The axis of the end_effector's tool frame that is facing forward.
+The axis of the end_effector's tool frame that is facing forward.
     """
 
     def __post_init__(self):
         super().__post_init__()
         rotation_matrix = RotationMatrix.from_quaternion(self.front_facing_orientation)
         self.front_facing_axis = Vector3.from_iterable(rotation_matrix[:3, 0])
+
+    @property
+    def held_bodies(self) -> list[Body]:
+        """
+        :return: The bodies with collision attached below the tool frame, where a grasped
+            object hangs after a pick-up.
+        """
+        return [
+            entity
+            for entity in self._world.get_kinematic_structure_entities_of_branch(
+                self.tool_frame
+            )
+            if entity != self.tool_frame
+            and isinstance(entity, Body)
+            and entity.has_collision()
+        ]
 
 
 @dataclass(eq=False)
@@ -636,6 +652,15 @@ class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
         return self.root.collision.as_bounding_box_collection_in_frame(
             self._world.root
         ).bounding_box()
+
+    @property
+    def base_radius(self) -> float:
+        """
+        Approximates the radius of the mobile base, as the average between the radius in the x and y axis.
+
+        :return: The approximate radius of the mobile base, in meters.
+        """
+        return (self.bounding_box.depth / 2 + self.bounding_box.width / 2) / 2
 
 
 @dataclass(eq=False)

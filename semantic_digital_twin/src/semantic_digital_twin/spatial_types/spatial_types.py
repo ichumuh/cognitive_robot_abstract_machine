@@ -104,7 +104,20 @@ class SpatialType:
     Can be None if no reference frame is required or applicable.
     """
 
-    def to_json(self) -> Dict[str, Any]:
+    def transform(
+        self, target_frame_T_reference_frame: HomogeneousTransformationMatrix
+    ) -> Self:
+        """
+        This object re-expressed in ``target_frame_T_reference_frame``'s reference
+        frame.
+
+        :param target_frame_T_reference_frame: The transformation from this object's
+            reference frame to the frame it should be expressed in.
+        :return: The object in the transformation's reference frame.
+        """
+        return target_frame_T_reference_frame @ self
+
+    def to_json(self, **kwargs) -> Dict[str, Any]:
         """
         The json of a spatial type, carrying the frame it is expressed in.
 
@@ -116,7 +129,7 @@ class SpatialType:
         """
         if not self.is_constant():
             raise SpatialTypeNotJsonSerializable(self)
-        result = super().to_json()
+        result = super().to_json(**kwargs)
         if self.reference_frame is not None:
             WorldEntityReference(SpatialFrameKey.REFERENCE).write(
                 result, self.reference_frame
@@ -298,8 +311,8 @@ class HomogeneousTransformationMatrix(
         transformation_matrix.append([0, 0, 0, 1])
         return cls(transformation_matrix)
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         if self.child_frame is not None:
             WorldEntityReference(SpatialFrameKey.CHILD).write(result, self.child_frame)
         result["position"] = self.to_position().to_np().tolist()
@@ -485,6 +498,22 @@ class HomogeneousTransformationMatrix(
     def dot(
         self, other: GenericHomogeneousSpatialType
     ) -> GenericHomogeneousSpatialType:
+        """
+        The product of this transformation and ``other``.
+
+        Composing this transformation onto an orientation is the quaternion product of
+        the two rotations; the translation does not act on an orientation and is
+        dropped.
+
+        :param other: The right-hand operand.
+        :return: The product, in this transformation's reference frame.
+        :raises UnsupportedOperationError: If ``other`` is not a spatial type this
+            transformation multiplies.
+        """
+        if isinstance(other, Quaternion):
+            result = self.to_quaternion().multiply(other)
+            result.reference_frame = self.reference_frame
+            return result
         if isinstance(
             other,
             (Vector3, Point3, RotationMatrix, HomogeneousTransformationMatrix, Pose),
@@ -617,8 +646,8 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             reference_frame=reference_frame,
         ).to_rotation_matrix()
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["quaternion"] = self.to_quaternion().to_np().tolist()
         return result
 
@@ -748,6 +777,21 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         )
 
     def dot(self, other: GenericRotatableSpatialType) -> GenericRotatableSpatialType:
+        """
+        The product of this rotation and ``other``.
+
+        Composing this rotation onto an orientation is the quaternion product of the
+        two rotations.
+
+        :param other: The right-hand operand.
+        :return: The product, in this rotation's reference frame.
+        :raises UnsupportedOperationError: If ``other`` is not a spatial type this
+            rotation multiplies.
+        """
+        if isinstance(other, Quaternion):
+            result = self.to_quaternion().multiply(other)
+            result.reference_frame = self.reference_frame
+            return result
         if isinstance(
             other, (Vector3, RotationMatrix, HomogeneousTransformationMatrix, Pose)
         ):
@@ -956,11 +1000,11 @@ class Point(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer, ABC):
     """
     Shared x/y coordinate access for 2D and 3D points.
 
-    :class:`Point2` and :class:`Point3` both subclass this directly -- a
-    :class:`Point3` is not a :class:`Point2` -- so that code which only needs the
-    coordinates every point has (e.g. path plotting) can accept either without a
-    ``Union``. Only :class:`Point3` has a ``z``: a 2D point has no height of its own,
-    so :class:`Point2` does not carry the attribute at all.
+    :class:`Point2` and :class:`Point3` both subclass this directly -- a :class:`Point3`
+    is not a :class:`Point2` -- so that code which only needs the coordinates every
+    point has (e.g. path plotting) can accept either without a ``Union``. Only
+    :class:`Point3` has a ``z``: a 2D point has no height of its own, so :class:`Point2`
+    does not carry the attribute at all.
     """
 
     @property
@@ -1088,8 +1132,8 @@ class Point3(Point):
             z.resolve = lambda: resolver()[2]
         return result
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["data"] = self.to_np().tolist()
         return result
 
@@ -1266,8 +1310,8 @@ class Point2(Point):
         x, y = data["data"][:2]
         return cls(x=x, y=y, reference_frame=reference_frame)
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["data"] = self.to_np().tolist()
         return result
 
@@ -1278,6 +1322,42 @@ class Point2(Point):
         :param z: The z-coordinate the resulting point should have. Defaults to 0.
         """
         return Point3(self.x, self.y, z, reference_frame=self.reference_frame)
+
+    @classmethod
+    def from_point3(
+        cls,
+        point: Point3,
+        reference_frame: Optional[KinematicStructureEntity] = None,
+    ) -> Point2:
+        """
+        Extract a Point2 from a 3D :class:`Point3` by dropping z.
+
+        :param point: The point to extract from.
+        :param reference_frame: The reference frame. Defaults to ``point``'s.
+        :return: The Point2 instance.
+        """
+        frame = (
+            reference_frame if reference_frame is not None else point.reference_frame
+        )
+        return cls(x=point.x, y=point.y, reference_frame=frame)
+
+    def transform(
+        self, target_frame_T_reference_frame: HomogeneousTransformationMatrix
+    ) -> Point2:
+        """
+        This point re-expressed in ``target_frame_T_reference_frame``'s reference frame.
+
+        .. warning::
+            A Point2 carries no z, so it is transformed as the point at z=0 and the
+            result is projected back onto the target frame's x-y plane. Transforming
+            into a frame tilted against this one therefore loses the height the rotation
+            produced.
+
+        :param target_frame_T_reference_frame: The transformation from this point's
+            reference frame to the frame it should be expressed in.
+        :return: The point in the transformation's reference frame.
+        """
+        return Point2.from_point3(target_frame_T_reference_frame @ self.to_point3())
 
     def __hash__(self):
         if self.is_constant():
@@ -1346,8 +1426,8 @@ class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             reference_frame=reference_frame,
         )
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["data"] = self.to_np().tolist()
         return result
 
@@ -1705,8 +1785,8 @@ class Quaternion(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             reference_frame=reference_frame,
         )
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["data"] = self.to_np().tolist()
         return result
 
@@ -2058,8 +2138,8 @@ class Pose(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             reference_frame=reference_frame,
         )
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["position"] = self.to_position().to_np().tolist()
         result["rotation"] = self.to_quaternion().to_np().tolist()
         return result
@@ -2366,6 +2446,24 @@ class Pose2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         frame = reference_frame if reference_frame is not None else pose.reference_frame
         return cls(x=pose.x, y=pose.y, yaw=yaw, reference_frame=frame)
 
+    def transform(
+        self, target_frame_T_reference_frame: HomogeneousTransformationMatrix
+    ) -> Pose2D:
+        """
+        This pose re-expressed in ``target_frame_T_reference_frame``'s reference frame.
+
+        .. warning::
+            A Pose2D carries no z, roll or pitch, so it is transformed as the pose flat
+            on its own plane and the result is projected back onto the target frame's
+            x-y plane. Transforming into a frame tilted against this one therefore loses
+            the height and tilt the rotation produced.
+
+        :param target_frame_T_reference_frame: The transformation from this pose's
+            reference frame to the frame it should be expressed in.
+        :return: The pose in the transformation's reference frame.
+        """
+        return Pose2D.from_pose(target_frame_T_reference_frame @ self.to_pose())
+
     @classmethod
     def from_position_and_yaw(
         cls,
@@ -2402,8 +2500,8 @@ class Pose2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             reference_frame=reference_frame,
         )
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
         result["data"] = self.to_np().tolist()
         return result
 
@@ -2500,6 +2598,7 @@ GenericHomogeneousSpatialType = TypeVar(
     Vector3,
     HomogeneousTransformationMatrix,
     RotationMatrix,
+    Quaternion,
 )
 
 GenericRotatableSpatialType = TypeVar(
@@ -2507,4 +2606,5 @@ GenericRotatableSpatialType = TypeVar(
     Vector3,
     HomogeneousTransformationMatrix,
     RotationMatrix,
+    Quaternion,
 )

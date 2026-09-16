@@ -72,7 +72,6 @@ from semantic_digital_twin.spatial_computations.ik_solver import InverseKinemati
 from semantic_digital_twin.spatial_computations.raytracer import RayTracer
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
-    Quaternion,
     Point3,
 )
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
@@ -1151,15 +1150,10 @@ class World(HasSimulatorProperties):
 
         :param connection: The connection to be removed
 
-        .. warning::
+        .. note::
 
-            The reason self.is_connection_in_world is not checked before removing the connection, is because it is using
-            the self.connections internally, which accesses the live rustworkx kinematic_structure. The problem arises
-            if we want to remove the parent or child from the world, before removing the connection from the world.
-            In that case, rustworkx automatically removes the edge representing the connection, which results in
-            self.is_connection_in_world returning False, even though we have not cleaned up the connection properly on
-            our side. The ownership the connection itself records survives that,
-            which is what makes it usable as the check here.
+            A connection whose parent or child was removed first has already left the
+            world with it, so removing it afterwards does nothing.
         """
         if connection._world is not self:
             return
@@ -1202,9 +1196,19 @@ class World(HasSimulatorProperties):
         Do not call this function directly, use `remove_kinematic_structure_entity`
         instead.
 
+        Connections still attached to it leave the world with it, as removing its node
+        removes their edges from the kinematic structure.
+
         :param kinematic_structure_entity: The kinematic_structure_entity to remove.
         """
-        self.kinematic_structure.remove_node(kinematic_structure_entity.index)
+        index = kinematic_structure_entity.index
+        attached_edges = chain(
+            self.kinematic_structure.in_edges(index),
+            self.kinematic_structure.out_edges(index),
+        )
+        for _, _, connection in attached_edges:
+            connection.remove_from_world()
+        self.kinematic_structure.remove_node(index)
         kinematic_structure_entity.remove_from_world()
 
     def remove_degree_of_freedom(self, dof: DegreeOfFreedom) -> None:
@@ -1648,10 +1652,8 @@ class World(HasSimulatorProperties):
 
         Walks `obj` recursively through dataclass fields, list like classes and dict values.
         A :class:`~semantic_digital_twin.world_description.world_entity.WorldEntityWithID`
-        is looked up here by its id and a
-        :class:`~semantic_digital_twin.world_description.world_entity.Connection`, which
-        has no id, by its rebound parent and child. Anything else is deep-copied, so
-        `obj` and the result never share mutable state.
+        is looked up here by its id. Anything else is deep-copied, so `obj` and the
+        result never share mutable state.
 
         An entity this world does not contain is left as it is: it is not this world's
         state to rebind, and leaving it behaves exactly as not rebinding at all.
@@ -1676,13 +1678,6 @@ class World(HasSimulatorProperties):
                     world=self, world_entity=found
                 )
             return found
-        if isinstance(obj, Connection):
-            parent, child = self.rebind_world_entities(
-                obj.parent
-            ), self.rebind_world_entities(obj.child)
-            if parent is obj.parent or child is obj.child:
-                return obj
-            return self.get_connection(parent, child)
         if isinstance(obj, list_like_classes):
             return type(obj)(self.rebind_world_entities(item) for item in obj)
         if isinstance(obj, dict):
@@ -2643,20 +2638,14 @@ class World(HasSimulatorProperties):
         """
         Transform a given spatial object from its reference frame to a target frame.
 
-        Calculate the transformation from the reference frame of the provided
-        spatial object to the specified target frame. Apply the transformation
-        differently depending on the type of the spatial object:
-
-        - If the object is a Quaternion, compute its rotation matrix, transform it, and
-          convert back to a Quaternion.
-        - For other types, apply the transformation matrix directly.
+        How the transformation applies is the spatial type's own business -- see
+        :meth:`~semantic_digital_twin.spatial_types.spatial_types.SpatialType.transform`
+        -- so a type that needs more than a matrix multiplication says so itself.
 
         :param spatial_object: The spatial object to be transformed.
         :param target_frame: The target KinematicStructureEntity frame to which the spatial object should
             be transformed.
-        :return: The spatial object transformed to the target frame. If the input object
-            is a Quaternion, the returned object is a Quaternion. Otherwise, it is the
-            transformed spatial object.
+        :return: The spatial object, of the same type, expressed in the target frame.
         """
         if spatial_object.reference_frame is None:
             raise MissingReferenceFrameError(spatial_object)
@@ -2666,13 +2655,7 @@ class World(HasSimulatorProperties):
             root=target_frame, tip=spatial_object.reference_frame
         )
 
-        match spatial_object:
-            case Quaternion():
-                reference_frame_R = spatial_object.to_rotation_matrix()
-                target_frame_R = target_frame_T_reference_frame @ reference_frame_R
-                return target_frame_R.to_quaternion()
-            case _:
-                return target_frame_T_reference_frame @ spatial_object
+        return spatial_object.transform(target_frame_T_reference_frame)
 
     def __deepcopy__(self, memo):
         memo = {} if memo is None else memo

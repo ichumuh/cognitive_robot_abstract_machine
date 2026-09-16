@@ -122,12 +122,12 @@ class CollisionCheck(SubclassJSONSerializer):
         if self.body_a.id > self.body_b.id:
             self.body_a, self.body_b = self.body_b, self.body_a
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self, **kwargs) -> Dict[str, Any]:
         return {
-            **super().to_json(),
-            "body_a": to_json(self.body_a.id),
-            "body_b": to_json(self.body_b.id),
-            "distance": to_json(self.distance),
+            **super().to_json(**kwargs),
+            "body_a": to_json(self.body_a.id, **kwargs),
+            "body_b": to_json(self.body_b.id, **kwargs),
+            "distance": to_json(self.distance, **kwargs),
         }
 
     @classmethod
@@ -185,7 +185,15 @@ class CollisionMatrix:
         )
 
     def add_collision_checks(self, collision_checks: set[CollisionCheck]):
-        self.collision_checks |= collision_checks
+        """
+        Adds collision checks to the matrix.
+
+        A check for a body pair the matrix already contains replaces the distance of
+        that pair.
+        """
+        self.collision_checks = (
+            self.collision_checks - collision_checks
+        ) | collision_checks
 
     def remove_collision_checks(self, collision_checks: set[CollisionCheck]):
         self.collision_checks -= collision_checks
@@ -215,7 +223,7 @@ class CollisionRule(ABC):
     They modify collision matrices by adding or removing collision checks.
     """
 
-    _last_world_model_version: int = field(init=False, default=-1)
+    _last_world_model_version: int = field(init=False, default=-1, compare=False)
     """
     Used to prevent updating the collision matrix when the world model has not changed.
     """
@@ -301,11 +309,13 @@ class MaxAvoidedCollisionsOverride(MaxAvoidedCollisionsRule, SubclassJSONSeriali
             return None
         return self.value
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self, **kwargs) -> Dict[str, Any]:
         return {
-            **super().to_json(),
+            **super().to_json(**kwargs),
             "value": self.value,
-            "bodies": to_json({b.id for b in self.bodies} if self.bodies else None),
+            "bodies": to_json(
+                {b.id for b in self.bodies} if self.bodies else None, **kwargs
+            ),
         }
 
     @classmethod
