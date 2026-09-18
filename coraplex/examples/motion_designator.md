@@ -12,15 +12,16 @@ jupyter:
     name: python3
 ---
 
-# Motion Designator
+# Motions
 
-Motion designators are similar to action designators, but unlike action designators, motion designators represent atomic
-low-level motions. Motion designators only take the parameter that they should execute and not a list of possible
-parameters, like the other designators. Like action designators, motion designators can be performed. Performing a motion
-designator verifies the parameter and passes the designator to the respective process module.
+A motion is a single giskard goal: the smallest thing the robot does, such as driving the base, moving a tool center
+point or opening a gripper. Actions build them, and a plan collects them into one motion state chart that is executed as
+a whole. You can also mount a goal in a plan yourself, which is what this page does.
 
-Since motion designators perform a motion on the robot, we need a robot which we can use. Therefore, we will create a
-BulletWorld as well as a PR2 robot.
+Goals live in {mod}`giskardpy.motion_statechart`: the leaf tasks in `tasks`, the composite goals in `goals`. They take
+world entities rather than names, so a goal says which body moves relative to which other body.
+
+We need a robot to move, so we start with a world and a PR2.
 
 ```python
 from coraplex.testing import setup_world
@@ -34,115 +35,129 @@ pr2_view = PR2.from_world(world)
 context = Context(world, pr2_view)
 ```
 
-## Move
+## Driving the base
 
-Move is used to let the robot drive to the given target pose. Motion designator are used in the same way as the other
-designator, first create a description then resolve it to the actual designator and lastly, perform the resolved
-designator.
+In simulation the base is placed by writing the odometry, because there is no drive to follow a pose. On a real robot
+the same plan commands the pose instead; {class}`~coraplex.robot_plans.actions.core.navigation.NavigateAction` picks
+between the two for you.
 
 ```python
-from coraplex.robot_plans.motions import MoveMotion
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import *
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
-motion_description = MoveMotion(target=Pose.from_xyz_quaternion(pos_x=1., reference_frame=world.root))
+target = Pose.from_xyz_quaternion(pos_x=1.0, reference_frame=world.root)
+goal = SetOdometry(
+    base_pose=target.to_homogeneous_matrix(),
+    odom_connection=pr2_view.root.parent_connection,
+)
 
 with simulated_robot:
-    execute_single(motion_description, context=context).perform()
+    execute_single(goal, context=context).perform()
 ```
 
-## MoveTCP
+## Moving the tool center point
 
-MoveTCP is used to move the tool center point (TCP) of the given arm to the target position specified by the parameter.
-Like any designator we start by creating a description and then resolving and performing it.
+{class}`~giskardpy.motion_statechart.tasks.cartesian_tasks.CartesianPose` moves one body to a pose expressed relative to
+another. For a tool center point, the tip is the arm's tool frame.
 
 ```python
-from coraplex.robot_plans.motions.gripper import MoveToolCenterPointMotion
-from coraplex.execution_environment import simulated_robot
 from coraplex.datastructures.enums import Arms
+from coraplex.view_manager import ViewManager
+from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 
-motion_description = MoveToolCenterPointMotion(
-    target=Pose.from_xyz_quaternion(1.5, 0.6, 0.6, 0, 0, 0, 1, reference_frame=world.root), arm=Arms.LEFT)
-
-with simulated_robot:
-    execute_single(motion_description, context=context).perform()
-```
-
-## Looking
-
-Looking motion designator adjusts the robot state such that the cameras point towards the target pose. Although this
-motion designator takes the target as position and orientation, in reality only the position is used.
-
-```python
-from coraplex.robot_plans.motions import LookingMotion
-from coraplex.execution_environment import simulated_robot
-
-motion_description = LookingMotion(target=Pose.from_xyz_quaternion(1, 1, 1, 0, 0, 0, 1, reference_frame=world.root),
-                                   camera=pr2_view.get_default_camera())
+end_effector = ViewManager.get_end_effector_view(Arms.LEFT, pr2_view)
+goal = CartesianPose(
+    root_link=context.controlled_root,
+    tip_link=end_effector.tool_frame,
+    goal_pose=Pose.from_xyz_quaternion(
+        1.5, 0.6, 0.6, 0, 0, 0, 1, reference_frame=world.root
+    ),
+)
 
 with simulated_robot:
-    execute_single(motion_description, context=context).perform()
+    execute_single(goal, context=context).perform()
 ```
 
-## Move Gripper
+{attr}`~coraplex.datastructures.dataclasses.Context.controlled_root` is the link the goal is expressed relative to: the
+world root for a robot that drives its base while it manipulates, and the robot's own root otherwise.
 
-Move gripper moves the gripper of an arm to one of two states. The states can be {attr}`~coraplex.datastructures.enums.GripperState.OPEN`  and {attr}`~coraplex.datastructures.enums.GripperState.CLOSE`, which open
-and close the gripper respectively.
+## Looking at something
+
+{class}`~giskardpy.motion_statechart.tasks.pointing.Pointing` turns a camera's forward axis towards a point.
 
 ```python
-from coraplex.robot_plans.motions import MoveGripperMotion
-from coraplex.execution_environment import simulated_robot
-from coraplex.datastructures.enums import Arms
+from giskardpy.motion_statechart.tasks.pointing import Pointing
+
+camera = pr2_view.get_default_camera()
+goal = Pointing(
+    root_link=pr2_view.get_torso().root,
+    tip_link=camera.root,
+    goal_point=Pose.from_xyz_quaternion(
+        1, 1, 1, 0, 0, 0, 1, reference_frame=world.root
+    ).to_position(),
+    pointing_axis=camera.forward_facing_axis,
+)
+
+with simulated_robot:
+    execute_single(goal, context=context).perform()
+```
+
+## Opening and closing a gripper
+
+{class}`~giskardpy.motion_statechart.goals.gripper.MoveGripper` drives a gripper to one of the states its end effector
+defines. It reads the finger positions off the end effector, so the same goal works on any robot.
+
+```python
+from giskardpy.motion_statechart.goals.gripper import MoveGripper
 from semantic_digital_twin.datastructures.definitions import GripperState
 
-motion_description = MoveGripperMotion(motion=GripperState.OPEN, gripper=Arms.LEFT)
+goal = MoveGripper(end_effector=end_effector, state=GripperState.OPEN)
 
 with simulated_robot:
-    execute_single(motion_description, context=context).perform()
+    execute_single(goal, context=context).perform()
 ```
 
-## Detecting
-
-This is the motion designator implementation of detecting, if an object with the given object type is in the field of
-view (FOV) this motion designator will return a list of  object designators describing the objects. It is important to specify the 
-technique and state of the detection. You can also optional specify a region in which the object should be detected.
-
-
-Since we need an object that we can detect, we will spawn a milk for this.
+Closing onto an object is the interesting case: the fingers stop short of the position they were commanded, so
+`tolerate_stall=True` lets fingers that stopped moving count as done, and `allow_gripper_collision=True` lets them touch
+what they grasp.
 
 ```python
-# from coraplex.robot_plans.motions import DetectingMotion, LookingMotion
-# from coraplex.process_module import simulated_robot
-# from coraplex.datastructures.pose import PoseStamped
-# from coraplex.datastructures.enums import DetectionTechnique, DetectionState
-# from coraplex.designators.object_designator import BelieveObject
-# 
-# with simulated_robot:
-#     LookingMotion(target=PoseStamped.from_list([1.5, 0, 1], [0, 0, 0, 1])).perform()
-# 
-#     motion_description = DetectingMotion(technique=DetectionTechnique.TYPES,
-#                                          state=DetectionState.START,
-#                                          object_designator_description=BelieveObject(types=[Milk]).resolve(),
-#                                          region=None)
-# 
-#     obj = motion_description.perform()
-# 
-#     print(obj[0])
-```
-
-
-## Move Joints
-
-Move joints can move any number of joints of the robot, the designator takes two lists as parameter. The first list are
-the names of all joints that should be moved and the second list are the positions to which the joints should be moved.
-
-```python
-from coraplex.robot_plans.motions import MoveJointsMotion
-from coraplex.execution_environment import simulated_robot
+goal = MoveGripper(
+    end_effector=end_effector,
+    state=GripperState.CLOSE,
+    tolerate_stall=True,
+    allow_gripper_collision=True,
+)
 
 with simulated_robot:
-    motion_description = MoveJointsMotion(names=["torso_lift_joint", "r_shoulder_pan_joint"], positions=[0.2, -1.2])
+    execute_single(goal, context=context).perform()
+```
 
-    execute_single(motion_description, context=context).perform()
+## Detecting an object
+
+{class}`~coraplex.perception.PerceptionTask` answers a perception query inside the chart and writes what it saw into the
+world, so a goal planned after it binds the corrected pose.
+{class}`~coraplex.robot_plans.actions.core.misc.DetectAction` builds one for you and is the usual way to perceive.
+
+## Moving joints
+
+{class}`~giskardpy.motion_statechart.tasks.joint_tasks.JointPositionList` drives any set of joints to target positions.
+It takes the connections themselves, so the joints are named once, in the world model.
+
+```python
+from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
+
+goal = JointPositionList(
+    goal_state=JointState.from_mapping(
+        {
+            world.get_connection_by_name("torso_lift_joint"): 0.2,
+            world.get_connection_by_name("r_shoulder_pan_joint"): -1.2,
+        }
+    )
+)
+
+with simulated_robot:
+    execute_single(goal, context=context).perform()
 ```

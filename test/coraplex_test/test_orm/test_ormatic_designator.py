@@ -1,9 +1,6 @@
 import pytest
 from sqlalchemy import select
 
-# The alternative mapping needs to be imported for the stretch to work properly
-import coraplex.alternative_motion_mappings.stretch_motion_mapping  # type: ignore
-import coraplex.alternative_motion_mappings.tiago_motion_mapping  # type: ignore
 from krrood.ormatic.data_access_objects.helper import to_dao
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
@@ -38,6 +35,7 @@ def simple_plan(immutable_model_world):
     ).plan
     return plan
 
+
 @pytest.mark.skip("Execution Data is not recorded right now")
 def test_plan_serialization(coraplex_testing_session, simple_plan):
     session = coraplex_testing_session
@@ -60,7 +58,7 @@ def test_plan_serialization(coraplex_testing_session, simple_plan):
         ]
     )
 
-    motions = session.scalars(select(BaseMotionDAO)).all()
+    motions = session.scalars(select(MotionNodeDAO)).all()
     assert len(motions) == 3
 
 
@@ -105,6 +103,7 @@ def complex_plan(mutable_model_world):
     ).plan
 
     return plan
+
 
 @pytest.mark.skip("Execution Data is not recorded right now")
 def test_execution_data_of_complex_plan(coraplex_testing_session, complex_plan):

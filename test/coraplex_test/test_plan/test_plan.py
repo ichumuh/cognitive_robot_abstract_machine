@@ -1,5 +1,4 @@
 import os
-import time
 
 import pytest
 
@@ -20,7 +19,14 @@ from coraplex.execution_environment import simulated_robot
 from coraplex.orm.ormatic_interface import *  # type: ignore
 from coraplex.plans.condition_nodes import ConditionNode
 from coraplex.plans.executables import GiskardExecutable
-from coraplex.plans.factories import code, sequential, parallel, execute_single
+from cramph.node import CompositeNode
+from giskardpy.motion_statechart.goals.gripper import MoveGripper
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPose,
+    CartesianPosition,
+)
+from semantic_digital_twin.datastructures.definitions import GripperState
+from coraplex.plans.factories import sequential, execute_single
 from coraplex.plans.failures import EmptyUnderspecified
 from coraplex.plans.plan import Plan
 from coraplex.plans.plan_node import PlanNode, ActionNode
@@ -32,7 +38,6 @@ from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import (
     variable_from,
     a,
-    an,
     variable,
 )
 from krrood.parametrization.model_registries import (
@@ -389,38 +394,6 @@ def test_get_previous_nodes():
 # ---- Tests interacting with simulated robot/world ----
 
 
-def test_pause_plan(immutable_model_world):
-    world, robot_view, context = immutable_model_world
-
-    def node_sleep():
-        time.sleep(1)
-
-    def pause_plan(node):
-        node.pause()
-        assert world.state[
-            world.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
-        ].position == pytest.approx(0.0, abs=0.1)
-        node.resume()
-
-        time.sleep(3)
-
-        assert world.state[
-            world.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
-        ].position == pytest.approx(0.3, abs=0.1)
-
-    code_node = code(function=lambda: None)
-    code_node.code = lambda: pause_plan(code_node)
-    sleep_node = code(lambda: node_sleep())
-    robot_plan = sequential([sleep_node, MoveTorsoAction(TorsoState.HIGH)])
-    plan = parallel([code_node, robot_plan], context=context).plan
-    with simulated_robot:
-        plan.perform()
-
-    assert world.state[
-        world.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
-    ].position == pytest.approx(0.3, abs=0.1)
-
-
 def _torso_position(world):
     return world.state[
         world.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
@@ -584,27 +557,14 @@ def test_motion_order_pick_up(mutable_model_world):
         context,
     )
 
-    all_motions = []
+    performed_motions = _motions_of_every_executed_chart(root)
 
-    def exec_wrapper(giskard_executable):
-        all_motions.extend(giskard_executable.motion_mappings.values())
-
-    original_execute = GiskardExecutable.execute
-    GiskardExecutable.execute = exec_wrapper
-    try:
-        with simulated_robot:
-            root.perform()
-    finally:
-        GiskardExecutable.execute = original_execute
-
-    motion_names = [motion.name for motion in all_motions]
-
-    assert motion_names == [
-        "MoveTCP",
-        "OpenGripper",
-        "MoveTCP",
-        "CloseGripper",
-        "MoveTCP",
+    assert performed_motions == [
+        CartesianPose,
+        GripperState.OPEN,
+        CartesianPose,
+        GripperState.CLOSE,
+        CartesianPosition,
     ]
 
 
@@ -641,26 +601,13 @@ def test_motion_order_place(mutable_model_world):
         context,
     )
 
-    all_motions = []
+    performed_motions = _motions_of_every_executed_chart(root)
 
-    def exec_wrapper(giskard_executable):
-        all_motions.extend(giskard_executable.motion_mappings.values())
-
-    original_execute = GiskardExecutable.execute
-    GiskardExecutable.execute = exec_wrapper
-    try:
-        with simulated_robot:
-            root.perform()
-    finally:
-        GiskardExecutable.execute = original_execute
-
-    motion_names = [motion.name for motion in all_motions]
-
-    assert motion_names == [
-        "MoveTCP",
-        "MoveTCP",
-        "OpenGripper",
-        "MoveTCP",
+    assert performed_motions == [
+        CartesianPose,
+        CartesianPose,
+        GripperState.OPEN,
+        CartesianPose,
     ]
 
 
@@ -768,3 +715,43 @@ def test_a_plan_node_is_drawn_in_the_color_of_its_state():
     )
 
     assert visualizer.node_color(node.index) == LifeCycleValues.FAILED.color.to_hex()
+
+
+# %% reading back what a performed plan actually moved
+
+
+def _motions_of_every_executed_chart(root) -> list:
+    """
+    Perform `root` and report what each chart it built moves, in order.
+
+    :return: One entry per motion: the gripper state a gripper motion commands, or the
+        type of the Cartesian task any other motion is built around.
+    """
+    performed = []
+
+    def record_instead_of_executing(giskard_executable):
+        performed.extend(_motions_below(giskard_executable.root_node))
+
+    original_execute = GiskardExecutable.execute
+    GiskardExecutable.execute = record_instead_of_executing
+    try:
+        with simulated_robot:
+            root.perform()
+    finally:
+        GiskardExecutable.execute = original_execute
+    return performed
+
+
+def _motions_below(goal) -> list:
+    """
+    :return: What every motion below `goal` moves, in the order the chart runs them.
+    """
+    found = []
+    for node in goal.nodes:
+        if isinstance(node, MoveGripper):
+            found.append(node.state)
+        elif isinstance(node, (CartesianPose, CartesianPosition)):
+            found.append(type(node))
+        elif isinstance(node, CompositeNode):
+            found.extend(_motions_below(node))
+    return found

@@ -6,14 +6,6 @@ import pytest
 from rustworkx.rustworkx import NoEdgeBetweenNodes
 from typing_extensions import Iterable, Iterator, List, Tuple, Generator
 
-from coraplex.alternative_motion_mappings.hsrb_motion_mapping import HSRBMoveMotion
-from coraplex.alternative_motion_mappings.stretch_motion_mapping import (
-    StretchMoveToolCenterPoint,
-    StretchMoveSim,
-    StretchMoveReal,
-    StretchClose,
-)
-from coraplex.alternative_motion_mappings.tiago_motion_mapping import TiagoMoveSim
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import (
     Arms,
@@ -89,16 +81,9 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Pose2D
 from semantic_digital_twin.world import World
 
-# The alternative motion mappings that should be available to the plans in this test module.
-# Resolution filters by robot type and execution type, so passing the full set is always safe.
-ALTERNATIVE_MOTION_MAPPINGS = [
-    HSRBMoveMotion,
-    StretchMoveToolCenterPoint,
-    StretchMoveSim,
-    StretchMoveReal,
-    StretchClose,
-    TiagoMoveSim,
-]
+# No alternative motion mappings: they are being redesigned on top of the giskard goals
+# that replaced the motion designators, so there are none to resolve for now.
+ALTERNATIVE_MOTION_MAPPINGS = []
 
 
 # %% standing a robot next to something
@@ -930,7 +915,9 @@ def test_gcs_navigation_arrives_at_each_waypoint_facing_the_next_one(
     """
     world, robot, context = immutable_multiple_robot_apartment
 
-    action = PathPlanningNavigateAction(Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root))
+    action = PathPlanningNavigateAction(
+        Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+    )
     execute_single(action, context=context)
 
     waypoints = action._waypoints()
@@ -961,7 +948,9 @@ def test_gcs_navigation_plans_on_the_floor_the_robot_stands_on(
     """
     world, robot, context = immutable_multiple_robot_apartment
 
-    action = PathPlanningNavigateAction(Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root))
+    action = PathPlanningNavigateAction(
+        Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+    )
     execute_single(action, context=context)
 
     floor = action._floor
@@ -990,7 +979,9 @@ def test_gcs_navigation_takes_a_waypoints_height_from_that_waypoints_frame(
     """
     world, robot, context = immutable_multiple_robot_apartment
 
-    action = PathPlanningNavigateAction(Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root))
+    action = PathPlanningNavigateAction(
+        Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+    )
     execute_single(action, context=context)
 
     # The last pose is the requested target, which carries the caller's own height.
@@ -1014,7 +1005,9 @@ def test_gcs_navigation_needs_a_floor_below_the_robot(
     )
     world.notify_state_change()
 
-    action = PathPlanningNavigateAction(Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root))
+    action = PathPlanningNavigateAction(
+        Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+    )
     execute_single(action, context=context)
 
     with pytest.raises(NoFloorBelowRobot) as raised:

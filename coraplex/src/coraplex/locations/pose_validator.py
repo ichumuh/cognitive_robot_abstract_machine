@@ -18,23 +18,13 @@ from giskardpy.motion_statechart.graph_node import EndMotion
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.qp.qp_controller_config import QPControllerConfig
-from coraplex.plans.plan_node import ActionNode, MotionNode
-from coraplex.alternative_motion_mapping import AlternativeMotion
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
 from coraplex.datastructures.grasp import GraspDescription
-from coraplex.exceptions import TipLinkDoesNotMatchAnyArm
 from coraplex.locations.base import PoseValidator
 from coraplex.plans.executables import GiskardExecutable
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans import MoveToolCenterPointMotion
 from coraplex.view_manager import ViewManager
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.collision_checking.collision_rules import (
-    AllowCollisionForEndEffector,
-)
-from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
@@ -196,12 +186,8 @@ class AreReachableBy(PoseValidator):
         if arm is None:
             return []
         return [
-            UpdateTemporaryCollisionRules(
-                temporary_rules=[
-                    AllowCollisionForEndEffector(
-                        end_effector=ViewManager.get_end_effector_view(arm, self.robot)
-                    )
-                ]
+            UpdateTemporaryCollisionRules.for_end_effector(
+                ViewManager.get_end_effector_view(arm, self.robot)
             )
         ]
 
@@ -209,72 +195,26 @@ class AreReachableBy(PoseValidator):
         """
         Creates the Motion state chart to reach the given pose sequence with the given
         tip link.
-
-        Also takes into account if there are alternative motion mappings for moving the
-        end effector to the given pose.
         """
-        alternative_motion = AlternativeMotion.check_for_alternative(
-            self.alternative_motion_mappings, self.robot, MoveToolCenterPointMotion
-        )
-        if alternative_motion:
-            correct_arm = ViewManager.get_arm_by_tool_frame(self.tip_link, self.robot)
-            if correct_arm is None:
-                raise TipLinkDoesNotMatchAnyArm(self.tip_link, self.robot)
-            sequence = []
-            for pose in self.pose_sequence:
-
-                if self.grasp_description:
-                    pose = self.grasp_description.pose_sequence(pose)[1]
-
-                motion = alternative_motion(
-                    pose,
-                    correct_arm,
-                    True,
-                )
-                node = MotionNode(designator=motion)
-                # Imagine a plan for the motion node
-                plan = Plan(
-                    Context(
-                        self.world,
-                        self.robot,
-                        alternative_motion_mappings=self.alternative_motion_mappings,
-                    )
-                )
-                plan.add_node(node)
-                motion.plan_node = node
-                sequence.append(motion._motion_chart)
-
-        else:
-            root = (
-                self.robot.root
-                if not (
-                    self.robot.mobile_base.full_body_controlled
-                    if isinstance(self.robot, HasMobileBase)
-                    else False
-                )
-                else self.world.root
-            )
-
-            sequence = (
-                [
-                    self.grasp_description.pose_sequence(pose)[1]
-                    for pose in self.pose_sequence
-                ]
-                if self.grasp_description
-                else self.pose_sequence
-            )
-
-            tolerances = self.context.motion_tolerances
-            sequence = [
-                CartesianPose(
-                    root_link=root,
-                    tip_link=self.tip_link,
-                    goal_pose=pose,
-                    translation_threshold=tolerances.default_tcp_position_threshold,
-                    orientation_threshold=tolerances.tool_orientation_threshold,
-                )
-                for pose in sequence
+        poses = (
+            [
+                self.grasp_description.pose_sequence(pose)[1]
+                for pose in self.pose_sequence
             ]
+            if self.grasp_description
+            else self.pose_sequence
+        )
+        tolerances = self.context.motion_tolerances
+        sequence = [
+            CartesianPose(
+                root_link=self.context.controlled_root,
+                tip_link=self.tip_link,
+                goal_pose=pose,
+                translation_threshold=tolerances.default_tcp_position_threshold,
+                orientation_threshold=tolerances.tool_orientation_threshold,
+            )
+            for pose in poses
+        ]
 
         msc = Statechart()
         msc.add_node(sequence_node := Sequence(sequence))

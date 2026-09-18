@@ -16,7 +16,10 @@ from coraplex.datastructures.grasp import GraspDescription
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan import Plan
-from coraplex.robot_plans import MoveJointsMotion
+from giskardpy.motion_statechart.tasks.joint_tasks import (
+    JointPositionList,
+    JointState,
+)
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
@@ -29,6 +32,7 @@ from semantic_digital_twin.api import (
     RobotSpecification,
     WorldSpecification,
 )
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.unitree_g1 import UnitreeG1
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.spatial_types.spatial_types import Pose
@@ -115,6 +119,19 @@ def build_world() -> World:
     return world
 
 
+def straighten_torso(robot: AbstractRobot) -> JointPositionList:
+    """
+    :param robot: The robot whose torso is straightened.
+    :return: The goal driving every torso joint back to zero, so the robot carries the
+        parcel upright while it drives.
+    """
+    return JointPositionList(
+        goal_state=JointState.from_mapping(
+            {connection: 0.0 for connection in robot.torso.active_connections}
+        )
+    )
+
+
 def standing_pose_in_front_of(pose: Pose, world: World) -> Pose:
     """
     :param pose: The pose the robot should approach from its FRONT-facing side.
@@ -165,22 +182,12 @@ def build_plan(world: World, robot: UnitreeG1) -> Plan:
             NavigateAction(standing_pose_in_front_of(PICK_POSE, world)),
             PickUpAction(parcel_annotation, Arms.LEFT, grasp),
             ParkArmsAction(Arms.BOTH),
-            MoveJointsMotion(
-                names=[
-                    connection.name for connection in robot.torso.active_connections
-                ],
-                positions=[0.0] * len(robot.torso.active_connections),
-            ),
+            straighten_torso(robot),
             NavigateAction(Pose.from_xyz_rpy(yaw=-1.57, reference_frame=robot.root)),
             NavigateAction(standing_pose_in_front_of(PLACE_POSE, world)),
             PlaceAction(parcel, place_pose, Arms.LEFT),
             ParkArmsAction(Arms.BOTH),
-            MoveJointsMotion(
-                names=[
-                    connection.name for connection in robot.torso.active_connections
-                ],
-                positions=[0.0] * len(robot.torso.active_connections),
-            ),
+            straighten_torso(robot),
         ],
         context=context,
     ).plan
@@ -220,22 +227,12 @@ def build_plan2(world: World, robot: UnitreeG1) -> Plan:
             NavigateAction(standing_pose_in_front_of(PLACE_POSE, world)),
             PickUpAction(parcel_annotation, Arms.LEFT, grasp),
             ParkArmsAction(Arms.BOTH),
-            MoveJointsMotion(
-                names=[
-                    connection.name for connection in robot.torso.active_connections
-                ],
-                positions=[0.0] * len(robot.torso.active_connections),
-            ),
+            straighten_torso(robot),
             NavigateAction(Pose.from_xyz_rpy(yaw=1.57, reference_frame=robot.root)),
             NavigateAction(standing_pose_in_front_of(PICK_POSE, world)),
             PlaceAction(parcel, pick_pose, Arms.LEFT),
             ParkArmsAction(Arms.BOTH),
-            MoveJointsMotion(
-                names=[
-                    connection.name for connection in robot.torso.active_connections
-                ],
-                positions=[0.0] * len(robot.torso.active_connections),
-            ),
+            straighten_torso(robot),
         ],
         context=context,
     ).plan

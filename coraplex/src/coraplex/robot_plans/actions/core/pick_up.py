@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from typing_extensions import Any, Dict, Optional
 
-from coraplex.locations.pose_validator import AreReachableBy, IsObjectReachableBy
+from coraplex.locations.pose_validator import IsObjectReachableBy
 from coraplex.plans.attachment_nodes import ReAttachNode
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.misc import DetectAction
@@ -31,19 +31,15 @@ from coraplex.exceptions import PerceptionTargetMissing
 from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.mixins import (
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
+    MovesToolCenterPoint,
     PickUpTuningParameters,
     ReachTuningParameters,
-)
-from coraplex.robot_plans.motions.gripper import (
-    MoveGripperMotion,
-    MoveToolCenterPointMotion,
 )
 from coraplex.view_manager import ViewManager
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.reasoning.predicates import allclose
 from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
-from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
@@ -56,7 +52,8 @@ class ReachAction(
     ActionDescription,
     ReachTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesToolCenterPoint,
+    MovesGripper,
 ):
     """
     Let the robot reach a specific pose.
@@ -111,19 +108,15 @@ class ReachAction(
             self.target_pose, object_body, reverse=self.reverse_reach_order
         )
         children = [
-            MoveToolCenterPointMotion(
+            self.tool_center_point_goal(
                 target_pre_pose,
                 self.arm,
                 allow_gripper_collision=True,
                 max_linear_velocity=self.pre_approach_linear_velocity,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
             ),
         ]
         if self.open_gripper_at_pre_pose:
-            children.append(
-                MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm)
-            )
+            children.append(self.gripper_goal(GripperState.OPEN, self.arm))
         if self.perceive_before_grasp:
             children.extend(
                 [
@@ -136,13 +129,11 @@ class ReachAction(
                 ]
             )
         children.append(
-            MoveToolCenterPointMotion(
+            self.tool_center_point_goal(
                 target_pose,
                 self.arm,
                 allow_gripper_collision=True,
                 max_linear_velocity=self.final_approach_linear_velocity,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
             )
         )
         return sequential(children=children)
@@ -203,7 +194,8 @@ class PickUpAction(
     ActionDescription,
     PickUpTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesToolCenterPoint,
+    MovesGripper,
 ):
     """
     Let the robot pick up an object.
@@ -227,7 +219,7 @@ class PickUpAction(
     tolerate_grasp_stall: bool = False
     """
     Whether the CLOSE motion's completion also tolerates a stalled grasp (see
-    :attr:`~coraplex.robot_plans.motions.gripper.MoveGripperMotion.tolerate_stall`).
+    :attr:`~giskardpy.motion_statechart.goals.gripper.MoveGripper.tolerate_stall`).
 
     Opt-in rather than always on: building the stall monitor needs a velocity variable
     for every one of the gripper's connections, which is not guaranteed for every robot
@@ -264,9 +256,9 @@ class PickUpAction(
                     orientation_threshold=self.orientation_threshold,
                     perceive_before_grasp=self.perceive_before_grasp,
                 ),
-                MoveGripperMotion(
-                    motion=GripperState.CLOSE,
-                    gripper=self.arm,
+                self.gripper_goal(
+                    GripperState.CLOSE,
+                    self.arm,
                     allow_gripper_collision=True,
                     finger_velocity=self.grasp_closing_velocity,
                     stall_minimum_time=self.grasp_stall_minimum_time,
@@ -289,14 +281,12 @@ class PickUpAction(
         return sequential(
             children=[
                 self._grasp_attempt_plan(),
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     lift_to_pose,
                     self.arm,
                     allow_gripper_collision=True,
                     movement_type=MovementType.TRANSLATION,
                     max_linear_velocity=self.lift_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
             ],
         )
@@ -347,7 +337,7 @@ class PickUpAction(
 
 
 @dataclass
-class GraspingAction(ActionDescription, HasTcpGoalThresholds):
+class GraspingAction(ActionDescription, MovesToolCenterPoint, MovesGripper):
     """
     Grasps an object described by the given Object Designator description.
     """
@@ -375,22 +365,18 @@ class GraspingAction(ActionDescription, HasTcpGoalThresholds):
 
         return sequential(
             [
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     pre_pose,
                     self.arm,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                     allow_gripper_collision=True,
                 ),
-                MoveGripperMotion(GripperState.OPEN, self.arm),
-                MoveToolCenterPointMotion(
+                self.gripper_goal(GripperState.OPEN, self.arm),
+                self.tool_center_point_goal(
                     grasp_pose,
                     self.arm,
                     allow_gripper_collision=True,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveGripperMotion(
+                self.gripper_goal(
                     GripperState.CLOSE, self.arm, allow_gripper_collision=True
                 ),
             ]

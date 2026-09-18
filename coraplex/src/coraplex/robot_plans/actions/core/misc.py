@@ -6,14 +6,14 @@ from typing_extensions import Optional, Type
 
 from coraplex.datastructures.enums import DetectionTechnique, DetectionState
 from coraplex.datastructures.grasp import GraspDescription
-from coraplex.perception import PerceptionQuery
+from coraplex.perception import PerceptionQuery, PerceptionTask
+from coraplex.plans.executables import GiskardExecutable
 from coraplex.plans.factories import sequential, execute_single
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveManipulatorAction
-from coraplex.robot_plans.mixins import HasTcpGoalThresholds
-from coraplex.robot_plans.motions.misc import DetectingMotion
+from coraplex.robot_plans.mixins import MovesToolCenterPoint
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     RotationMatrix,
@@ -86,8 +86,9 @@ class DetectAction(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         return execute_single(
-            DetectingMotion(
+            PerceptionTask(
                 query=self._build_query(),
+                execution_type=GiskardExecutable.execution_type,
                 accept_first_if_multiple=self.accept_first_if_multiple,
             )
         )
@@ -130,7 +131,7 @@ class DetectAction(ActionDescription):
 
 
 @dataclass
-class MoveToReach(ActionDescription, HasTcpGoalThresholds):
+class MoveToReach(ActionDescription, MovesToolCenterPoint):
     """
     Let the robot move to a position facing the target and reach with a end_effector.
     """

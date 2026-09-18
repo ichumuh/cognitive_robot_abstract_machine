@@ -8,7 +8,7 @@ from typing_extensions import TYPE_CHECKING, List
 
 from coraplex.plans.executables import Executable, GiskardExecutable
 from cramph.composites import NodeListCompositeNode, Sequence
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 
 if TYPE_CHECKING:
@@ -55,7 +55,7 @@ class BuildsMotionStateChart:
         self,
         parent_goal: NodeListCompositeNode,
         executable: GiskardExecutable,
-    ) -> MotionStatechartNode:
+    ) -> StatechartNode:
         """
         Add this node's giskard representation to `parent_goal` as one of the nodes it
         runs.

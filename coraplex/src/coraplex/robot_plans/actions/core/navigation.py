@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass, field
 
 from typing_extensions import Optional, Any, Dict
@@ -11,12 +12,16 @@ from coraplex.plans.attachment_nodes import ReAttachNode
 from coraplex.plans.factories import execute_single, pause_until, sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.motions.navigation import MoveMotion
-from coraplex.robot_plans.motions.robot_body import LookingMotion
+from coraplex.datastructures.enums import ExecutionType
+from coraplex.plans.executables import GiskardExecutable
 from cramph.composites import Parallel
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from giskardpy.motion_statechart.monitors.joint_monitors import (
     JointPositionReached,
 )
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
+from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
+from giskardpy.motion_statechart.tasks.pointing import Pointing
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable_from, and_, ConditionType
 from semantic_digital_twin.reasoning.predicates import allclose, InsideOf
@@ -39,7 +44,32 @@ from semantic_digital_twin.world_description.geometry import VolumetricBoundingB
 
 
 @dataclass
-class NavigateAction(ActionDescription):
+class DrivesBase(ActionDescription, ABC):
+    """
+    Base class for the actions that move the robot's base to a pose.
+    """
+
+    def _drive_to(self, target: Pose) -> MotionStatechartNode:
+        """
+        :param target: Where the base should end up.
+        :return: The node that puts the base there. A simulated run writes the odometry
+            directly, because there is no drive to follow the pose; a real one commands
+            the pose and lets the controller drive there.
+        """
+        if GiskardExecutable.execution_type == ExecutionType.SIMULATED:
+            return SetOdometry(
+                base_pose=target.to_homogeneous_matrix(),
+                odom_connection=self.robot.root.parent_connection,
+            )
+        return CartesianPose(
+            root_link=self.world.root,
+            tip_link=self.robot.root,
+            goal_pose=target,
+        )
+
+
+@dataclass
+class NavigateAction(DrivesBase):
     """
     Navigates the Robot to a position.
     """
@@ -58,10 +88,7 @@ class NavigateAction(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         return execute_single(
-            MoveMotion(
-                self.robot.mobile_base.pose_facing(self.target_location),
-                self.keep_joint_states,
-            )
+            self._drive_to(self.robot.mobile_base.pose_facing(self.target_location))
         )
 
     @staticmethod
@@ -111,11 +138,18 @@ class LookAtAction(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         camera = self.camera or self.robot.get_default_camera()
-        return execute_single(LookingMotion(target=self.target, camera=camera))
+        return execute_single(
+            Pointing(
+                root_link=self.robot.get_torso().root,
+                tip_link=camera.root,
+                goal_point=self.target.to_position(),
+                pointing_axis=camera.forward_facing_axis,
+            )
+        )
 
 
 @dataclass
-class PathPlanningNavigateAction(ActionDescription):
+class PathPlanningNavigateAction(DrivesBase):
     """
     Navigates the robot to a pose along a path through the environment's free space.
 
@@ -133,7 +167,7 @@ class PathPlanningNavigateAction(ActionDescription):
 
     @property
     def _action_plan(self) -> PlanNode:
-        return sequential([MoveMotion(waypoint) for waypoint in self._path()])
+        return sequential([self._drive_to(waypoint) for waypoint in self._path()])
 
     @property
     def _floor(self) -> Floor:

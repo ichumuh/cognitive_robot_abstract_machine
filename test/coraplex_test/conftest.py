@@ -13,7 +13,12 @@ from functools import partial
 
 import pytest
 
+from coraplex.datastructures.dataclasses import Context
+from coraplex.datastructures.enums import Arms
+from coraplex.view_manager import ViewManager
+from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from semantic_digital_twin.predetermined_maps.building_floor import BuildingFloor
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 
@@ -130,3 +135,66 @@ def whole_scene_region(immutable_model_world) -> VolumetricBoundingBox:
         max_y=10,
         max_z=10,
     )
+
+
+# %% building the giskard goals a test plan is made of
+
+
+def tool_center_point_goal(
+    context: Context,
+    arm: Arms = Arms.LEFT,
+    target: Pose = None,
+) -> CartesianPose:
+    """
+    Build the goal an action would build to move an arm's tool center point.
+
+    Lets a test about plans and charts state which arm moves where without restating how
+    an action assembles that goal.
+
+    :param context: The context the plan runs in, supplying the robot and the link the
+        goal is expressed relative to.
+    :param arm: Which arm's tool center point moves.
+    :param target: Where it should end up, the world's origin by default.
+    :return: The goal moving that tool center point there.
+    """
+    return CartesianPose(
+        root_link=context.controlled_root,
+        tip_link=ViewManager.get_end_effector_view(arm, context.robot).tool_frame,
+        goal_pose=(
+            Pose(reference_frame=context.world.root) if target is None else target
+        ),
+    )
+
+
+def motion_goals_of(plan) -> list:
+    """
+    :param plan: The plan whose motions to read.
+    :return: The giskard node each of the plan's motions contributes, one per motion and
+        in plan order.
+    """
+    from coraplex.plans.plan_node import MotionNode
+
+    return [node.motion for node in plan.descendants if isinstance(node, MotionNode)]
+
+
+def motion_nodes_of(plan) -> list:
+    """
+    :param plan: The plan whose motions to read.
+    :return: Every giskard node the plan's motions contribute, including the ones a
+        composite among them holds, so a test can look for a task without knowing
+        whether the action wrapped it alongside speed caps or collision rules.
+    """
+    found = []
+    for goal in motion_goals_of(plan):
+        found.extend(_nodes_below(goal))
+    return found
+
+
+def _nodes_below(node) -> list:
+    """
+    :return: `node` and, recursively, every node it holds.
+    """
+    found = [node]
+    for child in getattr(node, "nodes", []):
+        found.extend(_nodes_below(child))
+    return found

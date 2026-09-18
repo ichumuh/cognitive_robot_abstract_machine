@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from typing_extensions import List, Dict, ClassVar, Optional, TYPE_CHECKING
+from typing_extensions import List, ClassVar, Optional, TYPE_CHECKING
 
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.exceptions import (
@@ -17,7 +17,7 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
     SelfCollisionAvoidance,
 )
 from cramph.node import CancelStatechart
-from giskardpy.motion_statechart.graph_node import EndMotion, Task
+from giskardpy.motion_statechart.graph_node import EndMotion
 from cramph.node import CompositeNode
 from cramph.statechart import Statechart
 from giskardpy.qp.qp_controller_config import QPControllerConfig
@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from coraplex.robot_plans.actions.base import ActionDescription
 
     from coraplex.plans.condition_nodes import ConditionNode
-    from coraplex.plans.plan_node import MotionNode
     from coraplex.plans.underspecified import UnderspecifiedNode
     from coraplex.datastructures.dataclasses import Context
 
@@ -96,10 +95,13 @@ class GiskardExecutable(Executable):
     binds its updaters to the state arrays that adding a node would replace.
     """
 
-    motion_mappings: Dict[MotionNode, Task] = field(default_factory=dict, kw_only=True)
+    motion_count: int = field(default=0, kw_only=True)
     """
-    Mapping from the motion nodes of the plan to their giskard tasks, in execution
-    order.
+    How many motions this chart runs, counted as they are added.
+
+    Sets the tick budget of a simulated run. The chart itself cannot answer this: a
+    motion contributes a single node, but so does every goal mirroring a plan node, and
+    a motion's node may be a composite of its own.
     """
 
     pre_condition_node: Optional[ConditionNode] = field(default=None, kw_only=True)
@@ -223,7 +225,7 @@ class GiskardExecutable(Executable):
         Completes the motion state chart and executes it according to the execution
         type.
         """
-        if len(self.motion_mappings) == 0:
+        if self.motion_count == 0:
             return
         if GiskardExecutable.execution_type == ExecutionType.NO_EXECUTION:
             return
@@ -257,7 +259,7 @@ class GiskardExecutable(Executable):
         executor.compile(motion_state_chart)
 
         counter = 0
-        while counter < len(self.motion_mappings) * self.context.ticks_per_motion:
+        while counter < self.motion_count * self.context.ticks_per_motion:
             executor.tick()
             counter += 1
             if executor.statechart.is_ended():

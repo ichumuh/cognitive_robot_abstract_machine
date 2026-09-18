@@ -15,7 +15,10 @@ from coraplex.robot_plans.actions.composite.tool_based import (
     PouringAction,
     WipingAction,
 )
-from coraplex.robot_plans.motions.gripper import MoveTCPWaypointsAlignedMotion
+from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPositionTrajectory,
+)
 from coraplex.view_manager import ViewManager
 from krrood.ormatic.data_access_objects.helper import to_dao
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -64,15 +67,44 @@ def tool_action_world(mutable_model_world):
     return world, robot, context, container, tool_body
 
 
-def _expanded_aligned_motions(action, context):
+def _tool_path_goals(action, context):
+    """
+    :return: The goals the action built to follow its tool path, one per tool motion.
+    """
     sequential([action], context)
     action.expand()
     return [
-        node.designator
+        node.motion
         for node in action.plan.all_nodes
-        if isinstance(node, MotionNode)
-        and isinstance(node.designator, MoveTCPWaypointsAlignedMotion)
+        if isinstance(node, MotionNode) and _trajectory_of(node.motion) is not None
     ]
+
+
+def _trajectory_of(goal):
+    """
+    :return: The trajectory task somewhere below `goal`, or None when it holds none.
+    """
+    for node in _nodes_below(goal):
+        if isinstance(node, CartesianPositionTrajectory):
+            return node
+    return None
+
+
+def _nodes_below(goal):
+    """
+    :return: `goal` and, recursively, every node it holds.
+    """
+    found = [goal]
+    for node in getattr(goal, "nodes", []):
+        found.extend(_nodes_below(node))
+    return found
+
+
+def _alignments_of(goal):
+    """
+    :return: Every plane alignment held anywhere below `goal`.
+    """
+    return [node for node in _nodes_below(goal) if isinstance(node, AlignPlanes)]
 
 
 def test_mixing_action_expands_to_aligned_motion(tool_action_world):
@@ -80,13 +112,13 @@ def test_mixing_action_expands_to_aligned_motion(tool_action_world):
     whisk = Whisk(root=tool_body)
 
     action = MixingAction(container=container, arm=Arms.RIGHT, tool=whisk)
-    motions = _expanded_aligned_motions(action, context)
+    goals = _tool_path_goals(action, context)
 
-    assert len(motions) == 1
-    motion = motions[0]
-    assert len(motion.waypoints) > 0
-    assert len(motion.alignment_pairs) == 1
-    assert motion.tip == whisk.get_tool_frame()
+    assert len(goals) == 1
+    trajectory = _trajectory_of(goals[0])
+    assert len(trajectory.goal_points) > 0
+    assert len(_alignments_of(goals[0])) == 1
+    assert trajectory.tip_link == whisk.get_tool_frame()
 
 
 def test_cutting_action_pointer_stride_reduces_waypoints(tool_action_world):
@@ -107,38 +139,36 @@ def test_cutting_action_pointer_stride_reduces_waypoints(tool_action_world):
         pointer_stride=10,
     )
 
-    dense_motion = _expanded_aligned_motions(dense_action, context)[0]
-    strided_motion = _expanded_aligned_motions(strided_action, context)[0]
+    dense_goal = _tool_path_goals(dense_action, context)[0]
+    strided_goal = _tool_path_goals(strided_action, context)[0]
 
-    assert len(dense_motion.waypoints) > 0
-    assert len(strided_motion.waypoints) == pytest.approx(
-        len(dense_motion.waypoints) / 10, abs=1
-    )
-    assert len(dense_motion.alignment_pairs) == 2
-
-
-def _collision_rule_nodes(motion_chart):
-    return [
-        node
-        for node in motion_chart.nodes
-        if isinstance(node, UpdateTemporaryCollisionRules)
-    ]
+    dense_points = _trajectory_of(dense_goal).goal_points
+    strided_points = _trajectory_of(strided_goal).goal_points
+    assert len(dense_points) > 0
+    assert len(strided_points) == pytest.approx(len(dense_points) / 10, abs=1)
+    assert len(_alignments_of(dense_goal)) == 2
 
 
-def test_aligned_motion_collision_rules_follow_allow_gripper_collision(
-    tool_action_world,
-):
+def test_tool_motion_frees_the_manipulator_holding_the_tool(tool_action_world):
+    """
+    A tool works by touching what it is used on, so the manipulator holding it is freed
+    from collision avoidance for the whole stroke.
+    """
     world, robot, context, container, tool_body = tool_action_world
     whisk = Whisk(root=tool_body)
 
     action = MixingAction(container=container, arm=Arms.RIGHT, tool=whisk)
-    motion = _expanded_aligned_motions(action, context)[0]
+    goal = _tool_path_goals(action, context)[0]
 
-    assert motion.allow_gripper_collision is True
-    assert len(_collision_rule_nodes(motion._motion_chart)) == 1
-
-    motion.allow_gripper_collision = False
-    assert len(_collision_rule_nodes(motion._motion_chart)) == 0
+    rules = [
+        node
+        for node in _nodes_below(goal)
+        if isinstance(node, UpdateTemporaryCollisionRules)
+    ]
+    assert len(rules) == 1
+    assert rules[0].temporary_rules[
+        0
+    ].end_effector is ViewManager.get_end_effector_view(Arms.RIGHT, robot)
 
 
 def test_wiping_action_requires_container_or_target_pose(tool_action_world):
@@ -158,11 +188,11 @@ def test_wiping_action_around_target_pose(tool_action_world):
         tool=sponge,
         target_pose=Pose.from_xyz_rpy(x=2.4, y=2.2, z=1.0, reference_frame=world.root),
     )
-    motions = _expanded_aligned_motions(action, context)
+    goals = _tool_path_goals(action, context)
 
-    assert len(motions) == 1
-    assert len(motions[0].waypoints) > 0
-    assert len(motions[0].alignment_pairs) == 1
+    assert len(goals) == 1
+    assert len(_trajectory_of(goals[0]).goal_points) > 0
+    assert len(_alignments_of(goals[0])) == 1
 
 
 def test_pouring_action_poses_tilt_and_mirror(tool_action_world):

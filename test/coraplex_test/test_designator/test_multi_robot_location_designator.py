@@ -2,17 +2,8 @@ from copy import deepcopy
 
 import numpy as np
 import pytest
-import rclpy
 from typing_extensions import Generator, List, Tuple
 
-from coraplex.alternative_motion_mappings.hsrb_motion_mapping import HSRBMoveMotion
-from coraplex.alternative_motion_mappings.stretch_motion_mapping import (
-    StretchMoveToolCenterPoint,
-    StretchMoveSim,
-    StretchMoveReal,
-    StretchClose,
-)
-from coraplex.alternative_motion_mappings.tiago_motion_mapping import TiagoMoveSim
 from coraplex.datastructures.dataclasses import Context
 
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
@@ -30,9 +21,6 @@ from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction
 from coraplex.view_manager import ViewManager
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
@@ -53,16 +41,9 @@ from semantic_digital_twin.spatial_types import (
 )
 from semantic_digital_twin.world import World
 
-# The alternative motion mappings that should be available to the plans in this test module.
-# Resolution filters by robot type and execution type, so passing the full set is always safe.
-ALTERNATIVE_MOTION_MAPPINGS = [
-    HSRBMoveMotion,
-    StretchMoveToolCenterPoint,
-    StretchMoveSim,
-    StretchMoveReal,
-    StretchClose,
-    TiagoMoveSim,
-]
+# No alternative motion mappings: they are being redesigned on top of the giskard goals
+# that replaced the motion designators, so there are none to resolve for now.
+ALTERNATIVE_MOTION_MAPPINGS = []
 
 
 @pytest.fixture(

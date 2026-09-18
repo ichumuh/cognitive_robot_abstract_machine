@@ -27,10 +27,10 @@ from coraplex.plans.factories import (
     repeat,
     code,
 )
-from coraplex.robot_plans import *
+from coraplex.datastructures.enums import Arms
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
-from coraplex.robot_plans.motions.gripper import MoveToolCenterPointMotion
+from ..conftest import tool_center_point_goal
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from giskardpy.motion_statechart.goals.templates import RepeatOnStall
 from cramph.nodes_for_testing import ConstFalseNode, ConstTrueNode
@@ -362,7 +362,7 @@ def test_repeat_raises_when_it_runs_out_of_attempts(immutable_model_world):
     unreachable = Pose.from_xyz_rpy(5, 0, 0, reference_frame=world.root)
 
     plan = repeat(
-        [MoveToolCenterPointMotion(target=unreachable, arm=Arms.RIGHT)],
+        [tool_center_point_goal(context, Arms.RIGHT, unreachable)],
         maximum_repetitions=2,
         context=context,
         repeat_template=partial(RepeatOnStall, timeout=timedelta(seconds=1)),

@@ -16,7 +16,11 @@ from krrood.entity_query_language.backends import (
     EntityQueryLanguageGenerativeBackend,
 )
 from krrood.patterns.caching import memoize
+from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+)
 
 if TYPE_CHECKING:
     from coraplex.plans.plan import Plan
@@ -147,6 +151,21 @@ class Context(PlanEntity):
 
     def __hash__(self):
         return hash(id(self))
+
+    @property
+    def controlled_root(self) -> KinematicStructureEntity:
+        """
+        :return: The topmost entity the robot may move, which a Cartesian goal is
+            expressed relative to. Driving the base while manipulating moves the robot
+            relative to the world, so the world root is the only frame that holds still
+            then; otherwise the robot's own root does.
+        """
+        if (
+            isinstance(self.robot, HasMobileBase)
+            and self.robot.mobile_base.full_body_controlled
+        ):
+            return self.world.root
+        return self.robot.root
 
     @property
     @memoize

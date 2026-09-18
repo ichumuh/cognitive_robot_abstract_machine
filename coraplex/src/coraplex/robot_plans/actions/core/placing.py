@@ -24,12 +24,9 @@ from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.mixins import (
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
+    MovesToolCenterPoint,
     PlaceTuningParameters,
-)
-from coraplex.robot_plans.motions.gripper import (
-    MoveGripperMotion,
-    MoveToolCenterPointMotion,
 )
 from coraplex.view_manager import ViewManager
 from semantic_digital_twin.datastructures.definitions import GripperState
@@ -47,7 +44,8 @@ class PlaceAction(
     ActionDescription,
     PlaceTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesToolCenterPoint,
+    MovesGripper,
 ):
     """
     Places an Object at a position using an arm.
@@ -82,12 +80,10 @@ class PlaceAction(
         return sequential(
             [
                 ReAttachNode(body=self.object_designator, new_parent=self.world.root),
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     retract_pose,
                     self.arm,
                     max_linear_velocity=self.retract_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
             ],
         )
@@ -130,23 +126,19 @@ class PlaceAction(
 
         return sequential(
             [
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     transport_pose,
                     self.arm,
                     allow_gripper_collision=True,
                     max_linear_velocity=self.transport_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     placing_pose,
                     self.arm,
                     allow_gripper_collision=True,
                     max_linear_velocity=self.placing_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveGripperMotion(
+                self.gripper_goal(
                     GripperState.OPEN,
                     self.arm,
                     allow_gripper_collision=True,

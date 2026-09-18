@@ -1,6 +1,26 @@
 from dataclasses import dataclass, field
 
-from typing_extensions import Optional
+from cramph.composites import Parallel
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
+from giskardpy.motion_statechart.goals.gripper import MoveGripper
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPose,
+    CartesianPosition,
+    CartesianPositionVelocityLimit,
+    CartesianRotationVelocityLimit,
+)
+from semantic_digital_twin.datastructures.definitions import GripperState
+from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+)
+from typing_extensions import List, Optional
+
+from coraplex.datastructures.enums import Arms, MovementType
+from coraplex.view_manager import ViewManager
 
 
 @dataclass
@@ -103,7 +123,7 @@ class PickUpTuningParameters(ReachTuningParameters):
     grasp_stall_minimum_time: Optional[float] = field(default=None, kw_only=True)
     """
     Minimum stall dwell time (in seconds, see
-    :attr:`~coraplex.robot_plans.motions.gripper.MoveGripperMotion.stall_minimum_time`)
+    :attr:`~giskardpy.motion_statechart.goals.gripper.MoveGripper.stall_minimum_time`)
     for the CLOSE motion. ``None`` keeps the default.
     """
 
@@ -214,14 +234,55 @@ class CartesianVelocityLimitParameters:
 
 
 @dataclass
-class HasTcpGoalThresholds:
+class MovesGripper:
     """
-    Adds optional tool-center-point goal-achievement thresholds to a motion, falling
-    back to :attr:`~coraplex.datastructures.dataclasses.Context.motion_tolerances` when
-    left unset.
+    Builds the goals that drive an arm's gripper to one of its states.
 
-    Meant to be mixed into a :class:`~coraplex.robot_plans.motions.base.BaseMotion`
-    subclass, whose ``context`` the resolver methods below rely on.
+    Meant to be mixed into an :class:`~coraplex.robot_plans.actions.base.ActionDescription`
+    subclass, whose ``robot`` the method below relies on.
+    """
+
+    def gripper_goal(
+        self,
+        state: GripperState,
+        arm: Arms,
+        allow_gripper_collision: bool = False,
+        finger_velocity: Optional[float] = None,
+        stall_minimum_time: Optional[float] = None,
+        tolerate_stall: bool = False,
+    ) -> MoveGripper:
+        """
+        :param state: The state to drive the gripper to.
+        :param arm: The arm whose gripper is driven.
+        :param allow_gripper_collision: Whether that gripper, and whatever it holds, may
+            touch its surroundings while the fingers move.
+        :param finger_velocity: Cap on the speed of the finger joints, in m/s.
+        :param stall_minimum_time: How long the fingers must stand still before a stall
+            counts, in seconds.
+        :param tolerate_stall: Whether fingers that stopped short of their commanded
+            position count as done.
+        :return: The goal driving that gripper.
+        """
+        return MoveGripper(
+            end_effector=ViewManager.get_end_effector_view(arm, self.robot),
+            state=state,
+            allow_gripper_collision=allow_gripper_collision,
+            finger_velocity=finger_velocity,
+            stall_minimum_time=stall_minimum_time,
+            tolerate_stall=tolerate_stall,
+        )
+
+
+@dataclass
+class MovesToolCenterPoint:
+    """
+    Builds the goals that move an arm's tool center point, with optional
+    goal-achievement thresholds that fall back to
+    :attr:`~coraplex.datastructures.dataclasses.Context.motion_tolerances` when left
+    unset.
+
+    Meant to be mixed into an :class:`~coraplex.robot_plans.actions.base.ActionDescription`
+    subclass, whose ``context`` and ``robot`` the methods below rely on.
     """
 
     position_threshold: Optional[float] = field(default=None, kw_only=True)
@@ -251,3 +312,100 @@ class HasTcpGoalThresholds:
         if self.orientation_threshold is not None:
             return self.orientation_threshold
         return self.context.motion_tolerances.tool_orientation_threshold
+
+    def tool_center_point_goal(
+        self,
+        target: Pose,
+        arm: Arms,
+        allow_gripper_collision: bool = False,
+        movement_type: MovementType = MovementType.CARTESIAN,
+        max_linear_velocity: Optional[float] = None,
+        max_angular_velocity: Optional[float] = None,
+    ) -> MotionStatechartNode:
+        """
+        :param target: Where the tool center point should end up.
+        :param arm: The arm whose tool center point is moved.
+        :param allow_gripper_collision: Whether that arm's manipulator, and whatever it
+            holds, may touch its surroundings on the way.
+        :param movement_type: Whether the orientation of the tool center point is
+            commanded alongside its position.
+        :param max_linear_velocity: Cap on the speed of the tool center point, in m/s.
+        :param max_angular_velocity: Cap on how fast it turns, in rad/s. Only meaningful
+            when the orientation is commanded.
+        :return: The goal moving the tool center point there, together with whatever
+            speed caps and collision allowances were asked for.
+        """
+        end_effector = ViewManager.get_end_effector_view(arm, self.robot)
+        root = self.context.controlled_root
+        tip = end_effector.tool_frame
+        accompanying: List[MotionStatechartNode] = self._velocity_limits(
+            root, tip, movement_type, max_linear_velocity, max_angular_velocity
+        )
+        if allow_gripper_collision:
+            accompanying.append(
+                UpdateTemporaryCollisionRules.for_end_effector(end_effector)
+            )
+        goal = self._reach_target(target, root, tip, movement_type)
+        if not accompanying:
+            return goal
+        return Parallel([goal, *accompanying], name=type(goal).__name__)
+
+    def _reach_target(
+        self,
+        target: Pose,
+        root: KinematicStructureEntity,
+        tip: KinematicStructureEntity,
+        movement_type: MovementType,
+    ) -> MotionStatechartNode:
+        """
+        :return: The task that brings `tip` to `target`, commanding its orientation
+            unless only a translation was asked for.
+        """
+        if movement_type == MovementType.TRANSLATION:
+            return CartesianPosition(
+                root_link=root,
+                tip_link=tip,
+                goal_point=target.to_position(),
+                threshold=self.resolved_position_threshold(),
+            )
+        return CartesianPose(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=target,
+            translation_threshold=self.resolved_position_threshold(),
+            orientation_threshold=self.resolved_orientation_threshold(),
+        )
+
+    @staticmethod
+    def _velocity_limits(
+        root: KinematicStructureEntity,
+        tip: KinematicStructureEntity,
+        movement_type: MovementType,
+        max_linear_velocity: Optional[float],
+        max_angular_velocity: Optional[float],
+    ) -> List[MotionStatechartNode]:
+        """
+        :return: The speed caps that were asked for, if any. A turning cap is left out
+            when the orientation is not commanded, because there is nothing to cap.
+        """
+        limits: List[MotionStatechartNode] = []
+        if max_linear_velocity is not None:
+            limits.append(
+                CartesianPositionVelocityLimit(
+                    root_link=root,
+                    tip_link=tip,
+                    max_linear_velocity=max_linear_velocity,
+                )
+            )
+        if (
+            max_angular_velocity is not None
+            and movement_type != MovementType.TRANSLATION
+        ):
+            limits.append(
+                CartesianRotationVelocityLimit(
+                    root_link=root,
+                    tip_link=tip,
+                    max_angular_velocity=max_angular_velocity,
+                )
+            )
+        return limits

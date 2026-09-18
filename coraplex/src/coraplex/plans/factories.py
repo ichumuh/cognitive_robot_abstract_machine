@@ -6,6 +6,7 @@ from typing_extensions import List, assert_never, Optional, TYPE_CHECKING, TypeV
 
 from coraplex.datastructures.dataclasses import Context
 from coraplex.plans.plan import Plan
+from cramph.node import StatechartNode
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from krrood.entity_query_language.query.match import Match
 
@@ -229,7 +230,6 @@ def make_node(action_like: ActionLike) -> PlanNode:
     )
     from coraplex.plans.underspecified import UnderspecifiedNode
     from coraplex.robot_plans.actions.base import ActionDescription
-    from coraplex.robot_plans import BaseMotion
 
     if isinstance(action_like, PlanNode):
         return action_like
@@ -238,7 +238,7 @@ def make_node(action_like: ActionLike) -> PlanNode:
         return underspecified_action
     elif isinstance(action_like, ActionDescription):
         return ActionNode(designator=action_like)
-    elif isinstance(action_like, BaseMotion):
-        return MotionNode(designator=action_like)
+    elif isinstance(action_like, StatechartNode):
+        return MotionNode(motion=action_like)
     else:
         assert_never(action_like)

@@ -26,6 +26,7 @@ from typing_extensions import List, Tuple
 from coraplex.datastructures.enums import (
     ApproachDirection,
     Arms,
+    DetectionTechnique,
     ExecutionType,
     VerticalAlignment,
 )
@@ -49,16 +50,20 @@ from coraplex.perception import (
 )
 from coraplex.plans.factories import execute_single
 from coraplex.plans.plan_node import MotionNode
-from coraplex.robot_plans import MoveToolCenterPointMotion
+from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from coraplex.robot_plans.motions.misc import DetectingMotion, PerceptionTask
+from coraplex.perception import PerceptionTask
+from .conftest import motion_nodes_of
 from giskardpy.motion_control import MotionControl
 from cramph.context import StatechartContext
 from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import EndMotion
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.ros_context import RosContextExtension
-from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPose,
+    CartesianPosition,
+)
 from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
@@ -457,10 +462,9 @@ def test_detection_corrects_a_grasp_planned_before_it(immutable_model_world):
     )
     plan.notify()
     targets = [
-        node.designator.target
-        for node in plan.descendants
-        if isinstance(node, MotionNode)
-        and isinstance(node.designator, MoveToolCenterPointMotion)
+        node.goal_pose
+        for node in motion_nodes_of(plan)
+        if isinstance(node, CartesianPose)
     ]
 
     def distances_to(position) -> list[float]:
@@ -924,21 +928,23 @@ def test_perception_task_without_an_execution_type_is_rejected(
         build_perception_task(task, world, rclpy_node)
 
 
-def test_detecting_motion_takes_the_execution_type_of_the_environment(
-    immutable_model_world, whole_scene_region
+def test_detect_action_takes_the_execution_type_of_the_environment(
+    immutable_model_world,
 ):
     """
-    The motion is written once and run in both worlds, so which source answers it is
+    The action is written once and run in both worlds, so which source answers it is
     decided by the environment executing the plan rather than by the plan itself.
     """
     world, view, context = immutable_model_world
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    plan = execute_single(DetectingMotion(query=query), context=context)
+    plan = execute_single(
+        DetectAction(DetectionTechnique.TYPES, object_sem_annotation=Milk),
+        context=context,
+    )
 
     with simulated_robot:
-        executable = plan.parse()
+        plan.notify()
 
-    tasks = list(executable.motion_mappings.values())
+    tasks = [node.motion for node in plan.descendants if isinstance(node, MotionNode)]
     assert [type(task) for task in tasks] == [PerceptionTask]
     assert tasks[0].execution_type is ExecutionType.SIMULATED
 

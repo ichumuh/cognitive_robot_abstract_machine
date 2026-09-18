@@ -11,6 +11,7 @@ from typing_extensions import Union
 
 from coraplex.plans.designator import Designator
 from cramph.composites import NodeListCompositeNode
+from cramph.node import StatechartNode
 from cramph.node import CompositeNode
 from krrood.entity_query_language.query.match import Match
 from cramph.data_types import LifeCycleValues
@@ -24,10 +25,8 @@ from coraplex.plans.motion_state_chart_building import BuildsMotionStateChart
 from coraplex.plans.plan_entity import PlanEntity
 
 if TYPE_CHECKING:
-    from giskardpy.motion_statechart.graph_node import Task
     from coraplex.datastructures.dataclasses import Context
     from coraplex.robot_plans.actions.base import ActionDescription
-    from coraplex.robot_plans.motions.base import BaseMotion
 
 
 logger = logging.getLogger(__name__)
@@ -573,7 +572,7 @@ class ActionNode(DesignatorNode, BuildsMotionStateChart):
 
 
 @dataclass(eq=False, repr=False)
-class MotionNode(DesignatorNode, BuildsMotionStateChart):
+class MotionNode(PlanNode, BuildsMotionStateChart):
     """
     A node in the plan representing a fully specified motion.
 
@@ -581,26 +580,27 @@ class MotionNode(DesignatorNode, BuildsMotionStateChart):
     motion state chart which then is executed.
     """
 
-    designator: BaseMotion = field(kw_only=True)
+    motion: StatechartNode = field(kw_only=True)
     """
-    Reference to the motion designator which is linked to this node.
-    """
+    The giskard node this motion contributes to the motion state chart.
 
-    @property
-    def motion(self) -> BaseMotion:
-        return self.designator
+    ..note:: It is contributed as it is rather than rebuilt, so one motion node can only
+        be parsed into a chart once: a node already held by one goal cannot be added to
+        another.
+    """
 
     def notify(self):
         """
-        Performs this node by performing the respective MotionDesignator.
+        Do nothing, because a motion is not performed on its own.
 
-        Additionally, checks if one of the parents has the status INTERRUPTED and aborts
-        the perform if that is the case.
-
-        :return: The return value of the Motion Designator
+        It is added to the surrounding motion state chart, which is executed as a whole.
         """
-        pass
-        # return self.motion.perform()
+
+    def __repr__(self):
+        return type(self.motion).__name__
+
+    def __node_label__(self):
+        return type(self.motion).__name__
 
     @property
     def parent_action_node(self) -> Optional[ActionNode]:
@@ -620,18 +620,17 @@ class MotionNode(DesignatorNode, BuildsMotionStateChart):
         self,
         parent_goal: NodeListCompositeNode,
         executable: GiskardExecutable,
-    ) -> Task:
+    ) -> StatechartNode:
         """
-        Add this motion's giskard task below `parent_goal` and record it on
-        `executable`.
+        Add this motion's giskard node below `parent_goal` and count it towards the
+        executable's tick budget.
         """
-        task = self.motion.motion_chart
-        parent_goal.add_node(task)
-        executable.motion_mappings[self] = task
-        return task
+        parent_goal.add_node(self.motion)
+        executable.motion_count += 1
+        return self.motion
 
     def parse(self) -> Executable:
         return self.create_giskard_executable([self])
 
 
-ActionLike = Union[Match, Designator, PlanNode]
+ActionLike = Union[Match, Designator, StatechartNode, PlanNode]

@@ -46,6 +46,7 @@ from coraplex.execution_environment import (
 )
 from coraplex.plans.executables import GiskardExecutable
 from coraplex.plans.factories import execute_single
+from ..conftest import motion_goals_of
 from coraplex.robot_plans.actions.core.pick_up import ReachAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
 from coraplex.view_manager import ViewManager
@@ -53,9 +54,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 
 
 @pytest.fixture
-def reach_action_executable(immutable_model_world):
+def reach_action_plan(immutable_model_world):
     """
-    A real, 2-motion ``GiskardExecutable`` with pre-/post-conditions, built the same way
+    A real, 2-motion plan with pre-/post-conditions, built the same way
     ``test_merge_motions`` in ``test_graph_parsing.py`` does.
     """
     world, view, context = immutable_model_world
@@ -77,7 +78,15 @@ def reach_action_executable(immutable_model_world):
         context=context,
     )
     plan.notify()
-    return plan.parse()
+    return plan
+
+
+@pytest.fixture
+def reach_action_executable(reach_action_plan):
+    """
+    The ``GiskardExecutable`` that plan parses to.
+    """
+    return reach_action_plan.parse()
 
 
 # %% the chart is created once and extended
@@ -107,12 +116,14 @@ def _nodes_below(goal: CompositeNode) -> List[MotionStatechartNode]:
     ]
 
 
-def test_parsing_populates_the_chart_with_the_motions(reach_action_executable):
+def test_parsing_populates_the_chart_with_the_motions(
+    reach_action_plan, reach_action_executable
+):
     """
     Every task is below the executable's root goal before execution begins, and the root
     goal is in the chart.
     """
-    tasks = list(reach_action_executable.motion_mappings.values())
+    tasks = motion_goals_of(reach_action_plan)
     chart = reach_action_executable.motion_state_chart
 
     assert len(tasks) == 2
@@ -126,12 +137,14 @@ def test_parsing_populates_the_chart_with_the_motions(reach_action_executable):
         )
 
 
-def test_parsing_mirrors_the_plan_tree_as_nested_goals(reach_action_executable):
+def test_parsing_mirrors_the_plan_tree_as_nested_goals(
+    reach_action_plan, reach_action_executable
+):
     """
     The action's motions live in a goal below the executable's root goal rather than
     directly in the root goal.
     """
-    tasks = list(reach_action_executable.motion_mappings.values())
+    tasks = motion_goals_of(reach_action_plan)
     root_goal = reach_action_executable.root_node
 
     assert isinstance(root_goal, Sequence)

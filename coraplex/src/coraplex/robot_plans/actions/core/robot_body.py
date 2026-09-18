@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Tuple, List
 
 from typing_extensions import Optional, Dict, Any
 
@@ -10,23 +9,31 @@ from coraplex.plans.plan_node import PlanNode
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.variable import Variable
 from coraplex.datastructures.dataclasses import Context
-from coraplex.robot_plans import MoveManipulatorMotion
 from krrood.entity_query_language.factories import variable_from
 from semantic_digital_twin.reasoning.predicates import allclose
 from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.spatial_types.spatial_types import Pose
-from coraplex.datastructures.enums import AxisIdentifier, Arms
+from coraplex.datastructures.enums import Arms
 
 from coraplex.datastructures.trajectory import PoseTrajectory
 from coraplex.plans.factories import execute_single, sequential
-from coraplex.robot_plans.actions.base import ActionDescription, DescriptionType
-from coraplex.robot_plans.mixins import HasMaxJointVelocity, HasTcpGoalThresholds
-from coraplex.robot_plans.motions.gripper import (
-    MoveGripperMotion,
-    MoveTCPWaypointsMotion,
+from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.mixins import (
+    HasMaxJointVelocity,
+    MovesGripper,
+    MovesToolCenterPoint,
 )
-from coraplex.robot_plans.motions.robot_body import MoveJointsMotion
-from coraplex.validation.goal_validator import create_multiple_joint_goal_validator
+from cramph.composites import Parallel, Sequence
+from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
+from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
+from giskardpy.motion_statechart.tasks.joint_tasks import (
+    JointPositionList,
+    JointVelocityLimit,
+)
+from semantic_digital_twin.datastructures.joint_state import JointState
 from coraplex.view_manager import ViewManager
 from semantic_digital_twin.datastructures.definitions import (
     TorsoState,
@@ -49,12 +56,7 @@ class MoveTorsoAction(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         joint_state = self.robot.get_torso().get_joint_state_by_type(self.torso_state)
-        return execute_single(
-            MoveJointsMotion(
-                [c.name.name for c in joint_state.connections],
-                joint_state.target_values,
-            ),
-        )
+        return execute_single(JointPositionList(goal_state=joint_state))
 
     @staticmethod
     def post_condition(
@@ -70,7 +72,7 @@ class MoveTorsoAction(ActionDescription):
 
 
 @dataclass
-class SetGripperAction(ActionDescription):
+class SetGripperAction(ActionDescription, MovesGripper):
     """
     Set the gripper state of the robot.
     """
@@ -88,9 +90,7 @@ class SetGripperAction(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         arms = [Arms.LEFT, Arms.RIGHT] if self.gripper == Arms.BOTH else [self.gripper]
-        return sequential(
-            [MoveGripperMotion(gripper=arm, motion=self.motion) for arm in arms]
-        )
+        return sequential([self.gripper_goal(self.motion, arm) for arm in arms])
 
 
 @dataclass
@@ -106,118 +106,38 @@ class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
 
     @property
     def _action_plan(self) -> PlanNode:
-        joint_names, joint_poses = self.get_joint_poses()
-
+        park_state = self.park_joint_state()
+        joint_goal = JointPositionList(goal_state=park_state)
+        if self.max_joint_velocity is None:
+            return execute_single(joint_goal)
         return execute_single(
-            MoveJointsMotion(
-                names=joint_names,
-                positions=joint_poses,
-                max_joint_velocity=self.max_joint_velocity,
+            Parallel(
+                [
+                    joint_goal,
+                    JointVelocityLimit(
+                        connections=list(park_state.connections),
+                        max_velocity=self.max_joint_velocity,
+                    ),
+                ]
             )
         )
 
-    def get_joint_poses(self) -> Tuple[List[str], List[float]]:
+    def park_joint_state(self) -> JointState:
         """
-        :return: The joint positions that should be set for the arm to be in the park position.
+        :return: The joint state that puts every arm this action parks into its park
+            position.
         """
-        arm_chain = ViewManager().get_all_arm_views(self.arm, self.robot)
-        names = []
-        values = []
-        for arm in arm_chain:
+        connections = []
+        target_values = []
+        for arm in ViewManager().get_all_arm_views(self.arm, self.robot):
             joint_state = arm.get_joint_state_by_type(StaticJointState.PARK)
-            names.extend([c.name.name for c in joint_state.connections])
-            values.extend(joint_state.target_values)
-        return names, values
+            connections.extend(joint_state.connections)
+            target_values.extend(joint_state.target_values)
+        return JointState(connections=connections, target_values=target_values)
 
 
 @dataclass
-class CarryAction(ActionDescription):
-    """
-    Parks the robot's arms.
-
-    And align the arm with the given Axis of a frame.
-    """
-
-    arm: Arms
-    """
-    Entry from the enum for which arm should be parked.
-    """
-
-    align: Optional[bool] = False
-    """
-    If True, aligns the end-effector with a specified axis.
-    """
-
-    tip_link: Optional[str] = None
-    """
-    Name of the tip link to align with, e.g the object.
-    """
-
-    tip_axis: Optional[AxisIdentifier] = None
-    """
-    Tip axis of the tip link, that should be aligned.
-    """
-
-    root_link: Optional[str] = None
-    """
-    Base link of the robot; typically set to the torso.
-    """
-
-    root_axis: Optional[AxisIdentifier] = None
-    """
-    Goal axis of the root link, that should be used to align with.
-    """
-
-    def execute(self) -> None:
-        joint_poses = self.get_joint_poses()
-        tip_normal = self.axis_to_vector3_stamped(self.tip_axis, link=self.tip_link)
-        root_normal = self.axis_to_vector3_stamped(self.root_axis, link=self.root_link)
-
-        self.add_subplan(
-            execute_single(
-                MoveJointsMotion(
-                    names=list(joint_poses.keys()),
-                    positions=list(joint_poses.values()),
-                    align=self.align,
-                    tip_link=self.tip_link,
-                    tip_normal=tip_normal,
-                    root_link=self.root_link,
-                    root_normal=root_normal,
-                )
-            )
-        ).perform()
-
-    def get_joint_poses(self) -> Dict[str, float]:
-        """
-        :return: The joint positions that should be set for the arm to be in the park position.
-        """
-        joint_poses = {}
-        arm_chains = RobotDescription.current_robot_description.get_arm_chain(self.arm)
-        if type(arm_chains) is not list:
-            joint_poses = arm_chains.get_static_joint_states(StaticJointState.Park)
-        else:
-            for arm_chain in RobotDescription.current_robot_description.get_arm_chain(
-                self.arm
-            ):
-                joint_poses.update(
-                    arm_chain.get_static_joint_states(StaticJointState.Park)
-                )
-        return joint_poses
-
-    def axis_to_vector3_stamped(
-        self, axis: AxisIdentifier, link: str = "base_link"
-    ) -> Vector3:
-        v = {
-            AxisIdentifier.X: Vector3(x=1.0, y=0.0, z=0.0),
-            AxisIdentifier.Y: Vector3(x=0.0, y=1.0, z=0.0),
-            AxisIdentifier.Z: Vector3(x=0.0, y=0.0, z=1.0),
-        }[axis]
-        v.frame_id = link
-        return v
-
-
-@dataclass
-class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
+class FollowToolCenterPointPathAction(ActionDescription, MovesToolCenterPoint):
     """
     Represents an action to move a robotic arm's TCP (Tool Center Point) along a path of
     poses.
@@ -237,15 +157,27 @@ class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
     def _action_plan(self) -> PlanNode:
         target_locations = list(self.target_locations.poses)
 
-        motion = MoveTCPWaypointsMotion(
-            target_locations,
-            self.arm,
-            allow_gripper_collision=True,
-            position_threshold=self.position_threshold,
-            orientation_threshold=self.orientation_threshold,
+        return execute_single(
+            Sequence(nodes=[self._waypoint_goal(pose) for pose in target_locations])
         )
 
-        return execute_single(motion)
+    def _waypoint_goal(self, target: Pose) -> CartesianPose:
+        """
+        :param target: The waypoint the tool center point passes through.
+        :return: The task reaching that waypoint, leaving each threshold to giskard's
+            own default unless this action was given one.
+        """
+        thresholds = {}
+        if self.position_threshold is not None:
+            thresholds["translation_threshold"] = self.position_threshold
+        if self.orientation_threshold is not None:
+            thresholds["orientation_threshold"] = self.orientation_threshold
+        return CartesianPose(
+            root_link=self.context.controlled_root,
+            tip_link=ViewManager.get_end_effector_view(self.arm, self.robot).tool_frame,
+            goal_pose=target,
+            **thresholds,
+        )
 
     def validate(
         self,
@@ -256,7 +188,7 @@ class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
 
 
 @dataclass
-class MoveManipulatorAction(ActionDescription, HasTcpGoalThresholds):
+class MoveManipulatorAction(ActionDescription, MovesToolCenterPoint):
     """
     Move the end_effector to a specific pose.
     """
@@ -278,13 +210,22 @@ class MoveManipulatorAction(ActionDescription, HasTcpGoalThresholds):
 
     @property
     def _action_plan(self) -> PlanNode:
+        goal = CartesianPose(
+            root_link=self.context.controlled_root,
+            tip_link=self.end_effector.tool_frame,
+            goal_pose=self.target_pose,
+            translation_threshold=self.resolved_position_threshold(),
+            orientation_threshold=self.resolved_orientation_threshold(),
+            binding_policy=GoalBindingPolicy.Bind_on_start,
+        )
+        if not self.allow_gripper_collision:
+            return execute_single(goal)
         return execute_single(
-            MoveManipulatorMotion(
-                self.target_pose,
-                self.end_effector,
-                self.allow_gripper_collision,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
+            Parallel(
+                [
+                    goal,
+                    UpdateTemporaryCollisionRules.for_end_effector(self.end_effector),
+                ]
             )
         )
 

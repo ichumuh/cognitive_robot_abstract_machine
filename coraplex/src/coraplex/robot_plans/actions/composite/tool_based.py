@@ -15,6 +15,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Tool
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
+    Vector3,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
@@ -23,7 +24,6 @@ from coraplex.datastructures.enums import (
     Arms,
     CuttingTechnique,
     MixingPattern,
-    MovementType,
     SlicingPriority,
     ToolPathSegmentKind,
     WipingTechnique,
@@ -36,7 +36,17 @@ from coraplex.exceptions import (
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.mixins import HasTcpGoalThresholds
+from coraplex.robot_plans.mixins import MovesToolCenterPoint
+from cramph.composites import Parallel
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
+from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPositionTrajectory,
+)
+from semantic_digital_twin.robots.justin import Justin
 from coraplex.view_manager import ViewManager
 from coraplex.robot_plans.actions.composite.tool_paths import (
     ToolPath,
@@ -46,10 +56,6 @@ from coraplex.robot_plans.actions.composite.tool_paths import (
     build_surface_path,
     planar_spiral_xy,
     planar_sweep_x,
-)
-from coraplex.robot_plans.motions.gripper import (
-    MoveTCPWaypointsAlignedMotion,
-    MoveToolCenterPointMotion,
 )
 
 
@@ -99,7 +105,7 @@ class FullBodyControlledAction(ActionDescription, ABC):
 
 
 @dataclass(kw_only=True)
-class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
+class ToolMotionAction(FullBodyControlledAction, ABC, MovesToolCenterPoint):
     """
     An action that moves a tool along a sampled tool path while keeping the tool aligned
     with its target.
@@ -118,6 +124,12 @@ class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
     pointer_stride: int = 1
     """
     Keep every Nth sampled waypoint for execution.
+    """
+
+    maximum_skip_ahead: int = 2
+    """
+    How many waypoints ahead the tool may already be heading for, so a path is followed
+    as a continuous stroke rather than stopping at every point.
     """
 
     @abstractmethod
@@ -171,19 +183,68 @@ class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
         :return: A plan moving the tool along the sampled waypoints while keeping it
             aligned with its target.
         """
-        return sequential(
+        return sequential([self._tool_path_goal()])
+
+    def _tool_path_goal(self) -> Parallel:
+        """
+        :return: The goal following the sampled waypoints with the tool, holding every
+            alignment the tool asks for while it moves and letting the manipulator touch
+            what it works on.
+        """
+        root = self.context.controlled_root
+        tip = self.tool.get_tool_frame()
+        trajectory_arguments = dict(
+            root_link=root,
+            tip_link=tip,
+            goal_points=self._waypoints,
+            maximum_skip_ahead=self.maximum_skip_ahead,
+            weight=float(DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE),
+        )
+        if self.position_threshold is not None:
+            trajectory_arguments["threshold"] = self.position_threshold
+        alignments = [
+            AlignPlanes(
+                tip_link=tip,
+                root_link=root,
+                tip_normal=pair.tip_normal,
+                goal_normal=pair.goal_normal,
+                weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE.value,
+            )
+            for pair in self._alignment_pairs
+        ]
+        return Parallel(
             [
-                MoveTCPWaypointsAlignedMotion(
-                    waypoints=self._waypoints,
-                    arm=self.arm,
-                    allow_gripper_collision=True,
-                    alignment_pairs=self._alignment_pairs,
-                    tip=self.tool.get_tool_frame(),
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
-                )
+                UpdateTemporaryCollisionRules.for_end_effector(
+                    ViewManager.get_end_effector_view(self.arm, self.robot)
+                ),
+                Parallel(
+                    [
+                        CartesianPositionTrajectory(**trajectory_arguments),
+                        *alignments,
+                        *self._upright_torso_alignment(root),
+                    ]
+                ),
             ]
         )
+
+    def _upright_torso_alignment(self, root: Body) -> List[AlignPlanes]:
+        """
+        :param root: The link the alignment is expressed relative to.
+        :return: The task keeping Justin's torso upright while it works, which no other
+            robot needs.
+        """
+        if not isinstance(self.robot, Justin):
+            return []
+        torso_tip = self.robot.mobile_base.torso.tip
+        return [
+            AlignPlanes(
+                tip_link=torso_tip,
+                root_link=root,
+                tip_normal=Vector3.X(torso_tip),
+                goal_normal=Vector3.Z(root),
+                weight=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE.value,
+            )
+        ]
 
 
 @dataclass(kw_only=True)
@@ -392,7 +453,7 @@ class WipingAction(ToolMotionAction):
 
 
 @dataclass(kw_only=True)
-class PouringAction(FullBodyControlledAction, HasTcpGoalThresholds):
+class PouringAction(FullBodyControlledAction, MovesToolCenterPoint):
     """
     Pour from a held source container into a target container by tilting the source next
     to the target's rim.
@@ -583,21 +644,15 @@ class PouringAction(FullBodyControlledAction, HasTcpGoalThresholds):
         pre_pour_pose, pour_pose = self._pour_poses()
         return sequential(
             [
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     pre_pour_pose,
                     self.arm,
                     allow_gripper_collision=True,
-                    movement_type=MovementType.CARTESIAN,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     pour_pose,
                     self.arm,
                     allow_gripper_collision=True,
-                    movement_type=MovementType.CARTESIAN,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
             ]
         )

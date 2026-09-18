@@ -2,7 +2,6 @@ from sqlalchemy import select
 
 from krrood.ormatic.data_access_objects.helper import to_dao
 from cramph.data_types import LifeCycleValues
-from coraplex.robot_plans.motions import *  # type: ignore
 from coraplex.orm.ormatic_interface import *  # type: ignore
 from coraplex.training_environments.training_environment import (
     MoveToReachTrainingEnvironment,
