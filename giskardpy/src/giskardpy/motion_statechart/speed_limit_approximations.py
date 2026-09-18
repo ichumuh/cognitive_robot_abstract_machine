@@ -8,7 +8,6 @@ from functools import cached_property
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial import ConvexHull, HalfspaceIntersection
-from scipy.spatial.transform import Rotation
 from typing_extensions import TYPE_CHECKING
 
 from giskardpy.motion_statechart.exceptions import (
@@ -16,18 +15,21 @@ from giskardpy.motion_statechart.exceptions import (
     FacePairCountError,
     PolygonSidesError,
     TiltedAxesError,
+    TurnFractionOutOfRangeError,
 )
 from giskardpy.qp.constraint import AuxiliaryVariable, LargeNumber
+import krrood.symbolic_math.symbolic_math as sm
 from krrood.symbolic_math.float_variable_data import FloatVariableData
 from krrood.symbolic_math.symbolic_math import (
     CompiledFunction,
+    FloatVariable,
     Scalar,
     ScalarData,
     SymbolicMathType,
     VariableParameters,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types import Vector3
+from semantic_digital_twin.spatial_types import RotationMatrix, Vector3
 
 if TYPE_CHECKING:
     from giskardpy.motion_statechart.constraint_builders import (
@@ -222,6 +224,18 @@ class AxesFollowingMotion(VelocityLimitAxes, ABC):
     motion.
     """
 
+    turn_fraction: float = field(default=1.0, kw_only=True)
+    """
+    Fraction of each change of direction the axes follow within one control cycle.
+
+    At 1 the axes follow the motion at once. Smaller fractions follow it over several
+    control cycles, which keeps the direction of motion from swinging.
+    """
+
+    def __post_init__(self):
+        if not 0 < self.turn_fraction <= 1:
+            raise TurnFractionOutOfRangeError(turn_fraction=self.turn_fraction)
+
     def create_limit(
         self,
         name: PrefixedName,
@@ -233,20 +247,22 @@ class AxesFollowingMotion(VelocityLimitAxes, ABC):
             degree_of_freedom.variables.velocity
             for degree_of_freedom in world.degrees_of_freedom
         ]
-        compiled_velocity = velocity.compile(
-            parameters=VariableParameters.from_lists(
-                world.state.position_float_variables, velocity_variables
-            ),
-            sparse=False,
-        )
-        compiled_velocity.bind_args_to_memory_view(0, world.state.positions)
-        compiled_velocity.bind_args_to_memory_view(1, world.state.velocities)
-        return MotionAlignedVelocityLimitFrame(
-            axes=self,
+        orientation = MotionAlignedOrientation(
             name=name,
+            velocity=Vector3(x=velocity[0], y=velocity[1], z=velocity[2]),
+            inputs=[
+                BoundVariables(
+                    variables=world.state.position_float_variables,
+                    values=world.state.positions,
+                ),
+                BoundVariables(
+                    variables=velocity_variables, values=world.state.velocities
+                ),
+            ],
             float_variable_data=context.float_variable_data,
-            velocity=compiled_velocity,
+            turn_fraction=self.turn_fraction,
         )
+        return MotionAlignedVelocityLimitFrame(axes=self, orientation=orientation)
 
 
 @dataclass(frozen=True)
@@ -270,6 +286,7 @@ class MotionAlignedAxes(AxesFollowingMotion):
     """
 
     def __post_init__(self):
+        super().__post_init__()
         if not 0 < self.across_motion_fraction < BOX_LARGEST_ACROSS_MOTION_FRACTION:
             raise AcrossMotionFractionOutOfRangeError(
                 across_motion_fraction=self.across_motion_fraction,
@@ -314,7 +331,16 @@ class MotionAlignedCap(AxesFollowingMotion):
     Larger angles keep more velocity further off the motion, and less close to it.
     """
 
+    turn_fraction: float = field(default=0.7, kw_only=True)
+    """
+    Fraction of each change of direction the axes follow within one control cycle.
+
+    Following only part of each change keeps diagonal motion closer to a straight line
+    and the speed along a curve steadier.
+    """
+
     def __post_init__(self):
+        super().__post_init__()
         if (
             self.tilted_axis_count < MINIMUM_TILTED_AXIS_COUNT
             or not 0 < self.tilt_angle < math.pi / 2
@@ -491,36 +517,183 @@ class FixedVelocityLimitFrame(VelocityLimitFrame):
 
 
 @dataclass
+class BoundVariables:
+    """
+    Variables whose values a compiled function reads from an array.
+    """
+
+    variables: list[FloatVariable]
+    """
+    The variables, in the order of their values.
+    """
+
+    values: npt.NDArray
+    """
+    The array holding the values, which must keep its memory while it is read.
+    """
+
+
+@dataclass
 class MotionAlignedOrientation:
     """
     An orientation whose first axis follows the line along which something moves.
+
+    The axes start as the axes of the frame the velocity is expressed in. The first
+    motion turns them all the way onto its line, and later changes of direction by
+    :attr:`turn_fraction`. The axes follow the line rather than the sense of the motion,
+    so reversing the motion leaves them unchanged, and no turn exceeds a right angle. A
+    velocity slower than :data:`MINIMUM_SPEED_TO_ALIGN` leaves them unchanged too.
     """
 
-    rotation: Rotation = field(default_factory=Rotation.identity)
+    name: PrefixedName
     """
-    Rotation from the frame the velocity is expressed in to the axes.
+    Unique name for the variables of the orientation.
     """
 
-    def align_with(self, velocity: npt.NDArray) -> None:
+    velocity: Vector3
+    """
+    The velocity the first axis follows.
+    """
+
+    inputs: list[BoundVariables]
+    """
+    The variables of :attr:`velocity` and the arrays holding their values.
+    """
+
+    float_variable_data: FloatVariableData
+    """
+    The data holding the variables of the orientation.
+    """
+
+    turn_fraction: float = 1.0
+    """
+    Fraction of each change of direction the axes follow within one update.
+    """
+
+    first_axis: Vector3 = field(init=False)
+    """
+    The axis along the motion, made of variables.
+    """
+
+    second_axis: Vector3 = field(init=False)
+    """
+    The first axis across the motion, made of variables.
+    """
+
+    has_turned: FloatVariable = field(init=False)
+    """
+    1 once a motion has turned the axes, 0 before.
+    """
+
+    _state: sm.Vector = field(init=False)
+    """
+    All variables of the orientation.
+    """
+
+    _state_values: npt.NDArray = field(init=False)
+    """
+    The current values of :attr:`_state`.
+    """
+
+    _next_state: CompiledFunction = field(init=False)
+    """
+    The values of :attr:`_state` after the next update.
+    """
+
+    def __post_init__(self):
+        self.first_axis = Vector3.create_with_variables(
+            str(PrefixedName("first_axis", str(self.name)))
+        )
+        self.second_axis = Vector3.create_with_variables(
+            str(PrefixedName("second_axis", str(self.name)))
+        )
+        self.has_turned = FloatVariable(
+            name=str(PrefixedName("has_turned", str(self.name)))
+        )
+        initial_values = {
+            **dict(zip(self.first_axis.free_variables(), [1.0, 0.0, 0.0])),
+            **dict(zip(self.second_axis.free_variables(), [0.0, 1.0, 0.0])),
+            self.has_turned: 0.0,
+        }
+        self._state = sm.Vector(list(initial_values))
+        state_variables = self._state.free_variables()
+        self._state_values = np.array(
+            [initial_values[variable] for variable in state_variables]
+        )
+        self.float_variable_data.register_expression(self._state)
+        self.float_variable_data.set_value(self._state, self._state_values)
+        self._compile_next_state(state_variables)
+
+    @property
+    def rotation(self) -> RotationMatrix:
         """
-        Turn the axes by the smallest rotation that puts the first axis on the line of
-        `velocity`.
-
-        A velocity slower than :data:`MINIMUM_SPEED_TO_ALIGN` leaves the axes unchanged.
-        The axes follow the line rather than the sense of the motion, so reversing the
-        motion leaves them unchanged too, and no turn exceeds a right angle.
-
-        :param velocity: The velocity to align with.
+        :return: Rotation from the frame of the velocity to the axes.
         """
-        speed = np.linalg.norm(velocity)
-        if speed < MINIMUM_SPEED_TO_ALIGN:
-            return
-        first_axis = self.rotation.as_matrix()[:, 0]
-        direction = velocity / speed
-        if direction @ first_axis < 0:
-            direction = -direction
-        turn, _ = Rotation.align_vectors([direction], [first_axis])
-        self.rotation = turn * self.rotation
+        axes = [self.first_axis, self.second_axis]
+        axes.append(self.first_axis.cross(self.second_axis))
+        return RotationMatrix(
+            data=[[axis[row] for axis in axes] for row in range(CARTESIAN_AXIS_COUNT)]
+        )
+
+    def update(self) -> None:
+        """
+        Turn the axes towards the line of the current velocity.
+        """
+        self._state_values[:] = self._next_state.evaluate()
+        self.float_variable_data.set_value(self._state, self._state_values)
+
+    def _compile_next_state(self, state_variables: list[FloatVariable]) -> None:
+        next_values = self._next_values()
+        next_state = sm.Vector([next_values[variable] for variable in state_variables])
+        self._next_state = next_state.compile(
+            parameters=VariableParameters.from_lists(
+                *[bound.variables for bound in self.inputs], state_variables
+            )
+        )
+        for index, bound in enumerate(self.inputs):
+            self._next_state.bind_args_to_memory_view(index, bound.values)
+        self._next_state.bind_args_to_memory_view(len(self.inputs), self._state_values)
+
+    def _next_values(self) -> dict[FloatVariable, Scalar]:
+        """
+        :return: The value of each variable of the orientation after the next update.
+        """
+        speed = self.velocity.norm()
+        direction = self.velocity.safe_division(speed)
+        direction = sm.if_less(self.first_axis.dot(direction), 0, -direction, direction)
+        turn_axis = self.first_axis.cross(direction)
+        sine = turn_axis.norm()
+        turn_fraction = sm.if_greater_zero(self.has_turned, self.turn_fraction, 1)
+        angle = turn_fraction * sm.atan2(sine, self.first_axis.dot(direction))
+        unit_turn_axis = turn_axis.safe_division(sine)
+        first_axis = self._turn(self.first_axis, unit_turn_axis, angle)
+        first_axis = first_axis / first_axis.norm()
+        second_axis = self._turn(self.second_axis, unit_turn_axis, angle)
+        second_axis = second_axis - first_axis * first_axis.dot(second_axis)
+        second_axis = second_axis / second_axis.norm()
+        moving = speed >= MINIMUM_SPEED_TO_ALIGN
+        next_values = {self.has_turned: sm.if_else(moving, 1, self.has_turned)}
+        for axis, next_axis in [
+            (self.first_axis, first_axis),
+            (self.second_axis, second_axis),
+        ]:
+            for index, variable in enumerate(axis.free_variables()):
+                next_values[variable] = sm.if_else(
+                    moving, next_axis[index], axis[index]
+                )
+        return next_values
+
+    @staticmethod
+    def _turn(vector: Vector3, unit_axis: Vector3, angle: Scalar) -> Vector3:
+        """
+        :return: `vector` turned by `angle` about `unit_axis`.
+        """
+        cosine = sm.cos(angle)
+        return (
+            vector * cosine
+            + unit_axis.cross(vector) * sm.sin(angle)
+            + unit_axis * (unit_axis.dot(vector) * (1 - cosine))
+        )
 
 
 @dataclass
@@ -534,59 +707,29 @@ class MotionAlignedVelocityLimitFrame(VelocityLimitFrame):
     The choice of axes this frame follows.
     """
 
-    name: PrefixedName
+    orientation: MotionAlignedOrientation
     """
-    Unique name for the variables of the axes.
-    """
-
-    float_variable_data: FloatVariableData
-    """
-    The data holding the variables of the axes.
-    """
-
-    velocity: CompiledFunction
-    """
-    The limited velocity at the current state of the world.
-    """
-
-    orientation: MotionAlignedOrientation = field(
-        default_factory=MotionAlignedOrientation
-    )
-    """
-    The current orientation of the axes.
+    The orientation of the axes.
     """
 
     _directions: list[Vector3] = field(init=False)
     """
-    Unit vectors along the axes, made of variables holding the current orientation.
+    Unit vectors along the axes, depending on the variables of the orientation.
     """
 
     def __post_init__(self):
+        rotation = self.orientation.rotation
         self._directions = [
-            Vector3.create_with_variables(
-                str(PrefixedName(f"axis_{index}", str(self.name)))
-            )
-            for index in range(len(self.axes.local_directions))
+            rotation.dot(Vector3(*direction))
+            for direction in self.axes.local_directions
         ]
-        for direction in self._directions:
-            self.float_variable_data.register_expression(direction)
-        self._write_orientation()
 
     @property
     def directions(self) -> list[Vector3]:
         return self._directions
 
     def update(self) -> None:
-        self.orientation.align_with(self.velocity.evaluate()[:CARTESIAN_AXIS_COUNT])
-        self._write_orientation()
-
-    def _write_orientation(self) -> None:
-        """
-        Write the current orientation into the variables of the axes.
-        """
-        directions = self.orientation.rotation.apply(self.axes.local_directions)
-        for variables, direction in zip(self._directions, directions):
-            self.float_variable_data.set_value(variables, direction)
+        self.orientation.update()
 
 
 # %% fixed polyhedra

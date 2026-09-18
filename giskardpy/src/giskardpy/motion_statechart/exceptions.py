@@ -388,6 +388,32 @@ class InvalidConstraintExpressionShapeError(MotionStatechartError):
 
 
 @dataclass
+class TurnFractionOutOfRangeError(MotionStatechartError):
+    """
+    Raised when axes following the motion would never turn, or turn past the direction
+    of motion.
+    """
+
+    turn_fraction: float
+    """
+    The rejected fraction of each change of direction.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The turn fraction must lie above 0 and at most 1, but is "
+            f"{self.turn_fraction}."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "At 0 the axes never follow the motion, and above 1 they turn past it. Use 1 "
+            "to follow each change of direction at once, or a smaller fraction to follow "
+            "it over several control cycles."
+        )
+
+
+@dataclass
 class AcrossMotionFractionOutOfRangeError(MotionStatechartError):
     """
     Raised when the velocity allowed across the direction of motion either locks that

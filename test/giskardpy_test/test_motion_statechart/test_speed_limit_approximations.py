@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
 import numpy as np
 import pytest
 from scipy.optimize import linprog
@@ -9,8 +13,10 @@ from giskardpy.motion_statechart.exceptions import (
     FacePairCountError,
     PolygonSidesError,
     TiltedAxesError,
+    TurnFractionOutOfRangeError,
 )
 from giskardpy.motion_statechart.speed_limit_approximations import (
+    BoundVariables,
     EvenlySpreadFaces,
     FixedAxes,
     FixedPolyhedron,
@@ -24,6 +30,7 @@ from giskardpy.motion_statechart.speed_limit_approximations import (
 )
 from giskardpy.qp.constraint import LargeNumber
 from giskardpy.qp.constraint_collection import ConstraintCollection
+from krrood.symbolic_math.float_variable_data import FloatVariableData
 from krrood.symbolic_math.symbolic_math import FloatVariable, VariableParameters
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import Vector3
@@ -35,6 +42,52 @@ RANDOM_SEED = 42
 Seed for the random velocities, so every run checks the same sequence.
 """
 
+HALF_TURN_FRACTION = 0.5
+"""
+Turn fraction that follows half of each change of direction.
+"""
+
+
+@dataclass
+class OrientationFollowingAVelocity:
+    """
+    An orientation following a velocity whose value the test sets directly.
+    """
+
+    orientation: MotionAlignedOrientation
+    """
+    The orientation under test.
+    """
+
+    velocity_values: np.ndarray
+    """
+    The values the velocity variables of the orientation read.
+    """
+
+    @classmethod
+    def create(cls, turn_fraction: float = 1.0) -> OrientationFollowingAVelocity:
+        velocity = Vector3.create_with_variables("velocity")
+        velocity_values = np.zeros(3)
+        orientation = MotionAlignedOrientation(
+            name=PrefixedName("orientation"),
+            velocity=velocity,
+            inputs=[
+                BoundVariables(
+                    variables=velocity.free_variables(), values=velocity_values
+                )
+            ],
+            float_variable_data=FloatVariableData(),
+            turn_fraction=turn_fraction,
+        )
+        return cls(orientation=orientation, velocity_values=velocity_values)
+
+    def align_with(self, velocity: np.ndarray) -> None:
+        self.velocity_values[:] = velocity
+        self.orientation.update()
+
+    def matrix(self) -> np.ndarray:
+        return self.orientation.rotation.evaluate()[:3, :3]
+
 
 def assert_orthonormal(matrix: np.ndarray) -> None:
     """
@@ -44,33 +97,48 @@ def assert_orthonormal(matrix: np.ndarray) -> None:
     assert np.linalg.det(matrix) == pytest.approx(1.0)
 
 
+def angle_between(matrix: np.ndarray, other_matrix: np.ndarray) -> float:
+    """
+    :return: Angle of the rotation from `matrix` to `other_matrix`, in radians.
+    """
+    cosine = (np.trace(matrix.T @ other_matrix) - 1) / 2
+    return float(np.arccos(np.clip(cosine, -1.0, 1.0)))
+
+
+def test_axes_start_as_the_axes_of_the_frame_of_the_velocity():
+    following = OrientationFollowingAVelocity.create()
+
+    assert following.matrix() == pytest.approx(np.eye(3))
+
+
 def test_first_axis_follows_the_velocity():
-    orientation = MotionAlignedOrientation()
+    following = OrientationFollowingAVelocity.create()
     velocity = np.array([0.3, -0.2, 0.5])
 
-    orientation.align_with(velocity)
+    following.align_with(velocity)
 
-    first_axis = orientation.rotation.as_matrix()[:, 0]
-    assert first_axis == pytest.approx(velocity / np.linalg.norm(velocity))
+    assert following.matrix()[:, 0] == pytest.approx(
+        velocity / np.linalg.norm(velocity)
+    )
 
 
 def test_axes_stay_orthonormal_after_many_alignments():
-    orientation = MotionAlignedOrientation()
+    following = OrientationFollowingAVelocity.create(turn_fraction=HALF_TURN_FRACTION)
     random_generator = np.random.default_rng(RANDOM_SEED)
 
     for velocity in random_generator.normal(size=(10_000, 3)):
-        orientation.align_with(velocity)
+        following.align_with(velocity)
 
-    assert_orthonormal(orientation.rotation.as_matrix())
+    assert_orthonormal(following.matrix())
 
 
 def test_turning_by_a_right_angle_aligns_the_first_axis():
-    orientation = MotionAlignedOrientation()
-    orientation.align_with(np.array([1.0, 0.0, 0.0]))
+    following = OrientationFollowingAVelocity.create()
+    following.align_with(np.array([1.0, 0.0, 0.0]))
 
-    orientation.align_with(np.array([0.0, 1.0, 0.0]))
+    following.align_with(np.array([0.0, 1.0, 0.0]))
 
-    matrix = orientation.rotation.as_matrix()
+    matrix = following.matrix()
     assert_orthonormal(matrix)
     assert abs(matrix[:, 0] @ np.array([0.0, 1.0, 0.0])) == pytest.approx(1.0)
 
@@ -79,36 +147,67 @@ def test_reversing_the_velocity_keeps_the_axes():
     """
     The limits are symmetric, so the axes only need to follow the line of motion.
     """
-    orientation = MotionAlignedOrientation()
-    orientation.align_with(np.array([1.0, 2.0, 3.0]))
-    axes_before = orientation.rotation.as_matrix()
+    following = OrientationFollowingAVelocity.create()
+    following.align_with(np.array([1.0, 2.0, 3.0]))
+    axes_before = following.matrix()
 
-    orientation.align_with(np.array([-1.0, -2.0, -3.0]))
+    following.align_with(np.array([-1.0, -2.0, -3.0]))
 
-    assert orientation.rotation.as_matrix() == pytest.approx(axes_before)
+    assert following.matrix() == pytest.approx(axes_before)
 
 
 def test_speed_below_the_minimum_keeps_the_axes():
-    orientation = MotionAlignedOrientation()
-    orientation.align_with(np.array([1.0, 1.0, 0.0]))
-    axes_before = orientation.rotation.as_matrix()
+    following = OrientationFollowingAVelocity.create()
+    following.align_with(np.array([1.0, 1.0, 0.0]))
+    axes_before = following.matrix()
 
-    orientation.align_with(np.array([0.0, 0.0, MINIMUM_SPEED_TO_ALIGN / 2]))
+    following.align_with(np.array([0.0, 0.0, MINIMUM_SPEED_TO_ALIGN / 2]))
 
-    assert orientation.rotation.as_matrix() == pytest.approx(axes_before)
+    assert following.matrix() == pytest.approx(axes_before)
 
 
-def test_axes_turn_only_as_far_as_the_direction_of_motion():
-    orientation = MotionAlignedOrientation()
-    orientation.align_with(np.array([1.0, 0.0, 0.0]))
-    rotation_before = orientation.rotation
+@pytest.mark.parametrize("turn_fraction", [1.0, HALF_TURN_FRACTION])
+def test_axes_turn_by_the_turn_fraction_of_the_change_of_direction(turn_fraction):
+    following = OrientationFollowingAVelocity.create(turn_fraction=turn_fraction)
+    following.align_with(np.array([1.0, 0.0, 0.0]))
+    axes_before = following.matrix()
     turn_angle = 0.3
 
-    orientation.align_with(np.array([np.cos(turn_angle), 0.0, np.sin(turn_angle)]))
+    following.align_with(np.array([np.cos(turn_angle), 0.0, np.sin(turn_angle)]))
 
-    assert (rotation_before.inv() * orientation.rotation).magnitude() == pytest.approx(
-        turn_angle
+    assert angle_between(axes_before, following.matrix()) == pytest.approx(
+        turn_fraction * turn_angle
     )
+
+
+def test_first_motion_turns_the_axes_all_the_way():
+    following = OrientationFollowingAVelocity.create(turn_fraction=HALF_TURN_FRACTION)
+    velocity = np.array([0.0, 1.0, 1.0])
+
+    following.align_with(velocity)
+
+    assert following.matrix()[:, 0] == pytest.approx(
+        velocity / np.linalg.norm(velocity)
+    )
+
+
+def test_speed_below_the_minimum_is_no_first_motion():
+    following = OrientationFollowingAVelocity.create(turn_fraction=HALF_TURN_FRACTION)
+    following.align_with(np.array([0.0, MINIMUM_SPEED_TO_ALIGN / 2, 0.0]))
+    velocity = np.array([0.0, 1.0, 1.0])
+
+    following.align_with(velocity)
+
+    assert following.matrix()[:, 0] == pytest.approx(
+        velocity / np.linalg.norm(velocity)
+    )
+
+
+@pytest.mark.parametrize("turn_fraction", [0.0, -0.5, 1.5])
+@pytest.mark.parametrize("axes_type", [MotionAlignedAxes, MotionAlignedCap])
+def test_turn_fraction_outside_its_range_is_rejected(axes_type, turn_fraction):
+    with pytest.raises(TurnFractionOutOfRangeError):
+        axes_type(turn_fraction=turn_fraction)
 
 
 # %% velocity limits of the axes
