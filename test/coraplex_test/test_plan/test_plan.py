@@ -31,6 +31,7 @@ from coraplex.plans.failures import EmptyUnderspecified
 from coraplex.plans.plan import Plan
 from coraplex.plans.plan_node import PlanNode, ActionNode
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from .test_language import ActionBuiltAsAPlanTree
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
@@ -450,7 +451,7 @@ def test_algebra_sequential_plan(apartment_world_pr2_copy_with_context):
     with simulated_robot:
         plan.perform()
 
-    assert isinstance(plan.root.children[1].children[0].designator, NavigateAction)
+    assert isinstance(plan.root.children[1].children[0].action, NavigateAction)
     assert len(plan.root.children[1].children) == 1
 
 
@@ -511,11 +512,10 @@ def test_conditions_reference_surviving_action_node_after_merge(immutable_model_
     world, robot_view, context = immutable_model_world
 
     plan = sequential(
-        [MoveTorsoAction(TorsoState.HIGH)],
+        [ActionBuiltAsAPlanTree("navigating")],
         context=context,
     ).plan
-    with simulated_robot:
-        plan.perform()
+    plan.root.notify()
 
     live_node_indices = {node.index for node in [plan.root, *plan.root.descendants]}
     condition_nodes = [
@@ -637,13 +637,15 @@ def test_node_expansion(immutable_model_world):
     assert len(expanded_children[1].children) == 4
 
 
-def test_expand_move_torso(immutable_model_world):
+def test_expanding_an_action_mounts_its_conditions_around_its_body(
+    immutable_model_world,
+):
     world, view, context = immutable_model_world
-    plan = sequential([MoveTorsoAction(TorsoState.HIGH)], context=context)
+    plan = sequential([ActionBuiltAsAPlanTree("navigating")], context=context)
 
     plan.notify()
 
-    node = plan.plan.get_nodes_by_designator_type(MoveTorsoAction)[0]
+    node = plan.plan.get_nodes_by_designator_type(ActionBuiltAsAPlanTree)[0]
 
     assert len(node.children) == 3
 

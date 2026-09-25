@@ -6,7 +6,11 @@ from itertools import groupby
 
 from typing_extensions import TYPE_CHECKING, List
 
-from coraplex.plans.executables import Executable, GiskardExecutable
+from coraplex.plans.executables import (
+    Executable,
+    GiskardExecutable,
+    PlanNodeInChart,
+)
 from cramph.composites import CramLanguageNode, Sequence
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
@@ -87,7 +91,12 @@ class BuildsMotionStateChart:
         for child in children:
             if not child.has_motions:
                 continue
-            child.add_to_motion_state_chart(goal, executable)
+            executable.plan_nodes_in_chart.append(
+                PlanNodeInChart(
+                    plan_node=child,
+                    chart_node=child.add_to_motion_state_chart(goal, executable),
+                )
+            )
 
     def parse_children(self, children: List[PlanNode]) -> Executable:
         """

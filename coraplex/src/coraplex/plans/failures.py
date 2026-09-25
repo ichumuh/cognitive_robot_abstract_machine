@@ -38,24 +38,6 @@ class EmptyUnderspecified(PlanFailure):
 
 
 @dataclass
-class AllChildrenFailed(PlanFailure):
-    """
-    Thrown when all children of a plan node failed.
-    """
-
-    language_node: LanguageNode
-    """
-    The language node where all children failed.
-    """
-
-    def error_message(self) -> str:
-        return f"All children of {self.language_node} failed"
-
-    def suggest_correction(self) -> str:
-        return ""
-
-
-@dataclass
 class RepetitionsExhausted(PlanFailure):
     """
     Thrown when a repeating plan node ran out of attempts.

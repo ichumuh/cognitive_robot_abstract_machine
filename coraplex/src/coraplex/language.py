@@ -8,12 +8,12 @@ from dataclasses import dataclass, field
 from typing_extensions import (
     Any,
     Callable,
-    List,
     Optional,
     Type,
 )
 
-from cramph.data_types import LifeCycleValues
+from cramph.context import StatechartContext
+from cramph.data_types import ObservationStateValues, SuccessDecider
 from cramph.composites import (
     Attempt,
     CancelledWhenTrue,
@@ -25,7 +25,7 @@ from cramph.composites import (
     TryInOrder,
 )
 from giskardpy.motion_statechart.goals.templates import RepeatOnStall
-from cramph.node import CompositeNode
+from cramph.node import CompositeNode, StatechartNode
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from cramph.monitors import CountNodeResets
 from cramph.composites import (
@@ -38,7 +38,6 @@ from coraplex.plans.executables import (
     Executable,
 )
 from coraplex.plans.failures import (
-    AllChildrenFailed,
     PlanCancelled,
     PlanFailure,
     RepetitionsExhausted,
@@ -114,24 +113,6 @@ class ExecutesInParallel(LanguageNode, ABC):
     Base class for nodes that execute their children in parallel.
     """
 
-    @classmethod
-    def _perform_parallel(cls, nodes: List[PlanNode]):
-        """
-        Open threads for all nodes and wait for them to finish.
-
-        :param nodes: A list of nodes which should be performed in parallel
-        """
-        threads = []
-        for child in nodes:
-            thread = threading.Thread(
-                target=child.perform,
-            )
-            thread.start()
-            threads.append(thread)
-
-        for thread in threads:
-            thread.join()
-
 
 @dataclass
 class SequentialNode(ExecutesSequentially):
@@ -149,21 +130,12 @@ class SequentialNode(ExecutesSequentially):
 @dataclass
 class ParallelNode(ExecutesInParallel):
     """
-    Executes all children in parallel by creating a thread per children and executing
-    them in the respective thread.
-
-    All exceptions are raised after all children have finished.
+    Executes all children at the same time.
     """
 
     motion_state_chart_template: Type[CramLanguageNode] = field(
         kw_only=True, default=Parallel
     )
-
-    def notify(self):
-        self._perform_parallel(self.children)
-        for child in self.children:
-            if child.status == LifeCycleValues.FAILED:
-                raise child.reason
 
 
 @dataclass(eq=False)
@@ -264,18 +236,6 @@ class TryInOrderNode(ExecutesSequentially):
         kw_only=True, default=TryInOrder
     )
 
-    def notify(self):
-        for child in self.children:
-            try:
-                child.perform()
-            except PlanFailure:
-                continue
-        failed = all(
-            [child.status == LifeCycleValues.FAILED for child in self.children]
-        )
-        if failed:
-            raise AllChildrenFailed(self)
-
 
 @dataclass(eq=False)
 class TryAllNode(ExecutesInParallel):
@@ -288,14 +248,6 @@ class TryAllNode(ExecutesInParallel):
     motion_state_chart_template: Type[CramLanguageNode] = field(
         kw_only=True, default=TryAll
     )
-
-    def notify(self):
-        self._perform_parallel(self.children)
-        failed = all(
-            [child.status == LifeCycleValues.FAILED for child in self.children]
-        )
-        if failed:
-            raise AllChildrenFailed(self)
 
 
 @dataclass(eq=False)
@@ -391,15 +343,112 @@ class PauseUntilMonitor(MonitorNode):
         return PausedUntilTrue(monitor=self.monitor, name=type(self).__name__)
 
 
-@dataclass
-class CodeNode(LanguageNode):
+# %% code
+
+
+@dataclass(eq=False, repr=False)
+class FunctionCall(StatechartNode):
     """
-    Executable function in a plan.
+    Calls a function once when it starts, in a thread of its own.
+
+    It succeeds once the function returned and fails if the function raised a
+    :class:`~coraplex.plans.failures.PlanFailure`, so a surrounding node can react to
+    that failure. Any other exception is raised out of the tick.
+
+    The tick after the start waits for the function, so no control cycle passes while
+    it runs, and functions started in the same tick run at the same time.
+
+    .. warning:: The function is not serializable, so this node only works in a locally
+        ticked statechart.
+    """
+
+    success_decided_by = SuccessDecider.ITSELF
+    fails_when_observing_false = True
+
+    function: Callable[[], Any] = field(kw_only=True)
+    """
+    The function to call.
+    """
+
+    _thread: Optional[threading.Thread] = field(default=None, init=False, repr=False)
+    """
+    The thread the function runs in, while it runs.
+    """
+
+    _error: Optional[BaseException] = field(default=None, init=False, repr=False)
+    """
+    What the function raised, if it raised.
+    """
+
+    def _call_function(self) -> None:
+        """
+        Call :attr:`function` and keep what it raises, since a thread cannot raise into
+        the tick.
+        """
+        try:
+            self.function()
+        except BaseException as error:  # noqa: BLE001 - handed to the tick
+            self._error = error
+
+    def on_start(self, context: StatechartContext) -> None:
+        self._error = None
+        self._thread = threading.Thread(
+            target=self._call_function, name=self.unique_name, daemon=True
+        )
+        self._thread.start()
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        """
+        Wait for the function and observe whether it succeeded.
+
+        :raises BaseException: What the function raised, unless it is a
+            :class:`~coraplex.plans.failures.PlanFailure`.
+        """
+        self._thread.join()
+        if self._error is None:
+            return ObservationStateValues.TRUE
+        if isinstance(self._error, PlanFailure):
+            logger.info("%s failed: %s", self.unique_name, self._error)
+            return ObservationStateValues.FALSE
+        raise self._error
+
+
+@dataclass(eq=False, repr=False)
+class CodeNode(PlanNode, BuildsMotionStateChart):
+    """
+    Executable function in a plan, called as a step of the motion state chart.
 
     This class' primary purpose is for debugging and testing.
     """
 
     code: Callable = field(default_factory=lambda: lambda: None, kw_only=True)
+    """
+    The function to call.
+    """
 
-    def notify(self) -> Any:
-        return self.code()
+    def notify(self):
+        """
+        Do nothing, because the function is called by the surrounding motion state
+        chart.
+        """
+
+    @property
+    def has_motions(self) -> bool:
+        return True
+
+    def add_to_motion_state_chart(
+        self,
+        parent_goal: CramLanguageNode,
+        executable: GiskardExecutable,
+    ) -> StatechartNode:
+        """
+        Add a node calling this node's function below `parent_goal`, counting it as one
+        motion towards the executable's tick budget.
+        """
+        function_call = FunctionCall(name=type(self).__name__, function=self.code)
+        parent_goal.add_node(function_call)
+        executable.motion_count += 1
+        return function_call
+
+    def parse(self) -> Executable:
+        return self.create_giskard_executable([self])

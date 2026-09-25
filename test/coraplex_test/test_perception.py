@@ -49,7 +49,6 @@ from coraplex.perception import (
     WorldPerception,
 )
 from coraplex.plans.factories import execute_single
-from coraplex.plans.plan_node import MotionNode
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.perception import PerceptionTask
@@ -943,8 +942,13 @@ def test_detect_action_takes_the_execution_type_of_the_environment(
 
     with simulated_robot:
         plan.notify()
+        executable = plan.parse()
 
-    tasks = [node.motion for node in plan.descendants if isinstance(node, MotionNode)]
+    tasks = [
+        node
+        for node in executable.motion_state_chart.nodes
+        if isinstance(node, PerceptionTask)
+    ]
     assert [type(task) for task in tasks] == [PerceptionTask]
     assert tasks[0].execution_type is ExecutionType.SIMULATED
 

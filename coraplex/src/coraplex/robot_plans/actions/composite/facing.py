@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 
 import numpy as np
-from typing_extensions import Optional, Any
 
-from coraplex.config.action_conf import ActionConfig
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
@@ -27,10 +24,6 @@ class FaceAtAction(ActionDescription):
     pose: Pose
     """
     The pose to face 
-    """
-    keep_joint_states: bool = ActionConfig.face_at_keep_joint_states
-    """
-    Keep the joint states of the robot the same during the navigation.
     """
 
     @property
@@ -56,7 +49,7 @@ class FaceAtAction(ActionDescription):
 
         return sequential(
             [
-                NavigateAction(new_robot_pose, self.keep_joint_states),  # turn robot
+                NavigateAction(new_robot_pose),  # turn robot
                 LookAtAction(self.pose),  # look at the target
             ]
         )

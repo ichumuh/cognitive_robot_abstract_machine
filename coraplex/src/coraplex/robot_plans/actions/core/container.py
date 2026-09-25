@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing_extensions import Any, Dict
+from typing_extensions import Any, Dict, List
 
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.variable import Variable
@@ -21,10 +21,9 @@ from coraplex.datastructures.enums import (
 )
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.locations.pose_validator import IsObjectReachableBy
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
 from coraplex.querying.predicates import GripperIsFree
-from coraplex.robot_plans.actions.base import ActionDescription
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.actions.core.pick_up import GraspingAction
 from giskardpy.motion_statechart.goals.gripper import MoveGripper
 from giskardpy.motion_statechart.goals.open_close import Open, Close
@@ -36,16 +35,17 @@ from semantic_digital_twin.world_description.connections import ActiveConnection
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-@dataclass
-class OpenAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class OpenAction(Action):
     """
     Opens a container like object.
     """
 
     object_designator: Body
     """
-    Object designator_description describing the object that should be opened
+    Object designator_description describing the object that should be opened.
     """
+
     arm: Arms
     """
     Arm that should be used for opening the container.
@@ -57,7 +57,7 @@ class OpenAction(ActionDescription):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         arm = ViewManager.get_arm_view(self.arm, self.robot)
         end_effector = arm.end_effector
 
@@ -67,20 +67,18 @@ class OpenAction(ActionDescription):
             end_effector,
         )
 
-        return sequential(
-            [
-                GraspingAction(self.object_designator, self.arm, grasp_description),
-                Open(
-                    tip_link=end_effector.tool_frame,
-                    environment_link=self.object_designator,
-                ),
-                MoveGripper(
-                    end_effector=end_effector,
-                    state=GripperState.OPEN,
-                    allow_gripper_collision=True,
-                ),
-            ]
-        )
+        return [
+            GraspingAction(self.object_designator, self.arm, grasp_description),
+            Open(
+                tip_link=end_effector.tool_frame,
+                environment_link=self.object_designator,
+            ),
+            MoveGripper(
+                end_effector=end_effector,
+                state=GripperState.OPEN,
+                allow_gripper_collision=True,
+            ),
+        ]
 
     @staticmethod
     def pre_condition(
@@ -137,8 +135,8 @@ class OpenAction(ActionDescription):
         )
 
 
-@dataclass
-class CloseAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class CloseAction(Action):
     """
     Closes a container like object.
     """
@@ -160,7 +158,7 @@ class CloseAction(ActionDescription):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         arm = ViewManager.get_arm_view(self.arm, self.robot)
         end_effector = arm.end_effector
 
@@ -170,21 +168,19 @@ class CloseAction(ActionDescription):
             end_effector,
         )
 
-        return sequential(
-            [
-                GraspingAction(self.object_designator, self.arm, grasp_description),
-                Close(
-                    tip_link=end_effector.tool_frame,
-                    environment_link=self.object_designator,
-                    goal_joint_state=ActionConfig.closed_container_joint_state,
-                ),
-                MoveGripper(
-                    end_effector=end_effector,
-                    state=GripperState.OPEN,
-                    allow_gripper_collision=True,
-                ),
-            ]
-        )
+        return [
+            GraspingAction(self.object_designator, self.arm, grasp_description),
+            Close(
+                tip_link=end_effector.tool_frame,
+                environment_link=self.object_designator,
+                goal_joint_state=ActionConfig.closed_container_joint_state,
+            ),
+            MoveGripper(
+                end_effector=end_effector,
+                state=GripperState.OPEN,
+                allow_gripper_collision=True,
+            ),
+        ]
 
     @staticmethod
     def post_condition(

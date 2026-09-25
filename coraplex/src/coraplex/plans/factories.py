@@ -225,11 +225,12 @@ def _make_plan_from_type_and_children(
 def make_node(action_like: ActionLike) -> PlanNode:
     from coraplex.plans.plan_node import (
         PlanNode,
+        ActionCompositeNode,
         ActionNode,
         MotionNode,
     )
     from coraplex.plans.underspecified import UnderspecifiedNode
-    from coraplex.robot_plans.actions.base import ActionDescription
+    from coraplex.robot_plans.actions.base import Action, ActionDescription
 
     if isinstance(action_like, PlanNode):
         return action_like
@@ -238,6 +239,9 @@ def make_node(action_like: ActionLike) -> PlanNode:
         return underspecified_action
     elif isinstance(action_like, ActionDescription):
         return ActionNode(designator=action_like)
+    elif isinstance(action_like, Action):
+        # Before the node case below, because an action of this kind is one itself.
+        return ActionCompositeNode(action=action_like)
     elif isinstance(action_like, StatechartNode):
         return MotionNode(motion=action_like)
     else:

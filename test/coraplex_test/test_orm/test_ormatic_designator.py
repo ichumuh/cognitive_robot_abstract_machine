@@ -25,8 +25,7 @@ def simple_plan(immutable_model_world):
             NavigateAction(
                 Pose.from_xyz_quaternion(
                     1.6, 1.9, 0, 0, 0, 0, 1, reference_frame=world.root
-                ),
-                True,
+                )
             ),
             MoveTorsoAction(TorsoState.HIGH),
             ParkArmsAction(Arms.BOTH),

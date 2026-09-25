@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing_extensions import Optional, Type
+from typing_extensions import Optional, Type, List
 
 from coraplex.datastructures.enums import DetectionTechnique, DetectionState
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.perception import PerceptionQuery, PerceptionTask
 from coraplex.plans.executables import GiskardExecutable
-from coraplex.plans.factories import sequential, execute_single
+from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action, ActionDescription
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveManipulatorAction
 from coraplex.robot_plans.mixins import MovesToolCenterPoint
@@ -34,8 +35,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 
 
-@dataclass
-class DetectAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class DetectAction(Action):
     """
     Detects an object that fits the object description and returns an object
     designator_description describing the object.
@@ -45,8 +46,9 @@ class DetectAction(ActionDescription):
 
     technique: DetectionTechnique
     """
-    The technique that should be used for detection
+    The technique that should be used for detection.
     """
+
     state: Optional[DetectionState] = None
     """
     The state of the detection, e.g Start Stop for continues perception.
@@ -84,14 +86,14 @@ class DetectAction(ActionDescription):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(
+    def _sub_nodes(self) -> List[StatechartNode]:
+        return [
             PerceptionTask(
                 query=self._build_query(),
                 execution_type=GiskardExecutable.execution_type,
                 accept_first_if_multiple=self.accept_first_if_multiple,
             )
-        )
+        ]
 
     def _build_query(self) -> PerceptionQuery:
         """

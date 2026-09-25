@@ -12,13 +12,15 @@ from coraplex.plans.executables import (
     UnderspecifiedExecutable,
 )
 from coraplex.plans.failures import PlanFailure
+from coraplex.plans.designator import DesignatorParameters
+from coraplex.plans.factories import make_node
 from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import ActionNode, ExecutionBoundaryNode
+from coraplex.plans.plan_node import ExecutionBoundaryNode, PlanNode
+from cramph.candidate_generator import CandidateGenerator
 from krrood.entity_query_language.query.match import Match
 
 if TYPE_CHECKING:
     from coraplex.datastructures.dataclasses import Context
-    from coraplex.robot_plans.actions.base import ActionDescription
 
 
 # %% trying a grounded action out before it is executed for real
@@ -67,14 +69,17 @@ class ActionTrial:
     notice that it has moved on and the copy has to be replaced.
     """
 
-    def succeeds(self, action: ActionDescription) -> bool:
+    def succeeds(self, action: DesignatorParameters) -> bool:
         """
         Run `action` against the copy and restore the copy afterwards.
 
-        The action is copied onto the copy first: reading through a reference to the
-        world it was grounded in would be harmless, but an action that modifies the
-        model (attaching a grasped body, say) requires the entities it is given to
-        belong to the world being modified.
+        The action is rebuilt from its own parameters, rebound onto the copy: reading
+        through a reference to the world it was grounded in would be harmless, but an
+        action that modifies the model (attaching a grasped body, say) requires the
+        entities it is given to belong to the world being modified. Rebinding the
+        parameters rather than the action itself is also what keeps an action that runs
+        as a statechart node out of trouble, since such a node refers back to itself
+        through its own transition conditions and belongs to one statechart only.
 
         The version to roll back to is read here rather than when the copy is taken, so
         each attempt undoes only its own modifications. Reverting is itself recorded, so
@@ -87,7 +92,9 @@ class ActionTrial:
         context = self._copy()
         world = context.world
         plan = Plan(context=context)
-        candidate = ActionNode(designator=world.rebind_world_entities(action))
+        candidate = make_node(
+            type(action)(**world.rebind_world_entities(action.designator_parameter))
+        )
         plan.add_node(candidate)
         version = world.get_world_model_manager().version
 
@@ -137,7 +144,9 @@ class ActionTrial:
 
 
 @dataclass(eq=False, repr=False)
-class UnderspecifiedNode(ExecutionBoundaryNode):
+class UnderspecifiedNode(
+    ExecutionBoundaryNode, CandidateGenerator[DesignatorParameters, PlanNode]
+):
     """
     An action or language expression that is described by an underspecified `an(...)`
     match statement.
@@ -145,30 +154,17 @@ class UnderspecifiedNode(ExecutionBoundaryNode):
     This node is used to generate fully specified actions  or language expressions.
     The semantics are: try until it succeeds or fails if the underspecified action is exhausted.
     If you want to limit the number of attempts, add a limit clause to the underspecified action.
+
+    Resolution is deferred to execution time: the underspecified statement can only be
+    grounded once the preceding actions have run and mutated the world (e.g. the torso is
+    raised, the object is in the gripper). The grounding happens in
+    :class:`~coraplex.plans.executables.UnderspecifiedExecutable`, so expansion does
+    nothing here.
     """
 
     underspecified_action: Match = field(kw_only=True)
     """
     The underspecified statement that can be used to generate actions.
-    """
-
-    _action_iterator: Optional[Iterator[ActionDescription]] = field(
-        default=None, kw_only=True
-    )
-    """
-    The iterator that is used to generate the actions.
-
-    Only available after the first call to notify.
-    """
-
-    current_candidate: Optional[ActionNode] = field(
-        default=None, init=False, repr=False
-    )
-    """
-    The action candidate this node currently resolves to, set by `advance` at execution
-    time.
-
-    On failure, `advance` replaces it with the next candidate.
     """
 
     _trial: Optional[ActionTrial] = field(default=None, init=False, repr=False)
@@ -183,89 +179,49 @@ class UnderspecifiedNode(ExecutionBoundaryNode):
     def designator_type(self) -> Type:
         return self.underspecified_action.type
 
-    def _pull_next_action(self) -> Optional[ActionDescription]:
+    def _generate_proposals(self) -> Iterator[DesignatorParameters]:
+        return self.context.query_backend.evaluate(self.underspecified_action)
+
+    def _is_viable(self, proposal: DesignatorParameters) -> bool:
         """
-        Pull the next grounded action from the iterator, without attaching it anywhere.
+        Try `proposal` against a disposable copy of the world (:class:`ActionTrial`),
+        which is rolled back between proposals.
 
-        :return: The next grounded action, or None if the iterator is exhausted.
+        A proposal that fails there is discarded without ever being attached to the plan
+        or touching the real world, so a bad parameterization cannot poison a later
+        attempt.
+
+        :param proposal: The grounded action to try out.
+        :return: Whether `proposal` runs to completion in the trial.
         """
-        if self._action_iterator is None:
-            self._action_iterator = self.context.query_backend.evaluate(
-                self.underspecified_action
-            )
+        if self._trial is None:
+            self._trial = ActionTrial(context=self.context)
+        return self._trial.succeeds(proposal)
 
-        action = next(self._action_iterator, None)
-        if action is None:
-            self._action_iterator = None
-        return action
-
-    def _attach(self, action: ActionDescription) -> ActionNode:
+    def _create_candidate(self, proposal: DesignatorParameters) -> PlanNode:
         """
-        Wrap a grounded action in an `ActionNode` and add it as this node's child.
+        Give a grounded action the node that runs it, add it as this node's child and
+        expand it against the current world state.
 
-        :param action: The grounded action to attach.
+        :param proposal: The grounded action that survived its trial.
         :return: The new candidate node.
         """
-        candidate = ActionNode(designator=action)
+        candidate = make_node(proposal)
         self.add_child(candidate)
-        self.current_candidate = candidate
+        candidate.notify()
         return candidate
 
-    def stop_grounding(self) -> None:
+    def stop_generating(self) -> None:
         """
-        Release the action iterator once no further candidate will be requested from it.
-
-        Between candidates the iterator is left suspended (rather than exhausted) so a
-        later retry can resume the search instead of restarting it; a suspended
-        generator keeps every value its frame holds alive, including resources a
-        candidate generator only builds to validate against (for example a location's
-        deep-copied test world). Once a candidate is accepted and no retry will happen,
-        closing the iterator here releases those resources immediately instead of
-        retaining them for this node's whole lifetime. The trial's copy of the world is
-        released for the same reason.
+        Release the action iterator and the trial's copy of the world, once no further
+        candidate will be requested.
         """
-        if self._action_iterator is not None:
-            self._action_iterator.close()
-            self._action_iterator = None
+        super().stop_generating()
         if self._trial is not None:
             self._trial.discard()
 
     def notify(self):
-        # Resolution is deferred to execution time: the underspecified statement can
-        # only be grounded once the preceding actions have run and mutated the world
-        # (e.g. the torso is raised, the object is in the gripper). The grounding
-        # happens in UnderspecifiedExecutable, so expansion does nothing here.
         pass
-
-    def advance(self) -> bool:
-        """
-        Resolve the next candidate that survives a trial, and expand it against the
-        current world state.
-
-        Every grounded action is first tried against a disposable copy of the world
-        (:class:`ActionTrial`), which is rolled back between candidates; a candidate that
-        fails there is discarded without ever being attached to the plan or touching the
-        real world, so a bad parameterization cannot poison a later attempt. Only a
-        candidate that survives its trial is attached and returned.
-
-        Driven by :class:`~pycram.plans.executables.UnderspecifiedExecutable` to ground the
-        action at execution time, and reused by failure handling to retry with a freshly
-        generated action.
-
-        :return: True if a new candidate was generated, False if the iterator is
-            exhausted without any candidate surviving its trial.
-        """
-        if self._trial is None:
-            self._trial = ActionTrial(context=self.context)
-
-        action = self._pull_next_action()
-        while action is not None:
-            if self._trial.succeeds(action):
-                self._attach(action)
-                self.current_candidate.notify()
-                return True
-            action = self._pull_next_action()
-        return False
 
     def parse(self) -> Executable:
         # Defer resolution to execution: the returned executable grounds the action

@@ -11,6 +11,7 @@ from typing_extensions import (
 )
 
 from coraplex.plans.plan_entity import PlanEntity
+from cramph.context import ContextExtension, StatechartContext
 from krrood.entity_query_language.backends import (
     QueryBackend,
     EntityQueryLanguageGenerativeBackend,
@@ -146,6 +147,17 @@ class Context(PlanEntity):
             logging.DEBUG if self.debug else logging.INFO
         )
 
+    def create_statechart_context(self) -> StatechartContext:
+        """
+        Presents this context to a statechart, over the same world, so the nodes of
+        that statechart can read the robot and the settings back out of it.
+
+        :return: The statechart context to build and tick that statechart in.
+        """
+        statechart_context = StatechartContext(world=self.world)
+        statechart_context.add_extension(PlanContextExtension(self))
+        return statechart_context
+
     def __eq__(self, other):
         return self is other
 
@@ -213,3 +225,19 @@ class Context(PlanEntity):
         if plan:
             plan.add_plan_entity(result)
         return result
+
+
+# %% reaching the plan context from inside a statechart
+
+
+@dataclass
+class PlanContextExtension(ContextExtension):
+    """
+    Carries the plan context into a statechart, so a node of that statechart can read
+    the robot and the settings the plan is being executed with.
+    """
+
+    context: Context
+    """
+    The context the statechart is executed for.
+    """

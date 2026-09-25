@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -9,6 +12,7 @@ import rustworkx as rx
 from typing_extensions import (
     Any,
     ClassVar,
+    FrozenSet,
     List,
     MutableMapping,
     Optional,
@@ -21,7 +25,7 @@ import krrood.symbolic_math.symbolic_math as sm
 from cramph.plotters.gantt_chart_plotter import HistoryGanttChartPlotter
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from krrood.symbolic_math.symbolic_math import VariableParameters
-from cramph.context import StatechartContext
+from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import (
     StatechartJSONKey,
     TransitionKind,
@@ -58,6 +62,8 @@ from cramph.plotters.graphviz import StatechartGraphviz
 from semantic_digital_twin.world_description.world_entity import (
     WorldEntityReferenceWriter,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(repr=False, eq=False)
@@ -370,6 +376,21 @@ class LifeCycleChange:
     The life cycle state after the change.
     """
 
+    tick_count: int
+    """
+    The tick this change happened on, so a callback that runs after the tick already
+    returned still knows when the change happened.
+    """
+
+    @property
+    def transition_kind(self) -> TransitionKind:
+        """
+        :return: The :class:`~cramph.data_types.TransitionKind` this change belongs
+            to, used to filter which callbacks of a :class:`LifeCycleChangeLog` run
+            for it.
+        """
+        return TransitionKind.of(self.previous_state, self.new_state)
+
     def run_callback(self, context: StatechartContext) -> None:
         """
         Calls the callback of :attr:`node` that matches this change, e.g.
@@ -397,6 +418,135 @@ class LifeCycleChange:
                 _,
             ) if self.new_state.is_terminal:
                 self.node.on_end(context=context)
+
+
+@dataclass
+class LifeCycleChangeSubscription:
+    """
+    One callback registered on a :class:`LifeCycleChangeLog`, together with the
+    transition kinds it runs for.
+    """
+
+    callback: Callable[[LifeCycleChange], None]
+    """
+    The callback to run for a matching life cycle change.
+    """
+
+    transition_kinds: FrozenSet[TransitionKind] = field(
+        default_factory=lambda: frozenset(TransitionKind)
+    )
+    """
+    The transition kinds this callback runs for; every kind by default.
+    """
+
+    def matches(self, change: LifeCycleChange) -> bool:
+        """
+        :param change: The life cycle change to check.
+        :return: Whether `change`'s transition kind is one this subscription runs
+            for.
+        """
+        return change.transition_kind in self.transition_kinds
+
+
+@dataclass
+class LifeCycleChangeLog(ContextExtension):
+    """
+    Runs registered callbacks for the life cycle changes of every tick on a single
+    worker thread, so a slow callback cannot delay a statechart's control loop.
+
+    Register with :meth:`~cramph.context.StatechartContext.add_extension` before the
+    statechart is compiled. :meth:`cleanup` waits for every submitted tick's
+    callbacks to finish and stops the worker thread.
+    """
+
+    subscriptions: List[LifeCycleChangeSubscription] = field(default_factory=list)
+    """
+    Every registered callback, together with the transition kinds it runs for.
+    """
+
+    _executor: ThreadPoolExecutor = field(
+        default_factory=lambda: ThreadPoolExecutor(max_workers=1),
+        init=False,
+        repr=False,
+    )
+    """
+    Runs :meth:`_run_callbacks` on a single worker thread, so changes are handed to
+    the callbacks in the order they happened.
+    """
+
+    def register(
+        self,
+        callback: Callable[[LifeCycleChange], None],
+        transition_kinds: Iterable[TransitionKind] = TransitionKind,
+    ) -> None:
+        """
+        Registers `callback` to run for every life cycle change whose
+        :attr:`~LifeCycleChange.transition_kind` is in `transition_kinds`.
+
+        :param callback: The callback to register.
+        :param transition_kinds: The transition kinds to run `callback` for; every
+            kind by default.
+        """
+        self.subscriptions.append(
+            LifeCycleChangeSubscription(
+                callback=callback, transition_kinds=frozenset(transition_kinds)
+            )
+        )
+
+    def log(self, changes: List[LifeCycleChange]) -> None:
+        """
+        Submits `changes` to the worker thread, which runs every matching
+        subscription's callback for each of them, in order. Returns immediately.
+
+        :param changes: The life cycle changes of one tick, in the order they
+            happened.
+        """
+        self._executor.submit(self._run_callbacks, changes)
+
+    def _run_callbacks(self, changes: List[LifeCycleChange]) -> None:
+        """
+        Runs every matching subscription's callback for every change in `changes`,
+        on the worker thread. A callback that raises is logged and skipped, so one
+        failing callback cannot silence the rest or stop the worker thread.
+
+        :param changes: The life cycle changes to run the callbacks for.
+        """
+        for change in changes:
+            for subscription in self.subscriptions:
+                if not subscription.matches(change):
+                    continue
+                try:
+                    subscription.callback(change)
+                except Exception:
+                    # Runs on a worker thread: an uncaught exception here would
+                    # otherwise be lost instead of reaching anything that logs it.
+                    logger.exception(
+                        "Life cycle change callback %s failed for %s.",
+                        subscription.callback,
+                        change,
+                    )
+
+    def cleanup(self) -> None:
+        """
+        Waits for every submitted tick's callbacks to finish, then stops the worker
+        thread.
+        """
+        self._executor.shutdown(wait=True)
+
+
+def log_life_cycle_change(change: LifeCycleChange) -> None:
+    """
+    Logs `change` at INFO level.
+
+    :param change: The life cycle change to log.
+    """
+    logger.info(
+        "%s: %s -> %s (tick %s)",
+        change.node.name,
+        change.previous_state.name,
+        change.new_state.name,
+        change.tick_count,
+    )
 
 
 @dataclass
@@ -764,7 +914,7 @@ class CompiledTick:
             visited_states.add(self._current_state())
             if self._state_after_latest_pass() in visited_states:
                 self._raise_does_not_settle(passes_taken + 1)
-            changes.extend(self._life_cycle_changes_of_latest_pass())
+            changes.extend(self._life_cycle_changes_of_latest_pass(context))
             self._take_over_latest_pass()
             self._compiled_pass.evaluate()
         self._raise_does_not_settle(self._pass_budget)
@@ -870,8 +1020,11 @@ class CompiledTick:
             self._tick_observation.data[index] = tick_observation
             self._has_tick_observation.data[index] = 1
 
-    def _life_cycle_changes_of_latest_pass(self) -> List[LifeCycleChange]:
+    def _life_cycle_changes_of_latest_pass(
+        self, context: StatechartContext
+    ) -> List[LifeCycleChange]:
         """
+        :param context: The context whose tick count the changes are stamped with.
         :return: The life cycle changes of the latest pass, in node order.
         """
         life_cycle = self.statechart.life_cycle_state.data
@@ -880,6 +1033,7 @@ class CompiledTick:
                 node=self._nodes[index],
                 previous_state=LifeCycleValues(int(life_cycle[index])),
                 new_state=LifeCycleValues(int(self._next_life_cycle[index])),
+                tick_count=context.tick_count,
             )
             for index in np.flatnonzero(self._next_life_cycle != life_cycle)
         ]
@@ -940,6 +1094,23 @@ class StateHistoryItem:
         return str(merged)
 
 
+@dataclass(frozen=True)
+class RunTicks:
+    """
+    The tick a node's run started and, once it has ended, the tick it ended on.
+    """
+
+    start_tick: int
+    """
+    The tick this run started on.
+    """
+
+    end_tick: Optional[int]
+    """
+    The tick this run ended on, None while it is still running.
+    """
+
+
 @dataclass
 class StateHistory:
     """
@@ -982,6 +1153,37 @@ class StateHistory:
         :return: The recorded observation state of `node` at every tick, in order.
         """
         return [history_item.observation_state[node] for history_item in self.history]
+
+    def get_current_run_ticks_of_node(self, node: StatechartNode) -> Optional[RunTicks]:
+        """
+        :param node: The node to look up.
+        :return: The start and, once reached, end tick of `node`'s most recent run
+            since its last reset, or None if it has not started since then (or
+            this history is still empty).
+        """
+        if not self.history:
+            return None
+        current_state = self.history[-1].life_cycle_state[node]
+        if current_state == LifeCycleValues.NOT_STARTED:
+            return None
+        start_index = len(self.history) - 1
+        while (
+            start_index > 0
+            and self.history[start_index - 1].life_cycle_state[node]
+            != LifeCycleValues.NOT_STARTED
+        ):
+            start_index -= 1
+        if not current_state.is_terminal:
+            return RunTicks(
+                start_tick=self.history[start_index].tick_count, end_tick=None
+            )
+        end_index = start_index
+        while not self.history[end_index].life_cycle_state[node].is_terminal:
+            end_index += 1
+        return RunTicks(
+            start_tick=self.history[start_index].tick_count,
+            end_tick=self.history[end_index].tick_count,
+        )
 
     def __len__(self) -> int:
         return len(self.history)
@@ -1282,7 +1484,7 @@ class Statechart(SubclassJSONSerializer):
             raise StatechartAlreadyCompiledError()
         if node._statechart is not self:
             raise NotInStatechartError(name=node.name)
-        removed_nodes = self._with_descendants(node)
+        removed_nodes = [node, *node.descendants]
         kept_nodes = [kept for kept in self._nodes if kept not in removed_nodes]
         self._check_not_referenced(removed_nodes, kept_nodes)
         parent_node = node.parent_node
@@ -1293,18 +1495,6 @@ class Statechart(SubclassJSONSerializer):
             removed_node._statechart = None
             removed_node.index = None
             removed_node.parent_node_index = None
-
-    def _with_descendants(self, node: StatechartNode) -> List[StatechartNode]:
-        """
-        :return: `node` and every node below it, in index order.
-        """
-        removed_indices = {node.index}
-        result = [node]
-        for candidate in self._nodes[node.index + 1 :]:
-            if candidate.parent_node_index in removed_indices:
-                removed_indices.add(candidate.index)
-                result.append(candidate)
-        return result
 
     @staticmethod
     def _check_not_referenced(
@@ -1412,9 +1602,9 @@ class Statechart(SubclassJSONSerializer):
             dependency = variable.statechart_node
             if dependency is owner:
                 continue
-            if dependency.parent_node_index == owner.parent_node_index:
+            if dependency.parent_node is owner.parent_node:
                 continue
-            if dependency.parent_node_index == owner.index:
+            if dependency.parent_node is owner:
                 continue
             raise ConditionScopeError(
                 condition=condition,
@@ -1585,8 +1775,10 @@ class Statechart(SubclassJSONSerializer):
         and the tick is recorded. A :class:`CancelStatechart` that started in this
         tick ends the statechart only after that.
         """
-        for change in self._compiled_tick.settle(self.context):
+        changes = self._compiled_tick.settle(self.context)
+        for change in changes:
             change.run_callback(self.context)
+        self._log_life_cycle_changes(changes)
         self.history.append(
             next_item=StateHistoryItem(
                 tick_count=self.context.tick_count,
@@ -1595,6 +1787,18 @@ class Statechart(SubclassJSONSerializer):
             )
         )
         self._raise_if_cancelled()
+
+    def _log_life_cycle_changes(self, changes: List[LifeCycleChange]) -> None:
+        """
+        Hands `changes` to the registered :class:`LifeCycleChangeLog`, if any, so
+        its callbacks run off the tick's own thread.
+
+        :param changes: The life cycle changes of this tick, in the order they
+            happened.
+        """
+        life_cycle_change_log = self.context.get_extension(LifeCycleChangeLog)
+        if life_cycle_change_log is not None:
+            life_cycle_change_log.log(changes)
 
     def get_nodes_by_type(
         self, node_type: Type[GenericStatechartNode]

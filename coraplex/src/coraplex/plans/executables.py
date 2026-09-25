@@ -18,7 +18,7 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
 )
 from cramph.node import CancelStatechart
 from giskardpy.motion_statechart.graph_node import EndMotion
-from cramph.node import CompositeNode
+from cramph.node import CompositeNode, StatechartNode
 from cramph.statechart import Statechart
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.entity_query_language.factories import evaluate_condition
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from coraplex.robot_plans.actions.base import ActionDescription
 
     from coraplex.plans.condition_nodes import ConditionNode
+    from coraplex.plans.plan_node import PlanNode
     from coraplex.plans.underspecified import UnderspecifiedNode
     from coraplex.datastructures.dataclasses import Context
 
@@ -75,6 +76,29 @@ class Executable:
 
 
 @dataclass
+class PlanNodeInChart:
+    """
+    A plan node together with the node it added to a motion state chart.
+    """
+
+    plan_node: PlanNode
+    """
+    The plan node that added :attr:`chart_node`.
+    """
+
+    chart_node: StatechartNode
+    """
+    The node the plan node added to the chart.
+    """
+
+    def report_outcome(self) -> None:
+        """
+        Give the plan node the life cycle state its node reached in the chart.
+        """
+        self.plan_node.status = self.chart_node.life_cycle_state
+
+
+@dataclass
 class GiskardExecutable(Executable):
     """
     Executable for everything that can be added to a motion state chart, this includes
@@ -109,6 +133,13 @@ class GiskardExecutable(Executable):
     Sets the tick budget of a simulated run. The chart itself cannot answer this: a
     motion contributes a single node, but so does every goal mirroring a plan node, and
     a motion's node may be a composite of its own.
+    """
+
+    plan_nodes_in_chart: List[PlanNodeInChart] = field(
+        default_factory=list, kw_only=True
+    )
+    """
+    Every plan node that added a node to :attr:`motion_state_chart`, with that node.
     """
 
     pre_condition_node: Optional[ConditionNode] = field(default=None, kw_only=True)
@@ -152,7 +183,7 @@ class GiskardExecutable(Executable):
         :return: An executor that runs a motion state chart in simulation.
         """
         return StatechartExecutor(
-            context=StatechartContext(world=context.world),
+            context=context.create_statechart_context(),
             extensions=[
                 RosNodeAccess(context.ros_node),
                 MotionControl(
@@ -283,6 +314,7 @@ class GiskardExecutable(Executable):
         MotionControl.set_velocity_acceleration_jerk_to_zero(executor.context.world)
         executor.statechart.cleanup_nodes()
         executor.context.cleanup()
+        self._report_outcomes_to_plan_nodes()
 
         if not executor.statechart.is_ended():
             unfinished_nodes = [
@@ -294,6 +326,14 @@ class GiskardExecutable(Executable):
             motion_did_not_finish = MotionDidNotFinish(unfinished_nodes)
             logger.error(motion_did_not_finish.error_message())
             raise motion_did_not_finish
+
+    def _report_outcomes_to_plan_nodes(self) -> None:
+        """
+        Give every plan node the life cycle state its node reached in the chart, since a
+        plan node run as part of a chart is not performed on its own.
+        """
+        for plan_node_in_chart in self.plan_nodes_in_chart:
+            plan_node_in_chart.report_outcome()
 
     def _execute_real(self) -> None:
         """
@@ -374,7 +414,7 @@ class UnderspecifiedExecutable(Executable):
         while self.node.advance():
             try:
                 self.node.current_candidate.parse().execute()
-                self.node.stop_grounding()
+                self.node.stop_generating()
                 return
             except PlanFailure:
                 continue

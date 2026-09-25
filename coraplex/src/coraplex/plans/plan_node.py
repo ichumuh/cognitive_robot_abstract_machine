@@ -25,7 +25,7 @@ from coraplex.plans.plan_entity import PlanEntity
 
 if TYPE_CHECKING:
     from coraplex.datastructures.dataclasses import Context
-    from coraplex.robot_plans.actions.base import ActionDescription
+    from coraplex.robot_plans.actions.base import Action, ActionDescription
 
 
 logger = logging.getLogger(__name__)
@@ -262,19 +262,6 @@ class PlanNode(PlanEntity):
 
     def add_child(self, child: PlanNode):
         self.plan.add_edge(self, child)
-
-    @property
-    def is_interrupted(self) -> bool:
-        return any(
-            parent.status == LifeCycleValues.INTERRUPTED
-            for parent in [self] + self.path
-        )
-
-    @property
-    def is_paused(self) -> bool:
-        return any(
-            parent.status == LifeCycleValues.PAUSED for parent in [self] + self.path
-        )
 
     def perform(self):
         """
@@ -627,6 +614,59 @@ class MotionNode(PlanNode, BuildsMotionStateChart):
         parent_goal.add_node(self.motion)
         executable.motion_count += 1
         return self.motion
+
+    def parse(self) -> Executable:
+        return self.create_giskard_executable([self])
+
+
+@dataclass(eq=False, repr=False)
+class ActionCompositeNode(PlanNode, BuildsMotionStateChart):
+    """
+    A plan node running an action that is itself a node of a motion state chart.
+
+    It lets a plan that still builds a tree hold such an action: the action is handed
+    to the chart as it is and expands itself there, rather than being taken apart into
+    plan nodes.
+    """
+
+    action: Action = field(kw_only=True)
+    """
+    The action handed to the motion state chart.
+    """
+
+    def notify(self):
+        """
+        Do nothing, because the action is not performed on its own.
+
+        It is added to the surrounding motion state chart, which is executed as a whole.
+        """
+
+    def __repr__(self):
+        return type(self.action).__name__
+
+    def __node_label__(self):
+        return type(self.action).__name__
+
+    @property
+    def has_motions(self) -> bool:
+        return True
+
+    def add_to_motion_state_chart(
+        self,
+        parent_goal: CramLanguageNode,
+        executable: GiskardExecutable,
+    ) -> StatechartNode:
+        """
+        Add this node's action below `parent_goal` and count it towards the executable's
+        tick budget.
+
+        The action counts as one motion, the way a motion node contributing a composite
+        counts as one: what it expands into is only known once the goal it joins belongs
+        to a chart, which it need not yet when a template assembles its children.
+        """
+        parent_goal.add_node(self.action)
+        executable.motion_count += 1
+        return self.action
 
     def parse(self) -> Executable:
         return self.create_giskard_executable([self])

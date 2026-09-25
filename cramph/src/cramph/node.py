@@ -942,23 +942,6 @@ class StatechartNode(SubclassJSONSerializer):
         """
         return []
 
-    @property
-    def depth(self) -> int:
-        """
-        Distance (in edges) from this node to the root of the statechart.
-
-        The root node (no parent) has depth 0, its children depth 1, and so on.
-
-        :return: The number of edges between this node and the root.
-        """
-        depth = 0
-        current = self
-        # Walk up the parent chain until there is no parent
-        while current.parent_node is not None:
-            depth += 1
-            current = current.parent_node
-        return depth
-
     @parent_node.setter
     def parent_node(self, parent_node: Optional[StatechartNode]) -> None:
         """
@@ -968,6 +951,106 @@ class StatechartNode(SubclassJSONSerializer):
             self.parent_node_index = None
         else:
             self.parent_node_index = parent_node.index
+
+    # %% tree navigation
+
+    @property
+    def children(self) -> List[StatechartNode]:
+        """
+        :return: The nodes this one runs, in order, empty for a node that runs none.
+        """
+        return []
+
+    @property
+    def descendants(self) -> List[StatechartNode]:
+        """
+        :return: Every node below this one, each child followed by its own subtree.
+        """
+        return [node for child in self.children for node in [child, *child.descendants]]
+
+    @property
+    def path(self) -> List[StatechartNode]:
+        """
+        :return: The ancestors of this node, from its parent up to and including the
+            root, empty for a node on the top layer.
+        """
+        ancestors = []
+        ancestor = self.parent_node
+        while ancestor is not None:
+            ancestors.append(ancestor)
+            ancestor = ancestor.parent_node
+        return ancestors
+
+    @property
+    def depth(self) -> int:
+        """
+        :return: The number of edges between this node and the root, 0 for a node on the
+            top layer.
+        """
+        return len(self.path)
+
+    @property
+    def is_leaf(self) -> bool:
+        """
+        :return: Whether this node runs no other node.
+        """
+        return not self.children
+
+    @property
+    def siblings(self) -> List[StatechartNode]:
+        """
+        :return: The other nodes on the same layer, in order.
+        """
+        return [node for node in self._siblings_including_self if node is not self]
+
+    @property
+    def left_siblings(self) -> List[StatechartNode]:
+        """
+        :return: The siblings before this node, in order.
+        """
+        siblings = self._siblings_including_self
+        return siblings[: siblings.index(self)]
+
+    @property
+    def right_siblings(self) -> List[StatechartNode]:
+        """
+        :return: The siblings after this node, in order.
+        """
+        siblings = self._siblings_including_self
+        return siblings[siblings.index(self) + 1 :]
+
+    @property
+    def left_neighbour(self) -> Optional[StatechartNode]:
+        """
+        :return: The closest sibling before this node, or None if it is the first on its
+            layer.
+        """
+        left_siblings = self.left_siblings
+        return left_siblings[-1] if left_siblings else None
+
+    @property
+    def right_neighbour(self) -> Optional[StatechartNode]:
+        """
+        :return: The closest sibling after this node, or None if it is the last on its
+            layer.
+        """
+        right_siblings = self.right_siblings
+        return right_siblings[0] if right_siblings else None
+
+    @property
+    def _siblings_including_self(self) -> List[StatechartNode]:
+        """
+        The nodes this one shares a parent with, itself among them. A node on the top
+        layer shares it with the other top level nodes, which is the same scope a
+        transition condition may read.
+
+        .. note:: Membership is decided by identity, because a name is not unique.
+
+        :return: The nodes on the same layer as this one, in order.
+        """
+        if self.parent_node is not None:
+            return self.parent_node.children
+        return self.statechart.top_level_nodes
 
     def to_json(self, **kwargs) -> Dict[str, Any]:
         return {
@@ -1356,6 +1439,30 @@ class StatechartNode(SubclassJSONSerializer):
         :return: The observation this node took most recently.
         """
         return self.statechart.last_observation_state[self]
+
+    @property
+    def start_time(self) -> Optional[float]:
+        """
+        :return: Seconds since the statechart started at which this node most
+            recently started running, None if it has not started since its last
+            reset.
+        """
+        run = self.statechart.history.get_current_run_ticks_of_node(self)
+        if run is None:
+            return None
+        return run.start_tick * self.statechart.context.require_tick_duration()
+
+    @property
+    def end_time(self) -> Optional[float]:
+        """
+        :return: Seconds since the statechart started at which this node most
+            recently ended, None if it has not started since its last reset or has
+            not ended yet.
+        """
+        run = self.statechart.history.get_current_run_ticks_of_node(self)
+        if run is None or run.end_tick is None:
+            return None
+        return run.end_tick * self.statechart.context.require_tick_duration()
 
     @property
     def start_condition(self) -> Scalar:
@@ -1784,6 +1891,13 @@ class CompositeNode(StatechartNode):
     plot_specifications: NodePlotSpec = plot_specification_field(
         NodePlotSpec.create_composite_node_style
     )
+
+    @property
+    def children(self) -> List[StatechartNode]:
+        """
+        :return: The nodes this one runs, which is what :attr:`nodes` holds.
+        """
+        return list(self.nodes)
 
     def create_structure_copy(self) -> CompositeNode:
         return CompositeNode(name=self.name)

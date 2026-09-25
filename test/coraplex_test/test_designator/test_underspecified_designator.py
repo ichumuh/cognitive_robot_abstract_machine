@@ -184,7 +184,6 @@ def test_underspecified_action(apartment_world_pr2_copy_with_context):
                 Pose.from_xyz_quaternion(2, -1, 0, reference_frame=world.root),
             ]
         ),
-        keep_joint_states=True,
     )
 
     plan = execute_single(action_like=action, context=context).plan
@@ -193,9 +192,9 @@ def test_underspecified_action(apartment_world_pr2_copy_with_context):
 
     assert plan.root.status == LifeCycleValues.SUCCEEDED
     candidate = plan.root.children[0]
-    assert isinstance(candidate.designator, NavigateAction)
+    assert isinstance(candidate.action, NavigateAction)
     assert plan.root.parse() is not None
-    assert plan.root._action_iterator is None, (
+    assert plan.root._proposals is None, (
         "the action iterator must be released once grounding succeeds, so any resources a "
         "candidate generator only holds to validate against (for example a location's "
         "deep-copied test world) are not retained for the node's whole lifetime"
@@ -222,7 +221,6 @@ def test_underspecified_action_with_ellipsis(apartment_world_pr2_copy_with_conte
             yaw=0.0,
             reference_frame=context.robot.root,
         ),
-        keep_joint_states=...,
     )
 
     plan = execute_single(action_like=action, context=context).plan
@@ -231,7 +229,7 @@ def test_underspecified_action_with_ellipsis(apartment_world_pr2_copy_with_conte
 
     assert plan.root.status == LifeCycleValues.SUCCEEDED
     candidate = plan.root.children[-1]
-    assert isinstance(candidate.designator, NavigateAction)
+    assert isinstance(candidate.action, NavigateAction)
     assert plan.root.parse() is not None
 
 
@@ -260,7 +258,6 @@ def test_underspecified_language(apartment_world_pr2_copy_with_context):
                         ]
                     )
                 ),
-                keep_joint_states=True,
             ),
             a(PickUpAction)(
                 arm=...,

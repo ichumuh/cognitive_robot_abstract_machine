@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from typing_extensions import Any, Dict, Optional
+from typing_extensions import Any, Dict, Optional, List
 
 from coraplex.locations.pose_validator import IsObjectReachableBy
 from coraplex.plans.attachment_nodes import ReAttachNode
@@ -28,7 +28,8 @@ from coraplex.datastructures.grasp import GraspDescription
 from coraplex.plans.factories import sequential
 from coraplex.querying.predicates import GripperIsFree
 from coraplex.exceptions import PerceptionTargetMissing
-from coraplex.robot_plans.actions.base import ActionDescription
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action, ActionDescription
 from coraplex.robot_plans.mixins import (
     HasGraspDetectionThreshold,
     MovesGripper,
@@ -336,8 +337,8 @@ class PickUpAction(
         )
 
 
-@dataclass
-class GraspingAction(ActionDescription, MovesToolCenterPoint, MovesGripper):
+@dataclass(eq=False, repr=False)
+class GraspingAction(Action, MovesToolCenterPoint, MovesGripper):
     """
     Grasps an object described by the given Object Designator description.
     """
@@ -358,26 +359,24 @@ class GraspingAction(ActionDescription, MovesToolCenterPoint, MovesGripper):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         pre_pose, grasp_pose, _ = self.grasp_description.grasp_pose_sequence(
             self.object_designator
         )
 
-        return sequential(
-            [
-                self.tool_center_point_goal(
-                    pre_pose,
-                    self.arm,
-                    allow_gripper_collision=True,
-                ),
-                self.gripper_goal(GripperState.OPEN, self.arm),
-                self.tool_center_point_goal(
-                    grasp_pose,
-                    self.arm,
-                    allow_gripper_collision=True,
-                ),
-                self.gripper_goal(
-                    GripperState.CLOSE, self.arm, allow_gripper_collision=True
-                ),
-            ]
-        )
+        return [
+            self.tool_center_point_goal(
+                pre_pose,
+                self.arm,
+                allow_gripper_collision=True,
+            ),
+            self.gripper_goal(GripperState.OPEN, self.arm),
+            self.tool_center_point_goal(
+                grasp_pose,
+                self.arm,
+                allow_gripper_collision=True,
+            ),
+            self.gripper_goal(
+                GripperState.CLOSE, self.arm, allow_gripper_collision=True
+            ),
+        ]

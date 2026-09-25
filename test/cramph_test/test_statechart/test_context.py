@@ -36,6 +36,21 @@ def test_cleaning_up_a_context_cleans_up_its_extensions(
     assert extension.cleaned_up
 
 
+def test_get_extension_returns_none_when_nothing_is_registered(
+    statechart_context: StatechartContext,
+):
+    assert statechart_context.get_extension(ExtensionRecordingItsCleanup) is None
+
+
+def test_get_extension_returns_the_registered_extension(
+    statechart_context: StatechartContext,
+):
+    extension = ExtensionRecordingItsCleanup()
+    statechart_context.add_extension(extension)
+
+    assert statechart_context.get_extension(ExtensionRecordingItsCleanup) is extension
+
+
 # %% tick duration
 
 

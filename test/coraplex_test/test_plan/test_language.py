@@ -9,9 +9,15 @@ from cramph.data_types import LifeCycleValues
 
 from coraplex.datastructures.enums import DetectionTechnique
 
+from dataclasses import dataclass
+
+from coraplex.plans.factories import execute_single
+from coraplex.plans.plan_node import PlanNode
+from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.plans.failures import PlanCancelled, PlanFailure, RepetitionsExhausted
 from coraplex.language import (
     CancelMonitor,
+    CodeNode,
     SequentialNode,
     TryAllNode,
     ParallelNode,
@@ -49,11 +55,28 @@ def test_factory_construction():
     assert len(root.children) == 3
 
 
+@dataclass
+class ActionBuiltAsAPlanTree(ActionDescription):
+    """
+    An action that still builds a plan tree, so that simplification can be exercised
+    whatever else has moved over to running as a statechart node.
+    """
+
+    label: str
+    """
+    Tells one of these apart from another, so an assertion on order means something.
+    """
+
+    @property
+    def _action_plan(self) -> PlanNode:
+        return execute_single(CodeNode())
+
+
 def test_simplify_tree():
-    act = NavigateAction(Pose())
-    act2 = MoveTorsoAction(TorsoState.HIGH)
-    act3 = DetectAction(DetectionTechnique.TYPES)
-    act4 = DetectAction(DetectionTechnique.TYPES)
+    act = ActionBuiltAsAPlanTree("first")
+    act2 = ActionBuiltAsAPlanTree("second")
+    act3 = ActionBuiltAsAPlanTree("third")
+    act4 = ActionBuiltAsAPlanTree("fourth")
 
     root = sequential([act, sequential([act2, act3]), act4])
     root.plan.validate()
@@ -239,11 +262,6 @@ def test_exception_sequential(immutable_model_world):
     assert plan.root.status == LifeCycleValues.FAILED
 
 
-@pytest.mark.skip(
-    reason="Performing the children and parsing the tree afterwards hands the same "
-    "motion node to a second goal, which a motion built as a giskard node does not "
-    "survive. Skipped until the rework of how motions reach the chart lands."
-)
 def test_exception_try_in_order(immutable_model_world):
     world, robot_view, context = immutable_model_world
 
@@ -260,11 +278,6 @@ def test_exception_try_in_order(immutable_model_world):
     assert plan.root.status == LifeCycleValues.SUCCEEDED
 
 
-@pytest.mark.skip(
-    reason="Performing the children and parsing the tree afterwards hands the same "
-    "motion node to a second goal, which a motion built as a giskard node does not "
-    "survive. Skipped until the rework of how motions reach the chart lands."
-)
 def test_exception_try_all(immutable_model_world):
     world, robot_view, context = immutable_model_world
 
@@ -280,6 +293,49 @@ def test_exception_try_all(immutable_model_world):
 
     assert type(plan.root) is TryAllNode
     assert plan.root.status == LifeCycleValues.SUCCEEDED
+
+
+# %% children run only as part of the chart
+
+
+def test_try_in_order_recovers_from_a_failing_code_step(immutable_model_world):
+    """
+    A code step that fails is one failed alternative, so the next one is tried.
+    """
+    world, robot_view, context = immutable_model_world
+
+    def raise_except():
+        raise PlanFailure()
+
+    plan = try_in_order(
+        [code(raise_except), MoveTorsoAction(TorsoState.HIGH)], context
+    ).plan
+    with simulated_robot:
+        plan.perform()
+
+    [torso_up] = (
+        robot_view.get_torso().get_joint_state_by_type(TorsoState.HIGH).target_values
+    )
+    assert _torso_position(world) == pytest.approx(torso_up, abs=0.05)
+    assert plan.root.status == LifeCycleValues.SUCCEEDED
+
+
+def test_children_report_the_outcome_of_the_chart_they_ran_in(immutable_model_world):
+    """
+    A child is only run as part of its parent's chart, and reports how it ended there.
+    """
+    world, robot_view, context = immutable_model_world
+
+    root = sequential(
+        [MoveTorsoAction(TorsoState.HIGH), ParkArmsAction(Arms.BOTH)], context
+    )
+    with simulated_robot:
+        root.plan.perform()
+
+    assert [child.status for child in root.children] == [
+        LifeCycleValues.SUCCEEDED,
+        LifeCycleValues.SUCCEEDED,
+    ]
 
 
 # %% monitored subtrees

@@ -10,7 +10,7 @@ import numpy as np
 
 from cramph.context import StatechartContext
 from cramph.data_types import LifeCycleValues, ObservationStateValues
-from cramph.node import CompositeNode, StatechartNode
+from cramph.node import StatechartNode
 from semantic_digital_twin.world_description.geometry import Color
 
 logger = logging.getLogger(__name__)
@@ -216,26 +216,17 @@ class HistoryGanttChartPlotter:
 
     def _sort_nodes_by_parents(self) -> List[StatechartNode]:
         """
-        Sorts nodes of a statechart by their parent-child hierarchy.
+        Orders the nodes of the statechart so that each one is followed by its own
+        subtree, reversed because bars are plotted bottom to top.
 
-        This method organizes nodes of the statechart such that child nodes appear
-        directly after their respective parents in depth-first traversal.
-
-        :return: A list of StatechartNode objects ordered by their parent-child
-            relationships in reversed order.
+        :return: The nodes of the statechart, bottom bar first.
         """
-
-        def return_children_in_order(n: StatechartNode):
-            yield n
-            if isinstance(n, CompositeNode):
-                for c in n.nodes:
-                    yield from return_children_in_order(c)
-
-        ordered_: List[StatechartNode] = []
-        for root in self.statechart.top_level_nodes:
-            ordered_.extend(list(return_children_in_order(root)))
-        # reverse list because plt plots bars bottom to top
-        return list(reversed(ordered_))
+        ordered = [
+            node
+            for root in self.statechart.top_level_nodes
+            for node in [root, *root.descendants]
+        ]
+        return list(reversed(ordered))
 
     def _plot_lifecycle_bar(
         self,

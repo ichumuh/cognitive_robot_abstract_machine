@@ -205,7 +205,7 @@ class StatechartGraphviz:
         :param node: The node whose descendants are left out of the drawing.
         :return: The label row stating how many of them are hidden.
         """
-        hidden_node_count = self._count_descendants(node)
+        hidden_node_count = len(node.descendants)
         plural = "s" if hidden_node_count != 1 else ""
         return (
             f"<TR>"
@@ -214,15 +214,6 @@ class StatechartGraphviz:
             f"</FONT></TD>"
             f"</TR>"
         )
-
-    def _count_descendants(self, node: StatechartNode) -> int:
-        """
-        :param node: The node to count below.
-        :return: The number of nodes below it, nested composite nodes included.
-        """
-        if not isinstance(node, CompositeNode):
-            return 0
-        return sum(1 + self._count_descendants(child_node) for child_node in node.nodes)
 
     def _build_condition_block(self, node: StatechartNode, line_color="black") -> str:
         """
@@ -416,10 +407,7 @@ class StatechartGraphviz:
         :return: The drawn graph.
         """
         self._cluster_map[None] = self.graph
-        top_level_nodes = [
-            node for node in self.statechart.nodes if not node.parent_node
-        ]
-        self._add_nodes(self.graph, top_level_nodes)
+        self._add_nodes(self.graph, self.statechart.top_level_nodes)
         self._add_edges()
         return self.graph
 
@@ -444,15 +432,11 @@ class StatechartGraphviz:
         """
         if not node.plot_specifications.visible:
             return False
-        current = node.parent_node
-        while current is not None:
-            if (
-                not current.plot_specifications.visible
-                or current.plot_specifications.collapse_children
-            ):
-                return False
-            current = current.parent_node
-        return True
+        return all(
+            ancestor.plot_specifications.visible
+            and not ancestor.plot_specifications.collapse_children
+            for ancestor in node.path
+        )
 
     def _add_nodes(
         self,
@@ -481,7 +465,7 @@ class StatechartGraphviz:
                     graph=goal_cluster,
                     node=node,
                 )
-                self._add_nodes(goal_cluster, node.nodes)
+                self._add_nodes(goal_cluster, node.children)
                 continue
 
             self._add_node(

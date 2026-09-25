@@ -20,6 +20,7 @@ from coraplex.exceptions import NoFloorBelowRobot
 from coraplex.execution_environment import simulated_robot
 from coraplex.locations.base import Location, PoseGeneratorBackend, PoseValidator
 from coraplex.plans.factories import sequential, execute_single
+from cramph.statechart import Statechart
 from coraplex.robot_plans.actions.composite.facing import FaceAtAction
 from coraplex.robot_plans.actions.composite.transporting import TransportAction
 from coraplex.robot_plans.actions.core.container import OpenAction, CloseAction
@@ -87,6 +88,17 @@ ALTERNATIVE_MOTION_MAPPINGS = []
 
 
 # %% standing a robot next to something
+
+
+def attach_to_statechart(action, context) -> None:
+    """
+    Puts `action` into a statechart without running it, which is what gives it the world
+    and the robot it reads its path out of.
+
+    :param action: The action to attach.
+    :param context: The plan context the statechart is built for.
+    """
+    Statechart(context=context.create_statechart_context()).add_node(action)
 
 
 def heading_towards(
@@ -718,7 +730,7 @@ def test_facing(immutable_multiple_robot_apartment):
 
     with simulated_robot:
         milk_pose = world.get_body_by_name("milk.stl").global_pose
-        plan = execute_single(FaceAtAction(milk_pose, True), context)
+        plan = execute_single(FaceAtAction(milk_pose), context)
         plan.perform()
         milk_in_base_frame = world.transform(
             world.get_body_by_name("milk.stl").global_transform,
@@ -932,7 +944,7 @@ def test_gcs_navigation_arrives_at_each_waypoint_facing_the_next_one(
     action = PathPlanningNavigateAction(
         Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
     )
-    execute_single(action, context=context)
+    attach_to_statechart(action, context)
 
     waypoints = action._waypoints()
     path = action._path()
@@ -965,7 +977,7 @@ def test_gcs_navigation_plans_on_the_floor_the_robot_stands_on(
     action = PathPlanningNavigateAction(
         Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
     )
-    execute_single(action, context=context)
+    attach_to_statechart(action, context)
 
     floor = action._floor
     assert floor in world.get_semantic_annotations_by_type(Floor)
@@ -996,7 +1008,7 @@ def test_gcs_navigation_takes_a_waypoints_height_from_that_waypoints_frame(
     action = PathPlanningNavigateAction(
         Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
     )
-    execute_single(action, context=context)
+    attach_to_statechart(action, context)
 
     # The last pose is the requested target, which carries the caller's own height.
     for pose in action._path()[:-1]:
@@ -1022,10 +1034,8 @@ def test_gcs_navigation_needs_a_floor_below_the_robot(
     action = PathPlanningNavigateAction(
         Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
     )
-    execute_single(action, context=context)
-
     with pytest.raises(NoFloorBelowRobot) as raised:
-        action._waypoints()
+        attach_to_statechart(action, context)
 
     assert raised.value.robot is robot
 

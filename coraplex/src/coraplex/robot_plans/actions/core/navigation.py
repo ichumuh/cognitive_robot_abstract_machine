@@ -3,15 +3,15 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass, field
 
-from typing_extensions import Optional, Any, Dict
+from typing_extensions import Optional, Any, Dict, List
 
-from coraplex.config.action_conf import ActionConfig
 from coraplex.datastructures.dataclasses import Context
 from coraplex.exceptions import NoFloorBelowRobot, NotOnASingleLevelException
 from coraplex.plans.attachment_nodes import ReAttachNode
-from coraplex.plans.factories import execute_single, pause_until, sequential
+from coraplex.plans.factories import pause_until, sequential
 from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action, ActionDescription
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.plans.executables import GiskardExecutable
 from cramph.composites import Parallel
@@ -43,8 +43,8 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 
 
-@dataclass
-class DrivesBase(ActionDescription, ABC):
+@dataclass(eq=False, repr=False)
+class DrivesBase(Action, ABC):
     """
     Base class for the actions that move the robot's base to a pose.
     """
@@ -68,7 +68,7 @@ class DrivesBase(ActionDescription, ABC):
         )
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class NavigateAction(DrivesBase):
     """
     Navigates the Robot to a position.
@@ -80,16 +80,11 @@ class NavigateAction(DrivesBase):
     x-axis.
     """
 
-    keep_joint_states: bool = ActionConfig.navigate_keep_joint_states
-    """
-    Keep the joint states of the robot the same during the navigation.
-    """
-
     @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(
+    def _sub_nodes(self) -> List[StatechartNode]:
+        return [
             self._drive_to(self.robot.mobile_base.pose_facing(self.target_location))
-        )
+        ]
 
     @staticmethod
     def pre_condition(
@@ -119,8 +114,8 @@ class NavigateAction(DrivesBase):
         )
 
 
-@dataclass
-class LookAtAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class LookAtAction(Action):
     """
     Lets the robot look at a position.
     """
@@ -136,19 +131,19 @@ class LookAtAction(ActionDescription):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         camera = self.camera or self.robot.get_default_camera()
-        return execute_single(
+        return [
             Pointing(
                 root_link=self.robot.get_torso().root,
                 tip_link=camera.root,
                 goal_point=self.target.to_position(),
                 pointing_axis=camera.forward_facing_axis,
             )
-        )
+        ]
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class PathPlanningNavigateAction(DrivesBase):
     """
     Navigates the robot to a pose along a path through the environment's free space.
@@ -166,8 +161,8 @@ class PathPlanningNavigateAction(DrivesBase):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
-        return sequential([self._drive_to(waypoint) for waypoint in self._path()])
+    def _sub_nodes(self) -> List[StatechartNode]:
+        return [self._drive_to(waypoint) for waypoint in self._path()]
 
     @property
     def _floor(self) -> Floor:

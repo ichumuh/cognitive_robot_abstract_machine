@@ -3,9 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-from typing_extensions import Optional, Dict, Any
+from typing_extensions import Optional, Dict, Any, List
 
-from coraplex.plans.plan_node import PlanNode
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.variable import Variable
 from coraplex.datastructures.dataclasses import Context
@@ -16,14 +15,14 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose
 from coraplex.datastructures.enums import Arms
 
 from coraplex.datastructures.trajectory import PoseTrajectory
-from coraplex.plans.factories import execute_single, sequential
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.mixins import (
     HasMaxJointVelocity,
     MovesGripper,
     MovesToolCenterPoint,
 )
-from cramph.composites import Parallel, Sequence
+from cramph.composites import Parallel
+from cramph.node import StatechartNode
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     UpdateTemporaryCollisionRules,
@@ -42,21 +41,21 @@ from semantic_digital_twin.datastructures.definitions import (
 )
 
 
-@dataclass
-class MoveTorsoAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class MoveTorsoAction(Action):
     """
     Move the torso of the robot up and down.
     """
 
     torso_state: TorsoState
     """
-    The state of the torso that should be set
+    The state of the torso that should be set.
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         joint_state = self.robot.get_torso().get_joint_state_by_type(self.torso_state)
-        return execute_single(JointPositionList(goal_state=joint_state))
+        return [JointPositionList(goal_state=joint_state)]
 
     @staticmethod
     def post_condition(
@@ -71,8 +70,8 @@ class MoveTorsoAction(ActionDescription):
         return variable_from(joint_state).is_achieved()
 
 
-@dataclass
-class SetGripperAction(ActionDescription, MovesGripper):
+@dataclass(eq=False, repr=False)
+class SetGripperAction(Action, MovesGripper):
     """
     Set the gripper state of the robot.
     """
@@ -88,13 +87,13 @@ class SetGripperAction(ActionDescription, MovesGripper):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         arms = [Arms.LEFT, Arms.RIGHT] if self.gripper == Arms.BOTH else [self.gripper]
-        return sequential([self.gripper_goal(self.motion, arm) for arm in arms])
+        return [self.gripper_goal(self.motion, arm) for arm in arms]
 
 
-@dataclass
-class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
+@dataclass(eq=False, repr=False)
+class ParkArmsAction(Action, HasMaxJointVelocity):
     """
     Park the arms of the robot.
     """
@@ -105,12 +104,12 @@ class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         park_state = self.park_joint_state()
         joint_goal = JointPositionList(goal_state=park_state)
         if self.max_joint_velocity is None:
-            return execute_single(joint_goal)
-        return execute_single(
+            return [joint_goal]
+        return [
             Parallel(
                 [
                     joint_goal,
@@ -120,7 +119,7 @@ class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
                     ),
                 ]
             )
-        )
+        ]
 
     def park_joint_state(self) -> JointState:
         """
@@ -136,8 +135,8 @@ class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
         return JointState(connections=connections, target_values=target_values)
 
 
-@dataclass
-class FollowToolCenterPointPathAction(ActionDescription, MovesToolCenterPoint):
+@dataclass(eq=False, repr=False)
+class FollowToolCenterPointPathAction(Action, MovesToolCenterPoint):
     """
     Represents an action to move a robotic arm's TCP (Tool Center Point) along a path of
     poses.
@@ -154,12 +153,8 @@ class FollowToolCenterPointPathAction(ActionDescription, MovesToolCenterPoint):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
-        target_locations = list(self.target_locations.poses)
-
-        return execute_single(
-            Sequence(nodes=[self._waypoint_goal(pose) for pose in target_locations])
-        )
+    def _sub_nodes(self) -> List[StatechartNode]:
+        return [self._waypoint_goal(pose) for pose in self.target_locations.poses]
 
     def _waypoint_goal(self, target: Pose) -> CartesianPose:
         """
@@ -187,8 +182,8 @@ class FollowToolCenterPointPathAction(ActionDescription, MovesToolCenterPoint):
         pass
 
 
-@dataclass
-class MoveManipulatorAction(ActionDescription, MovesToolCenterPoint):
+@dataclass(eq=False, repr=False)
+class MoveManipulatorAction(Action, MovesToolCenterPoint):
     """
     Move the end_effector to a specific pose.
     """
@@ -209,7 +204,7 @@ class MoveManipulatorAction(ActionDescription, MovesToolCenterPoint):
     """
 
     @property
-    def _action_plan(self) -> PlanNode:
+    def _sub_nodes(self) -> List[StatechartNode]:
         goal = CartesianPose(
             root_link=self.context.controlled_root,
             tip_link=self.end_effector.tool_frame,
@@ -219,15 +214,15 @@ class MoveManipulatorAction(ActionDescription, MovesToolCenterPoint):
             binding_policy=GoalBindingPolicy.Bind_on_start,
         )
         if not self.allow_gripper_collision:
-            return execute_single(goal)
-        return execute_single(
+            return [goal]
+        return [
             Parallel(
                 [
                     goal,
                     UpdateTemporaryCollisionRules.for_end_effector(self.end_effector),
                 ]
             )
-        )
+        ]
 
     @staticmethod
     def post_condition(

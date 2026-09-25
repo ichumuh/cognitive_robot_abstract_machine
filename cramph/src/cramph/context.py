@@ -113,6 +113,15 @@ class StatechartContext:
             raise MissingContextExtensionError(expected_extension=extension_type)
         return extension
 
+    def get_extension(
+        self, extension_type: Type[GenericContextExtension]
+    ) -> Optional[GenericContextExtension]:
+        """
+        :param extension_type: The exact type of the requested extension.
+        :return: The extension of `extension_type`, or None if none is registered.
+        """
+        return self.extensions.get(extension_type)
+
     def add_extension(self, extension: GenericContextExtension):
         """
         Extend the build context with a custom extension.
