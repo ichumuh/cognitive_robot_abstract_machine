@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Tuple
 
@@ -51,7 +51,9 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     AmbiguousPart,
     CannotBeAPartOf,
+    MissingReferenceFrameError,
     NoSupportingSurfaceError,
+    ReferenceFrameMismatchError,
     UnknownPartWholeRelationshipField,
 )
 from semantic_digital_twin.reasoning.predicates import SupportedBy
@@ -63,6 +65,7 @@ from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
 )
+from semantic_digital_twin.spatial_types.spatial_types import Pose, RotationMatrix
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
@@ -413,6 +416,105 @@ class HasRootBody(HasRootKinematicStructureEntity[Body]):
             scale.to_simple_event().as_composite_set(),
             connection_specification=connection_specification,
         )
+
+
+# %% grasp candidates
+
+
+@dataclass(eq=False)
+class GraspCandidate:
+    """
+    A grasp an object offers, together with the object offering it.
+
+    A grasp frame has its x-axis pointing the way the gripper travels toward the object,
+    its y-axis along the axis the fingers close along, and its z-axis completing the
+    frame. Every end effector states the same two axes in its own tool frame, as
+    :attr:`~semantic_digital_twin.robots.robot_parts.EndEffector.approach_axis` and
+    :attr:`~semantic_digital_twin.robots.robot_parts.EndEffector.closing_axis`, which is
+    how a grasp stays independent of the robot performing it.
+    """
+
+    graspable: HasGraspCandidates
+    """
+    The annotation of the object offering this grasp.
+    """
+
+    root_T_grasp: Pose
+    """
+    The grasp frame relative to :attr:`graspable`'s root body, so that it stays correct
+    when the object moves.
+    """
+
+    def __post_init__(self):
+        if self.root_T_grasp.reference_frame is None:
+            raise MissingReferenceFrameError(self.root_T_grasp)
+        if self.root_T_grasp.reference_frame is not self.graspable.root:
+            raise ReferenceFrameMismatchError(
+                expected_frame=self.graspable.root,
+                actual_frame=self.root_T_grasp.reference_frame,
+                context="grasp pose",
+            )
+
+    @classmethod
+    def from_body_origin(cls, graspable: HasGraspCandidates) -> GraspCandidate:
+        """
+        The grasp that takes an object at the origin of its own body.
+
+        :param graspable: The annotation of the object to be grasped.
+        :return: A grasp at that object's origin.
+        """
+        return cls(graspable, Pose(reference_frame=graspable.root))
+
+    @property
+    def world_T_grasp(self) -> Pose:
+        """
+        :return: The grasp frame in the world frame, where the object is now.
+        """
+        return self.graspable.root.global_transform @ self.root_T_grasp
+
+    def moved_to(self, reference_T_object: Pose) -> Pose:
+        """
+        Transform this grasp candidate to where it would be, once the object is placed.
+
+        :param reference_T_object: The pose the object is going to have.
+        :return: ``reference_T_grasp``, the grasp in the same frame that pose is in.
+        """
+        return reference_T_object.to_homogeneous_matrix() @ self.root_T_grasp
+
+
+@dataclass(eq=False)
+class HasGraspCandidates(HasRootBody):
+    """
+    A mixin class for semantic annotations that can say where they may be grasped.
+
+    Only an annotation rooted in a body can be grasped at all, since a region carries
+    no collision geometry for fingers to close on.
+    """
+
+    grasp_candidate_count: int = field(default=12, kw_only=True)
+    """
+    How many grasp candidates :meth:`grasp_candidates` generates.
+    """
+
+    def grasp_candidates(self) -> List[GraspCandidate]:
+        """
+        The grasps this annotation offers, in no particular order.
+
+        The default grasps the object at its own origin, from evenly spaced directions
+        around its z-axis. Annotations whose geometry admits a better grip override this.
+        """
+        return [
+            GraspCandidate(
+                self,
+                Pose(
+                    orientation=RotationMatrix.from_rpy(yaw=yaw).to_quaternion(),
+                    reference_frame=self.root,
+                ),
+            )
+            for yaw in np.linspace(
+                0, 2 * np.pi, self.grasp_candidate_count, endpoint=False
+            )
+        ]
 
 
 @dataclass(eq=False)
