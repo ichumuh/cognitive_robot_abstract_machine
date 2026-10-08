@@ -28,6 +28,7 @@ from semantic_digital_twin.adapters.ros.input_synchronization import (
 )
 from giskardpy.middleware.ros2.motion_server import MotionServer
 from giskardpy.middleware.ros2.ros2_interface import (
+    call_service,
     search_for_subscriber_of_node_with_type,
     get_parameters,
     search_for_publisher_of_node_with_type,
@@ -314,13 +315,12 @@ class RobotInterfaceConfig(ABC):
         """
         :param whitelist: list all controllers that should get added, if None, giskard will search automatically
         """
-        import controller_manager as cm
-        from controller_manager_msgs.srv._list_controllers import (
-            ListControllers_Response,
-        )
+        from controller_manager_msgs.srv import ListControllers
 
-        controllers: ListControllers_Response = cm.list_controllers(
-            node=rospy.get_node(), controller_manager_name=controller_manager_name
+        controllers: ListControllers.Response = call_service(
+            ListControllers,
+            f"{controller_manager_name}/list_controllers",
+            ListControllers.Request(),
         )
 
         controllers_to_add = self.__filter_controllers_with_whitelist(

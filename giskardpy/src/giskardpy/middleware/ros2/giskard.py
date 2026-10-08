@@ -96,6 +96,8 @@ class Giskard:
 
         You usually don't need to call this.
         """
+        node_logger = rospy.get_node().get_logger()
+        node_logger.info("Building the world.")
         with self.world_config.world.modify_world():
             self.world_config.setup_world()
             clear_memoization_cache(self.world_config.world)
@@ -110,6 +112,7 @@ class Giskard:
 
         self.setup_world_model_ros_interface()
         self.motion_server = self.create_motion_server()
+        node_logger.info("Connecting to the robot.")
         self.robot_interface_config.attach(self)
         self.robot_interface_config.setup()
         self.sanity_check()
@@ -196,6 +199,7 @@ class Giskard:
         # Deferring only the incoming direction: the control loop decides when a foreign
         # update may touch the world it is controlling, while this world's own changes
         # keep being published through the normal callbacks.
+        rospy.get_node().get_logger().info("Publishing the world.")
         self.world_synchronizer = WorldSynchronizer(
             _world=self.world_config.world,
             node=rospy.get_node(),
@@ -204,9 +208,13 @@ class Giskard:
         self.world_fetcher = FetchWorldServer(
             node=rospy.get_node(), world=self.world_config.world
         )
+        rospy.get_node().get_logger().info(
+            "Listening for frames that are already published on tf."
+        )
         self.tf_publisher = TFPublisher.create_with_ignore_existing_tf(
             node=rospy.get_node(), world=self.world_config.world
         )
+        rospy.get_node().get_logger().info("Starting the visualization.")
         self.viz_marker_publisher = VizMarkerPublisher(
             node=rospy.get_node(), _world=self.world_config.world
         )
@@ -264,7 +272,9 @@ class Giskard:
                 self.motion_server.live()
                 rospy.spinner_thread.join()
             except KeyboardInterrupt:
-                rospy.node.get_logger().info("Giskard was interrupted, shutting down.")
+                rospy.get_node().get_logger().info(
+                    "Giskard was interrupted, shutting down."
+                )
             except Exception:
                 traceback.print_exc()
             finally:
