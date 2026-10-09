@@ -9,89 +9,87 @@
 
 ## What is a Plan?
 
-A `Plan` is the central coordination structure in CoraPlex. It captures "what to do next" for a robot by arranging
-high‑level task descriptions (Designators), control‑flow (the Language layer), and the current execution context
-(world and robot) into a single, navigable structure.
+A plan is what a robot does: the nodes at the top level of a cramph statechart. A statechart is a tree of nodes, and
+every node has two states. Its life cycle state says where it is in its run: not started, running, paused, or ended as
+succeeded, failed or interrupted. Its observation says what it sees right now: true, false or unknown. A node moves
+through its life cycle when its transition conditions hold, and those conditions are expressions over the states of
+other nodes: a step of a sequence starts once the step before it succeeded, a parallel succeeds once all of its
+children did, and a monitor pauses or cancels the subtree it watches.
 
-Think of a Plan as a living, directed tree of steps. Each step is a node (a `PlanNode`). Some nodes represent
-control‑flow (e.g., do A then B, do A and B in parallel, repeat, monitor). Other nodes represent concrete, executable
-robot activities (e.g., a grasp action or a base motion). Executing a Plan means traversing this tree according to the
-control‑flow nodes and carrying out the actions/motions at the leaves.
+The statechart is compiled once, before it runs, and then ticked: every tick reads what each running node observes
+and settles every life cycle state, pass by pass, until nothing changes any more, so a whole chain of consequences
+takes effect within a single tick. That is the same loop Giskard runs motions in, so a plan and the motions it is made
+of live in one statechart.
 
-## Why does the Plan matter?
+A plan's nodes are usually cramph composites, such as `Sequence`, `Parallel`, `TryInOrder` or `TryAll`, holding
+actions, motions and further composites. They are built on their own, before they join a statechart:
 
-The Plan is the backbone that holds CoraPlex together at run time:
+```python
+from cramph.composites import Sequence
 
-- Integration point: It is where symbolic task specifications (Designators), procedural control‑flow (Language), and
-  low‑level execution (Actions and Motions) meet.
-- Single source of truth: It stores the current execution state (which step is running, succeeded, failed, or paused),
-  making introspection, debugging, and visualization straightforward.
-- Context carrier: It transports robot and world context through the whole execution, so every step can act with the
-  correct scene and embodiment.
-- Composability: Plans can be nested and mounted, letting you build complex behaviors from reusable sub‑plans.
-- Observability and tooling: The Plan supports callbacks, monitoring, and visualization, enabling logging, dashboards,
-  and supervision without changing task logic.
+plan = Sequence([ParkArmsAction(robot.all_arms), NavigateAction(target_pose)])
+```
 
-## How a Plan is shaped (high level)
+## How a Plan is shaped
 
-A Plan is usually a tree with a control‑flow ("language") node at the root and action/motion nodes beneath:
+Each top-level node of a plan is a tree with a composite at the top and actions beneath it:
 
 ```mermaid
 flowchart TD
-    Plan --> Language["LanguageNode<br/>(e.g., Sequential, Parallel, Try, Repeat, Monitor, Code)"]
-    Language --> Action["Action/Motion Nodes<br/>(resolved or to be resolved from Designators)"]
-    Language --> SubPlan["Mounted Sub-Plans"]
-    Language --> More["More LanguageNodes<br/>(to structure the subtree)"]
+    Root["Composite<br/>(e.g., Sequence, Parallel, TryInOrder, TryAll)"]
+    Root --> Action["Actions<br/>(expand into the motions they are made of)"]
+    Root --> Underspecified["UnderspecifiedNode<br/>(grounds an a(...) statement while the plan runs)"]
+    Root --> More["More composites<br/>(to structure the subtree)"]
 ```
 
-- LanguageNodes define the order and concurrency of execution.
-- Action/Motion nodes actually perform work on the robot based on Designators (see below).
+- Composites define the order and concurrency of their children, and how a failing child affects them.
+- Actions expand into the motions they are made of once they join a statechart.
+- An `UnderspecifiedNode` holds an `a(...)` statement, which is grounded into a concrete action against the world as
+  the steps before it left it, each candidate being tried on a copy of the world first.
 
-## PlanNodes in one sentence
+## Why the statechart matters to CoraPlex
 
-A `PlanNode` is a step in the Plan. It knows its status (created/running/succeeded/failed/paused), its position in the
-Plan (parent/children), and—if it is executable—how to perform its part.
+- **One structure for describing and running behaviour.** The plan a developer writes is the statechart that runs, so
+  nothing is translated between a plan and its execution, and what ran is what was written.
+- **Plans react while they run.** Monitors pause, resume or cancel parts of a plan as the world changes, and a failing
+  attempt lets a `TryInOrder` move on to the next alternative, without the plan polling for any of it.
+- **Plans and motions share one control loop.** Actions expand into giskard goals in the same statechart, so the
+  controller sees every motion the plan currently runs and the plan sees every motion's progress.
+- **A plan can grow while it runs.** An `UnderspecifiedNode` grounds its statement only once it is reached, against
+  the world as the steps before it left it, and the chosen action joins the running statechart.
+- **The statechart is the record of what happened.** Every node keeps its life cycle and observation history, which is
+  what visualizations, recordings and the ORM read.
+- **It can be sent to the robot.** A statechart serializes to JSON, so the same plan runs in simulation or is sent to
+  Giskard on the real robot.
 
-## How Designators connect to the Plan (conceptually)
+## Executing a Plan
 
-Designators are structured task descriptions ("pick up this object", "move base to that pose"). The Plan turns these into
-executable nodes:
+An executor builds the statechart context a plan runs in, out of the world and the context extensions it is given,
+and compiles and executes the statechart holding the plan, the way a Giskard executor compiles and executes a motion
+statechart:
 
-- Unresolved Action Designators become Action nodes that can be resolved at run time (late binding to a concrete
-  action instance when more information is available).
-- Resolved Action Designators become concrete Action nodes that execute immediately.
-- Motion Designators (e.g., base/arm motions) become Motion nodes and execute directly.
+```python
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
 
-This bridge lets high‑level reasoning produce Designators while the Plan ensures they are executed in the right order and
-under the right conditions.
+executor = SimulatedPlanExecutor(world, context_extensions=[RobotAccess(robot)])
+statechart = Statechart(context=executor.context)
+statechart.add_node(plan)
+executor.compile(statechart)
+executor.execute()
+```
 
-## Where the Language fits
+- The context extensions carry what every node of the plan reads from its context, such as the robot performing it
+  (`RobotAccess`) and how its statements are grounded (`StatementGrounding`).
+- `compile` adds to the statechart the collision avoidance when the executor is asked for it, and an `EndMotion` that
+  ends the statechart once every top-level node of the plan succeeded.
+- `execute` runs that statechart: a `SimulatedPlanExecutor` in simulation, a `RobotPlanExecutor` by sending it to
+  Giskard on the real robot. It raises `MotionDidNotFinish` if the plan did not succeed.
+- An executor runs one statechart, so every plan gets an executor of its own.
 
-The Language layer provides the control‑flow vocabulary. In Plans, LanguageNodes such as `Sequential`, `Parallel`,
-`TryInOrder`, `TryAll`, `Repeat`, and `Monitor` shape how and when children run. They do not manipulate robot
-hardware themselves—they orchestrate the subtree beneath them.
+## Inspecting a Plan
 
-## Role in the overall framework
-
-- Execution orchestration: Plans are the runtime engine that sequences, parallelizes, retries, and monitors robot
-  activities.
-- Context propagation: Every node sees the same world/robot context carried by the Plan, ensuring consistent decision
-  making and execution.
-- Abstraction boundary: The Plan is the stable interface between task specification (Designators and Language) and
-  concrete execution (Actions/Motions, controllers, and external interfaces).
-- Introspection and visualization: Plans expose structure and status for plotting, logging, and debugging, which is
-  essential for real robot deployments.
-- Composable building blocks: Larger behaviors are built by composing Plans (mounting sub‑plans) and mixing language
-  constructs with designator‑driven actions.
-
-## Mental model
-
-1. You describe what should happen using Designators and Language constructs.
-2. The Plan assembles these descriptions into a tree of steps (nodes) bound to the current robot and world.
-3. Executing the Plan walks the tree, letting LanguageNodes orchestrate and Action/Motion nodes act.
-4. Throughout execution, the Plan tracks state, supports monitoring/callbacks, and makes it easy to inspect or adapt.
-
-## Practical takeaway
-
-Use Plans to turn high‑level intentions into reliable robot behavior: the Plan is your central, observable, and
-composable execution graph that unifies task descriptions, control‑flow, and robot/world context.
+Every node of an executed plan keeps its life cycle state, start and end, so the plan itself is the record of what
+the robot did. Its statechart can be drawn with `plan.statechart.visualize()`, and an executed plan can be stored in
+a database through ORMatic like any other node.

@@ -1,0 +1,222 @@
+"""
+Tests for the repeating template ``RepeatUntil`` (see
+``cramph/src/cramph/composites.py``).
+
+The loop is exercised with an attempt that gives up after a number of ticks, so it needs
+neither a world nor a converging task.
+"""
+
+from functools import partial
+
+from typing_extensions import Callable
+
+import pytest
+
+from cramph.executor import StatechartExecutor
+from cramph.context import StatechartContext
+from cramph.data_types import LifeCycleValues, ObservationStateValues
+from cramph.exceptions import AttemptCannotFailError
+from cramph.composites import Attempt, RepeatUntil
+from cramph.node import EndStatechart, StatechartNode
+from cramph.statechart import Statechart
+from cramph.monitors import CountTicks, CountNodeResets
+from cramph.nodes_for_testing import (
+    ConstFalseNode,
+    ConstTrueNode,
+    NodeObservingNothingYet,
+    NodeAssertionError,
+)
+from semantic_digital_twin.world import World
+
+# Ticks an attempt is given in the world free tests before it counts as failed.
+ATTEMPT_TICKS = 2
+
+# Ticks after which the world free loops below have settled on an outcome.
+# An attempt declares its own failure and is reset one tick later, so every
+# retry costs a tick on top of ATTEMPT_TICKS.
+SETTLE_TICKS = 20
+
+
+def _repeat_on_timeout(
+    executor: StatechartExecutor,
+    task: StatechartNode,
+    target: int,
+    repeat_template: Callable[..., RepeatUntil] = RepeatUntil,
+) -> tuple[RepeatUntil, Statechart, StatechartExecutor]:
+    """
+    Build a compiled chart around a task that is retried until it has been reset
+    `target` times.
+
+    :param executor: Compiles the chart.
+    :param repeat_template: Builds the loop around the attempt.
+    """
+    attempt = Attempt(
+        name="attempt",
+        task=task,
+        failure_monitors=[CountTicks(name="timeout", ticks=ATTEMPT_TICKS)],
+    )
+    loop = repeat_template(
+        name="loop",
+        task=attempt,
+        stop_retry_monitor=CountNodeResets(name="counter", node=attempt, target=target),
+    )
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(loop)
+    statechart.add_node(EndStatechart.when_true(loop))
+    executor.compile(statechart=statechart)
+    return loop, statechart, executor
+
+
+# %% the loop
+
+
+def test_repeat_until_retries_until_the_monitor_gives_up(
+    statechart_executor: StatechartExecutor,
+):
+    """
+    A task that never succeeds is retried exactly as often as the monitor allows, and
+    the goal then reports the failure rather than stalling on Unknown.
+    """
+    task = ConstFalseNode(name="task")
+    loop, _, executor = _repeat_on_timeout(statechart_executor, task, target=3)
+
+    for _ in range(SETTLE_TICKS):
+        executor.tick()
+
+    assert loop.stop_retry_monitor.resets == 3
+    assert loop.last_observation_state == ObservationStateValues.FALSE
+
+
+def test_repeat_until_succeeds_without_retrying(
+    statechart_executor: StatechartExecutor,
+):
+    """
+    A task that succeeds first time is never reset, so the loop exits on success instead
+    of running to the monitor's bound.
+    """
+    task = ConstTrueNode(name="task")
+    loop, statechart, executor = _repeat_on_timeout(statechart_executor, task, target=3)
+
+    executor.tick_until_end(SETTLE_TICKS)
+
+    assert loop.stop_retry_monitor.resets == 0
+    assert loop.last_observation_state == ObservationStateValues.TRUE
+    assert statechart.is_ended()
+
+
+def test_repeat_until_puts_the_task_back_to_not_started(
+    statechart_executor: StatechartExecutor,
+):
+    """
+    Retrying really restarts the task rather than leaving it running, so a task that
+    only behaves correctly from its start is safe to retry.
+
+    Every reset but the last starts a fresh run. The monitor calls the retrying off on
+    the tick it counts the last reset, so that one is not followed by a run.
+    """
+    task = ConstFalseNode(name="task")
+    loop, statechart, executor = _repeat_on_timeout(statechart_executor, task, target=3)
+
+    for _ in range(SETTLE_TICKS):
+        executor.tick()
+
+    life_cycles = statechart.history.get_life_cycle_history_of_node(task)
+    restarts = [
+        index
+        for index in range(1, len(life_cycles) - 1)
+        if life_cycles[index - 1] != LifeCycleValues.NOT_STARTED
+        and life_cycles[index] == LifeCycleValues.NOT_STARTED
+        and life_cycles[index + 1] == LifeCycleValues.RUNNING
+    ]
+    assert loop.stop_retry_monitor.resets == 3
+    assert len(restarts) == loop.stop_retry_monitor.target - 1
+
+
+def test_repeat_until_does_not_retry_after_giving_up(
+    statechart_executor: StatechartExecutor,
+):
+    """
+    Once the monitor has called the retrying off, no further attempt is started, so a
+    finished loop stops consuming ticks.
+    """
+    task = ConstFalseNode(name="task")
+    loop, _, executor = _repeat_on_timeout(statechart_executor, task, target=2)
+
+    for _ in range(SETTLE_TICKS):
+        executor.tick()
+    resets_when_given_up = loop.stop_retry_monitor.resets
+    assert loop.last_observation_state == ObservationStateValues.FALSE
+
+    for _ in range(SETTLE_TICKS):
+        executor.tick()
+
+    assert loop.stop_retry_monitor.resets == resets_when_given_up
+    assert loop.task.life_cycle_state == LifeCycleValues.NOT_STARTED
+    assert loop.last_observation_state == ObservationStateValues.FALSE
+
+
+def test_repeat_until_starts_its_task_while_the_stop_monitor_has_not_decided():
+    """
+    A stop monitor that has not observed anything yet has not called the retrying off,
+    so the task runs meanwhile.
+    """
+    loop = RepeatUntil(
+        name="loop",
+        task=Attempt(
+            name="attempt",
+            task=ConstFalseNode(name="task"),
+            failure_monitors=[CountTicks(name="timeout", ticks=ATTEMPT_TICKS)],
+        ),
+        stop_retry_monitor=NodeObservingNothingYet(name="undecided"),
+    )
+    executor = StatechartExecutor(StatechartContext(world=World()))
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(loop)
+    executor.compile(statechart=statechart)
+
+    executor.tick()
+
+    assert loop.task.life_cycle_state == LifeCycleValues.RUNNING
+
+
+def test_repeat_until_rejects_a_task_that_cannot_fail():
+    """
+    A plain task is attempted with no way of failing, so it would never be retried.
+    """
+    task = ConstTrueNode(name="task")
+    loop = RepeatUntil(
+        name="loop",
+        task=task,
+        stop_retry_monitor=CountNodeResets(name="counter", node=task, target=1),
+    )
+    executor = StatechartExecutor(StatechartContext(world=World()))
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(loop)
+
+    with pytest.raises(AttemptCannotFailError) as error:
+        executor.compile(statechart=statechart)
+
+    assert error.value.node is loop
+    assert error.value.attempt.task is task
+
+
+def test_repeat_until_ends_the_statechart_with_its_exception_once_retrying_stops(
+    statechart_executor: StatechartExecutor,
+):
+    """
+    A loop handed an exception reports running out of attempts by ending the statechart
+    with it, rather than only observing False.
+    """
+    task = ConstFalseNode(name="task")
+    exception = NodeAssertionError(reason="attempts exhausted")
+    _, _, executor = _repeat_on_timeout(
+        statechart_executor,
+        task,
+        target=2,
+        repeat_template=partial(RepeatUntil, exception=exception),
+    )
+
+    with pytest.raises(type(exception)) as error:
+        executor.tick_until_end(SETTLE_TICKS)
+
+    assert error.value is exception

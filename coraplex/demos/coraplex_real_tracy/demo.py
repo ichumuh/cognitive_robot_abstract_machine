@@ -8,12 +8,6 @@ import numpy as np
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import (
-    ExecutionType,
-)
-from coraplex.execution_environment import ExecutionEnvironment
-from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
@@ -34,6 +28,10 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.geometry import Box, Scale, Color
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import PlanExecutor
+from cramph.statechart import Statechart
+from cramph.composites import Sequence
 
 giskard_process = subprocess.Popen(
     ["ros2", "launch", "giskardpy_ros", "giskardpy_tracy_standalone.launch.py"],
@@ -42,7 +40,7 @@ giskard_process = subprocess.Popen(
 
 time.sleep(8)  # Wait for the launch file to start
 
-execition_mode = ExecutionType.REAL
+drives_real_robot = True
 
 print("Init ROS")
 rclpy.init()
@@ -54,14 +52,14 @@ executor.add_node(node)
 thread = threading.Thread(target=executor.spin, daemon=True, name="rclpy-executor")
 thread.start()
 
-if execition_mode == ExecutionType.REAL:
+if drives_real_robot:
     # 300s matches giskardpy's own client (giskardpy/middleware/ros2/python_interface.py), which waits
     # this long for the same race: this demo's giskard/world-fetcher server is still parsing the URDF
     # and starting up when the client's default 10s budget would otherwise expire.
     world = fetch_world_from_service(node=node, timeout_seconds=300)
 
     WorldSynchronizer(_world=world, node=node)
-elif execition_mode == ExecutionType.SIMULATED:
+else:
     world = URDFParser.from_file(Tracy.get_ros_file_path()).parse()
     Tracy.from_world(world)
     VizMarkerPublisher(_world=world, node=node)
@@ -136,16 +134,13 @@ with world.modify_world():
         )
     )
 
-# It is important to have the ros_node in the context for a real robot
+# The executor needs the ROS node to reach the real robot
 tracy = world.get_semantic_annotations_by_type(Tracy)[0]
-context = Context(
-    world=world,
-    robot=tracy,
-    ros_node=node,
-    evaluate_conditions=False,
+executor = PlanExecutor.type_for(execition_mode)(
+    world, context_extensions=[RobotAccess(tracy)], ros_node=node
 )
 
-plan = sequential(
+plan = Sequence(
     [
         # Stack Box 2
         ParkArmsAction(tracy.all_arms),
@@ -167,13 +162,14 @@ plan = sequential(
             box3_annotation,
             Pose.from_xyz_rpy(0.8, 0.0, 1.12, yaw=0, reference_frame=world.root),
         ),
-    ],
-    context=context,
+    ]
 )
 try:
     print("Perform Plan")
-    with ExecutionEnvironment(execution_type=execition_mode, collision_avoidance=False):
-        plan.perform()
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(plan)
+    executor.compile(statechart)
+    executor.execute()
 finally:
     rclpy.shutdown()
     os.killpg(os.getpgid(giskard_process.pid), signal.SIGTERM)

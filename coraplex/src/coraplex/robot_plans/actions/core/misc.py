@@ -4,15 +4,21 @@ from dataclasses import dataclass
 
 from typing_extensions import Optional, Type
 
-from coraplex.datastructures.enums import DetectionTechnique, DetectionState
-from coraplex.perception import PerceptionQuery
-from coraplex.plans.factories import sequential, execute_single
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.plans.context_extensions import ExecutionMode, MotionToleranceConfig
+from cramph.context import ContextExtension
+from krrood.ormatic.utils import classproperty
+from coraplex.datastructures.enums import (
+    DetectionState,
+    DetectionTechnique,
+    PerceptionSource,
+)
+from coraplex.perception import PerceptionQuery, PerceptionTask
+from cramph.composites import Sequence
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveManipulatorAction
-from coraplex.robot_plans.mixins import HasApproachesGraspPoses, HasTcpGoalThresholds
-from coraplex.robot_plans.motions.misc import DetectingMotion
+from coraplex.robot_plans.mixins import HasApproachesGraspPoses, MovesToolCenterPoint
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     RotationMatrix,
@@ -34,8 +40,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 
 
-@dataclass
-class DetectAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class DetectAction(Action):
     """
     Detects an object that fits the object description and returns an object
     designator_description describing the object.
@@ -45,8 +51,9 @@ class DetectAction(ActionDescription):
 
     technique: DetectionTechnique
     """
-    The technique that should be used for detection
+    The technique that should be used for detection.
     """
+
     state: Optional[DetectionState] = None
     """
     The state of the detection, e.g Start Stop for continues perception.
@@ -83,13 +90,23 @@ class DetectAction(ActionDescription):
     :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(
-            DetectingMotion(
-                query=self._build_query(),
-                accept_first_if_multiple=self.accept_first_if_multiple,
-            )
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (ExecutionMode,)
+
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            [
+                PerceptionTask(
+                    query=self._build_query(),
+                    answered_by=(
+                        PerceptionSource.WORLD_MODEL
+                        if self.context.require_extension(ExecutionMode).simulated
+                        else PerceptionSource.ROBOKUDO
+                    ),
+                    accept_first_if_multiple=self.accept_first_if_multiple,
+                )
+            ]
         )
 
     def _build_query(self) -> PerceptionQuery:
@@ -129,8 +146,8 @@ class DetectAction(ActionDescription):
         )
 
 
-@dataclass
-class MoveToReach(ActionDescription, HasApproachesGraspPoses, HasTcpGoalThresholds):
+@dataclass(eq=False, repr=False)
+class MoveToReach(Action, HasApproachesGraspPoses, MovesToolCenterPoint):
     """
     Let the robot move to a position facing the target and reach with a end_effector.
     """
@@ -157,9 +174,12 @@ class MoveToReach(ActionDescription, HasApproachesGraspPoses, HasTcpGoalThreshol
     The end effector that should reach it.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential(
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
+
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
             [
                 NavigateAction(self.standing_pose),
                 MoveManipulatorAction(

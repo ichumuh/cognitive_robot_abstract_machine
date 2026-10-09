@@ -93,7 +93,8 @@ One ``NAME="basstler.module"`` assignment in the shell configuration.
 """
 
 DEPENDENCY_INSTALL = re.compile(
-    r"(pip install|uv pip install|uv sync)[^\n]*" r"(BASSTLER_PACKAGE_DIRECTORY|basstler)"
+    r"(pip install|uv pip install|uv sync)[^\n]*"
+    r"(BASSTLER_PACKAGE_DIRECTORY|basstler)"
 )
 """
 A step that installs this package, and with it the dependencies its metadata declares,

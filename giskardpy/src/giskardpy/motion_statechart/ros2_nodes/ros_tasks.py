@@ -20,9 +20,12 @@ from std_msgs.msg import Header
 from typing_extensions import Type, TypeVar, Generic
 
 import krrood.symbolic_math.symbolic_math as sm
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode, NodeArtifacts
+from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
+from cramph.data_types import ObservationStateValues
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from cramph.node import NodeArtifacts
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
@@ -38,6 +41,7 @@ ActionFeedback = TypeVar("ActionFeedback")
 
 @dataclass(eq=False, repr=False)
 class ActionServerTask(
+    EndedByOwner,
     MotionStatechartNode,
     ABC,
     Generic[Action, ActionGoal, ActionResult, ActionFeedback],
@@ -58,7 +62,7 @@ class ActionServerTask(
 
     _action_client: ActionClient = field(init=False)
     """
-    ROS action client, is created in `build`.
+    ROS action client, is created in `set_up`.
     """
 
     _msg: ActionGoal = field(init=False, default=None)
@@ -71,17 +75,22 @@ class ActionServerTask(
     ROS action server result.
     """
 
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RosContextExtension,)
+
     @abstractmethod
-    def build_msg(self, context: MotionStatechartContext):
+    def build_msg(self, context: StatechartContext):
         """
         Build the action server message and returns it.
         """
         ...
 
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def set_up(self, context: StatechartContext) -> None:
         """
-        Creates the action client.
+        Creates the action client and the message to send.
         """
+        super().set_up(context)
         ros_context_extension = context.require_extension(RosContextExtension)
         self._action_client = ros_context_extension.get_or_create_action_client(
             self.message_type, self.action_topic
@@ -89,9 +98,8 @@ class ActionServerTask(
         self.build_msg(context)
         logger.info(f"Waiting for action server {self.action_topic}")
         self._action_client.wait_for_server()
-        return super().build(context)
 
-    def on_start(self, context: MotionStatechartContext):
+    def on_start(self, context: StatechartContext):
         """
         Creates a goal and sends it to the action server asynchronously.
         """
@@ -143,7 +151,7 @@ class NavigateActionServerTask(
     Base link of the robot, used for estimating the distance to the goal.
     """
 
-    def build_msg(self, context: MotionStatechartContext):
+    def build_msg(self, context: StatechartContext):
         root_p_goal = context.world.transform(
             target_frame=context.world.root, spatial_object=self.target_pose
         )
@@ -163,7 +171,7 @@ class NavigateActionServerTask(
         )
         self._msg = NavigateToPose.Goal(pose=pose_stamped)
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         """
         Observes whether the robot is within 1cm of the target pose.
         """
@@ -198,7 +206,7 @@ class NavigateActionServerTask(
             f"Finished navigation with response status: {self._result.result.status} and result code: {self._result.error_code}"
         )
 
-    def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
+    def on_tick(self, context: StatechartContext) -> ObservationStateValues:
         if self._result.result:
             return (
                 ObservationStateValues.TRUE

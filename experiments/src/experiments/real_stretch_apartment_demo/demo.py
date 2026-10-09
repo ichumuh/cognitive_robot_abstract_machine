@@ -2,7 +2,7 @@
 Stretch fetches a cereal box from a shelf, places it on a bedside table and puts it
 back again.
 
-Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the actual
+Running with :class:`~coraplex.plans.executors.RobotPlanExecutor` drives the actual
 robot and fetches the world from the running world server. The default runs the whole plan
 in simulation against a world built from the Stretch URDF, so nothing on the network is
 needed.
@@ -28,18 +28,22 @@ and an empty scene aborts with :class:`~coraplex.exceptions.NothingDetected`. Ad
 classifying annotator to that engine removes both without changing this demo.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
+from typing_extensions import List, Type
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import (
-    DetectionTechnique,
-    ExecutionType,
-)
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.plan_transformation import PlanRewriting
+from cramph.context import ContextExtension, StatechartContext
+from cramph.statechart import Statechart
+from coraplex.datastructures.enums import DetectionTechnique
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
+from coraplex.plans.executors import (
+    PlanExecutor,
+    RobotPlanExecutor,
+    SimulatedPlanExecutor,
+)
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
@@ -65,6 +69,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Chee
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
+from coraplex.plans.underspecified import UnderspecifiedNode
+from cramph.composites import Sequence
 
 CEREAL_NAME = "cheeze_it.obj"
 """
@@ -141,37 +147,31 @@ class StretchApartmentDemonstration(RobotDemonstration):
             parent_connection_specification=Connection6DoFSpecification(),
         ).spawn(world, parent=world.get_body_by_name(CEREAL_SHELF_LAYER_NAME))
 
-    def build_context(self, world: World) -> Context:
+    def build_context_extensions(self, world: World) -> List[ContextExtension]:
         """
-        Build the plan context around the Stretch in ``world``.
-
-        ..note:: The ROS node has to be in the context for a real robot.
+        Give the plan the Stretch in ``world``, detecting an object before grasping it.
         """
-        return Context(
-            world=world,
-            robot=world.get_semantic_annotations_by_type(self.used_robot)[0],
-            ros_node=self.ros_node,
-            evaluate_conditions=False,
-            alternative_motion_mappings=self.alternative_motion_mappings,
-            plan_transformations=[DetectBeforeGrasp()],
-            _debug=self.debug,
-        )
+        return [
+            RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0]),
+            PlanRewriting(transformations=[DetectBeforeGrasp()]),
+        ]
 
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Carry the cereal box from its shelf to the bedside table and back again.
         """
         world = context.world
+        robot = context.require_extension(RobotAccess).robot
 
         cereal = world.get_semantic_annotations_by_type(CheezeIt)[0]
-        arm = context.robot.all_arms[0]
+        arm = robot.all_arms[0]
         shelf_layer_body = world.get_body_by_name(CEREAL_SHELF_LAYER_NAME)
         bedside_table_body = world.get_body_by_name("bedside_table.dae")
         CEREAL_SHELF_LAYER_T_CEREAL.reference_frame = shelf_layer_body
 
-        plan = sequential(
+        plan = Sequence(
             [
-                ParkArmsAction(context.robot.all_arms),
+                ParkArmsAction(robot.all_arms),
                 SetGripperAction(arm.end_effector, motion=GripperState.CLOSE),
                 NavigateAction(
                     Pose.from_xyz_rpy(
@@ -179,9 +179,11 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
-                a(NavigateAction)(
-                    target_location=Pose.from_xyz_rpy(
-                        0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
+                UnderspecifiedNode(
+                    statement=a(NavigateAction)(
+                        target_location=Pose.from_xyz_rpy(
+                            0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
+                        )
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
@@ -195,7 +197,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     cereal.grasp_candidates()[0],
                     arm,
                 ),
-                ParkArmsAction(context.robot.all_arms),
+                ParkArmsAction(robot.all_arms),
                 NavigateAction(
                     Pose.from_xyz_rpy(
                         0.8, 0, 0, yaw=np.pi, reference_frame=bedside_table_body
@@ -210,7 +212,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                         reference_frame=bedside_table_body,
                     ),
                 ),
-                ParkArmsAction(context.robot.all_arms),
+                ParkArmsAction(robot.all_arms),
                 SetGripperAction(arm.end_effector, motion=GripperState.CLOSE),
                 NavigateAction(
                     Pose.from_xyz_rpy(
@@ -218,9 +220,11 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
-                a(NavigateAction)(
-                    target_location=Pose.from_xyz_rpy(
-                        0.8, 0, 0, yaw=np.pi, reference_frame=bedside_table_body
+                UnderspecifiedNode(
+                    statement=a(NavigateAction)(
+                        target_location=Pose.from_xyz_rpy(
+                            0.8, 0, 0, yaw=np.pi, reference_frame=bedside_table_body
+                        )
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=bedside_table_body)),
@@ -230,44 +234,50 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     trust_detected_orientation=False,
                     accept_first_if_multiple=True,
                 ),
-                a(PickUpAction)(
-                    grasp=cereal.grasp_candidates()[0],
-                    arm=arm,
+                UnderspecifiedNode(
+                    statement=a(PickUpAction)(
+                        grasp=cereal.grasp_candidates()[0],
+                        arm=arm,
+                    )
                 ),
-                ParkArmsAction(context.robot.all_arms),
+                ParkArmsAction(robot.all_arms),
                 NavigateAction(
                     Pose.from_xyz_rpy(
                         0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
                     )
                 ),
-                a(PlaceAction)(
-                    object_designator=cereal,
-                    target_location=CEREAL_SHELF_LAYER_T_CEREAL.pose,
+                UnderspecifiedNode(
+                    statement=a(PlaceAction)(
+                        object_designator=cereal,
+                        target_location=CEREAL_SHELF_LAYER_T_CEREAL.pose,
+                    )
                 ),
-                ParkArmsAction(context.robot.all_arms),
+                ParkArmsAction(robot.all_arms),
                 SetGripperAction(arm.end_effector, motion=GripperState.CLOSE),
-            ],
-            context=context,
+            ]
         )
 
-        return plan
+        statechart = Statechart(context=context)
+        statechart.add_node(plan)
+        return statechart
 
 
 def main(
-    execution_type: ExecutionType = ExecutionType.SIMULATED, repetitions: int = 1
+    executor_type: Type[PlanExecutor] = SimulatedPlanExecutor, repetitions: int = 1
 ) -> None:
     """
     Run the demonstration.
 
-    :param execution_type: Whether to drive the real robot or simulate it.
+    :param executor_type: The executor running the plan, which decides whether it
+        drives the real robot or simulates it.
     :param repetitions: How often to transport the cereal there and back again.
     """
-    # StretchApartmentDemonstration(used_robot=PR2, execution_type=execution_type).run()
-    # StretchApartmentDemonstration(used_robot=HSRB, execution_type=execution_type).run()
+    # StretchApartmentDemonstration(used_robot=PR2, executor_type=executor_type).run()
+    # StretchApartmentDemonstration(used_robot=HSRB, executor_type=executor_type).run()
     StretchApartmentDemonstration(
-        used_robot=Stretch, execution_type=execution_type, repetitions=repetitions
+        used_robot=Stretch, executor_type=executor_type, repetitions=repetitions
     ).run()
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.REAL, repetitions=LIVE_DEMONSTRATION_REPETITIONS)
+    main(executor_type=RobotPlanExecutor, repetitions=LIVE_DEMONSTRATION_REPETITIONS)

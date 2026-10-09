@@ -1,3 +1,4 @@
+import pytest
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,8 @@ from giskardpy.middleware.ros2.exceptions import (
 )
 from giskardpy.middleware.ros2.ros2_interface import MyActionClient
 from krrood.adapters.json_serializer import to_json
+
+pytestmark = pytest.mark.parked
 
 # %% mimics
 

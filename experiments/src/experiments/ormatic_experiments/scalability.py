@@ -36,7 +36,7 @@ from krrood.ormatic.helper import (
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.type_dict import TypeDict
 from krrood.utils import recursive_subclasses
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.base import Action
 
 
 def build_cram_class_sets() -> Tuple[Set[Type], List[Type], dict]:
@@ -383,10 +383,7 @@ def plot_scalability(table: ExperimentsTable) -> go.Figure:
 
 def main():
     classes, alternative_mappings, type_mappings = build_cram_class_sets()
-    required_classes = [
-        coraplex.plans.underspecified.UnderspecifiedNode,
-        ActionDescription,
-    ]
+    required_classes = [coraplex.plans.underspecified.UnderspecifiedNode, Action]
     results = []
     for class_drop_probability in tqdm.tqdm(
         [

@@ -3,8 +3,6 @@ from krrood.entity_query_language.factories import (
     evaluate_condition,
 )
 from coraplex.exceptions import ConditionNotSatisfied
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import sequential
 from coraplex.querying.predicates import GripperIsFree, ToolFrameIsAtGrasp
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -14,6 +12,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
+from ...plan_running import run_plan, simulated_executor
 
 LEFT_ARM_REACHES_THE_MILK_FROM = HomogeneousTransformationMatrix.from_xyz_rpy(
     1.9, 1.4, 0
@@ -23,11 +22,11 @@ Where the PR2 stands so that its left arm reaches the milk in the apartment.
 """
 
 
-def _construct_and_evaluate_condition(action, action_condition):
+def _construct_and_evaluate_condition(action, action_condition, context):
 
     condition = action_condition(
         action.bound_variables,
-        action.context,
+        context,
         action.designator_parameter,
     )
     evaluation = evaluate_condition(condition)
@@ -39,11 +38,11 @@ def _construct_and_evaluate_condition(action, action_condition):
 
 
 def test_get_bound_variables(pr2_apartment_context):
-    world, view, context = pr2_apartment_context
+    world, view, extensions = pr2_apartment_context
 
     milk = world.get_semantic_annotations_by_type(Milk)[0]
     grasp = milk.grasp_candidates()[0]
-    pick_action = PickUpAction(grasp, context.robot.left_arm)
+    pick_action = PickUpAction(grasp, view.left_arm)
 
     bound_variables = pick_action._create_variables()
 
@@ -64,8 +63,8 @@ def test_get_bound_variables(pr2_apartment_context):
         "arm",
         "tolerate_grasp_stall",
     ]
-    assert list(bound_variables["arm"]._domain_) == [context.robot.left_arm]
-    assert bound_variables["arm"]._type_ == type(context.robot.left_arm)
+    assert list(bound_variables["arm"]._domain_) == [view.left_arm]
+    assert bound_variables["arm"]._type_ == type(view.left_arm)
     assert list(bound_variables["grasp"]._domain_) == [grasp]
     assert bound_variables["grasp"]._type_ == GraspCandidate
 
@@ -74,28 +73,29 @@ def test_pick_up_pre_condition_leaves_reaching_to_the_attempt(pr2_apartment_cont
     """
     A pick-up is not refused for an unreachable grasp while the gripper is free.
     """
-    world, view, context = pr2_apartment_context
+    world, view, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    pick_action = PickUpAction(milk.grasp_candidates()[0], context.robot.left_arm)
-    sequential([pick_action], context)
+    pick_action = PickUpAction(milk.grasp_candidates()[0], view.left_arm)
 
-    assert _construct_and_evaluate_condition(pick_action, pick_action.pre_condition)
+    assert _construct_and_evaluate_condition(
+        pick_action, pick_action.pre_condition, simulated_executor(extensions).context
+    )
 
 
 def test_pick_up_pre_condition_needs_a_free_gripper(pr2_apartment_context):
-    world, view, context = pr2_apartment_context
+    world, view, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    pick_action = PickUpAction(milk.grasp_candidates()[0], context.robot.left_arm)
+    pick_action = PickUpAction(milk.grasp_candidates()[0], view.left_arm)
     view.root.parent_connection.origin = LEFT_ARM_REACHES_THE_MILK_FROM
-    plan = sequential([pick_action], context)
     pre_condition = pick_action.pre_condition(
-        pick_action.bound_variables, context, pick_action.designator_parameter
+        pick_action.bound_variables,
+        simulated_executor(extensions).context,
+        pick_action.designator_parameter,
     )
     assert pre_condition._name_ == GripperIsFree.__name__
     assert evaluate_condition(pre_condition)
 
-    with simulated_robot:
-        plan.perform()
+    run_plan(pick_action, extensions)
 
     assert not evaluate_condition(pre_condition)
 
@@ -106,10 +106,9 @@ def test_pick_up_post_condition_needs_the_object_itself_in_the_gripper(
     """
     A gripper holding another body has not picked up the object.
     """
-    world, view, context = pr2_apartment_context
+    world, view, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    pick_action = PickUpAction(milk.grasp_candidates()[0], context.robot.left_arm)
-    sequential([pick_action], context)
+    pick_action = PickUpAction(milk.grasp_candidates()[0], view.left_arm)
     with world.modify_world():
         world.add_connection(
             FixedConnection(
@@ -119,24 +118,25 @@ def test_pick_up_post_condition_needs_the_object_itself_in_the_gripper(
         )
 
     post_condition = pick_action.post_condition(
-        pick_action.bound_variables, context, pick_action.designator_parameter
+        pick_action.bound_variables,
+        simulated_executor(extensions).context,
+        pick_action.designator_parameter,
     )
 
     assert not evaluate_condition(post_condition)
 
 
 def test_pick_up_post_condition(pr2_apartment_context):
-    world, view, context = pr2_apartment_context
+    world, view, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    pick_action = PickUpAction(milk.grasp_candidates()[0], context.robot.left_arm)
+    pick_action = PickUpAction(milk.grasp_candidates()[0], view.left_arm)
     view.root.parent_connection.origin = LEFT_ARM_REACHES_THE_MILK_FROM
 
-    plan = sequential([pick_action], context)
+    assert _construct_and_evaluate_condition(
+        pick_action, pick_action.pre_condition, simulated_executor(extensions).context
+    )
 
-    assert _construct_and_evaluate_condition(pick_action, pick_action.pre_condition)
-
-    with simulated_robot:
-        plan.perform()
+    run_plan(pick_action, extensions)
 
     assert world.get_body_by_name(
         "milk.stl"
@@ -144,7 +144,9 @@ def test_pick_up_post_condition(pr2_apartment_context):
         view.left_arm.end_effector.tool_frame
     )
 
-    assert _construct_and_evaluate_condition(pick_action, pick_action.post_condition)
+    assert _construct_and_evaluate_condition(
+        pick_action, pick_action.post_condition, simulated_executor(extensions).context
+    )
 
 
 def _grasp_offset_from_the_tool_frame(
@@ -171,7 +173,7 @@ def test_a_tool_frame_is_at_a_grasp_wherever_on_the_object_it_lies(
     """
     The tool frame is compared with the grasp's position, not the object's origin.
     """
-    world, view, context = pr2_apartment_context
+    world, view, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
     grasp = _grasp_offset_from_the_tool_frame(world, view, milk, offset)
 

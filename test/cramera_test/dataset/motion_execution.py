@@ -1,5 +1,5 @@
 """
-Native plan and history fixtures for browser execution observers.
+Plan and history fixtures for browser execution observers.
 """
 
 from __future__ import annotations
@@ -8,57 +8,68 @@ from dataclasses import dataclass
 
 import pytest
 
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import MotionNode, PlanNode
-from coraplex.robot_plans.motions.base import BaseMotion
-from giskardpy.motion_statechart.data_types import LifeCycleValues
-from giskardpy.motion_statechart.graph_node import Goal
-from giskardpy.motion_statechart.motion_statechart import (
-    MotionStatechart,
-    StateHistoryItem,
-)
+from cramph.composites import Sequence
+from cramph.context import StatechartContext
+from cramph.data_types import LifeCycleValues
+from cramph.node import StatechartNode
+from cramph.nodes_for_testing import ConstTrueNode
+from cramph.statechart import StateHistoryItem, Statechart
+from semantic_digital_twin.world import World
 
 from cramera.live.bridge import Bridge
-from cramera.live.visualization import BridgePlanCallback
+from cramera.live.visualization import StatechartPublishing
 
-# %% native motion execution fixture
+# %% motion execution fixture
 
 
 @dataclass
 class MotionExecution:
     """
-    A plan and its native motion chart sharing one visualization callback.
+    A plan and the statechart running it, observed by one visualization extension.
     """
 
-    plan: Plan
-    """The plan whose root and motion delimit publication."""
-
-    motion: MotionNode
+    plan: Sequence
     """
-    The motion bound to the chart before its start notification.
+    The root of the plan.
     """
 
-    chart: MotionStatechart
-    """The native chart that records lifecycle changes."""
+    motion: StatechartNode
+    """
+    The step the plan runs.
+    """
+
+    chart: Statechart
+    """
+    The statechart that records life cycle changes.
+    """
 
     bridge: Bridge
     """
     The published plan and chart state.
     """
 
-    callback: BridgePlanCallback
-    """The subscriber observing this plan's motion history."""
+    publishing: StatechartPublishing
+    """
+    The extension observing this plan's history.
+    """
+
+    def compile(self) -> None:
+        """
+        Tell the extension the statechart is about to run, as an executor does once it
+        compiled it.
+        """
+        self.publishing.observe(self.chart)
 
     def record(self, state: LifeCycleValues) -> None:
         """
-        Record one lifecycle state using native snapshot copying.
+        Record one life cycle state of every node as a snapshot.
 
         :param state: The state assigned to every chart node.
         """
         self.chart.life_cycle_state.data[:] = state
         self.chart.history.append(
             StateHistoryItem(
-                control_cycle=len(self.chart.history),
+                tick_count=len(self.chart.history),
                 life_cycle_state=self.chart.life_cycle_state,
                 observation_state=self.chart.observation_state,
             )
@@ -68,15 +79,12 @@ class MotionExecution:
 @pytest.fixture()
 def motion_execution() -> MotionExecution:
     """
-    Build a native plan and chart without starting a motion controller.
+    A plan of one step in a statechart, without anything ticking it.
     """
-    plan = Plan()
-    motion = MotionNode(designator=BaseMotion())
-    plan.add_edge(PlanNode(), motion)
-    chart = MotionStatechart()
-    chart.add_node(Goal(name="Transport"))
-    motion.motion_statechart = chart
+    motion = ConstTrueNode(name="Transport")
+    plan = Sequence([motion])
+    chart = Statechart(context=StatechartContext(world=World()))
+    chart.add_node(plan)
     bridge = Bridge()
-    bridge.begin_plan(plan)
-    callback = BridgePlanCallback(bridge=bridge, plan=plan)
-    return MotionExecution(plan, motion, chart, bridge, callback)
+    publishing = StatechartPublishing(bridge=bridge)
+    return MotionExecution(plan, motion, chart, bridge, publishing)

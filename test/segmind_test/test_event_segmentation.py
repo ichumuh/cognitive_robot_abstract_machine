@@ -12,7 +12,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 import pytest
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
 from krrood.exceptions import DataclassException
 from typing_extensions import List
 
@@ -184,7 +185,7 @@ class DetectorCountingItsTicks(AbstractDetector):
 
     def update_context_and_events(
         self,
-        context: MotionStatechartContext,
+        context: StatechartContext,
         segmind_context: SegmindContext,
         tracked_objects: List[Body],
     ) -> List[DetectionEvent]:
@@ -207,7 +208,7 @@ class DetectorTakingItsTime(AbstractDetector):
 
     def update_context_and_events(
         self,
-        context: MotionStatechartContext,
+        context: StatechartContext,
         segmind_context: SegmindContext,
         tracked_objects: List[Body],
     ) -> List[DetectionEvent]:

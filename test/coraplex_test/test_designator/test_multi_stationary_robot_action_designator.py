@@ -3,11 +3,10 @@ import pytest
 from rustworkx import NoEdgeBetweenNodes
 
 from giskardpy.utils.utils_for_tests import compare_axis_angle, compare_orientations
-from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.trajectory import PoseTrajectory
 
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import execute_single, sequential
+from cramph.composites import Parallel, Sequence, TryAll, TryInOrder
+from cramph.threaded_nodes import FunctionCall
 from coraplex.robot_plans.actions.core.pick_up import (
     ReachAction,
     GraspingAction,
@@ -44,6 +43,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 from ...conftest import SAMPLING_SEED
 from ..conftest import left_or_only_arm, right_or_only_arm
 from ..world_snapshot import WorldSnapshot
+from ...plan_running import run_plan, robot_extensions
 
 
 @pytest.fixture(
@@ -132,24 +132,22 @@ def graspable_annotation(world: World, body: Body) -> HasGraspCandidates:
 @pytest.fixture
 def stationary_block_context(robot_setup):
     """
-    The shared block world with one stationary robot, the robot and a context for both,
-    returned to its initial model and state after the test.
+    The shared block world with one stationary robot, the robot and the context
+    extensions of its plans, returned to its initial model and state after the test.
     """
     block_world, robot_class = robot_setup
     snapshot = WorldSnapshot.capture(block_world)
     view = block_world.get_semantic_annotations_by_type(robot_class)[0]
-    yield block_world, view, Context(block_world, view, sampling_seed=SAMPLING_SEED)
+    yield block_world, view, robot_extensions(view)
     snapshot.restore()
 
 
 def test_park_arms_multi(stationary_block_context):
-    world, view, context = stationary_block_context
+    world, view, extensions = stationary_block_context
 
-    description = ParkArmsAction(context.robot.all_arms)
-    plan = execute_single(description, context=context).plan
-    with simulated_robot:
-        plan.perform()
-
+    description = ParkArmsAction(view.all_arms)
+    plan = description
+    run_plan(plan, extensions)
     joints = []
     states = []
     for arm in view.all_arms:
@@ -167,28 +165,25 @@ def test_park_arms_multi(stationary_block_context):
 
 
 def test_reach_action_multi(stationary_block_context):
-    world, view, context = stationary_block_context
-    left_arm = left_or_only_arm(context.robot)
+    world, view, extensions = stationary_block_context
+    left_arm = left_or_only_arm(view)
 
     box_body = world.get_body_by_name("box1")
     box = graspable_annotation(world, box_body)
     position = box_body.global_pose.position.to_np()
     grasp_pose = Pose.from_xyz_rpy(pitch=np.pi / 2, reference_frame=box_body)
 
-    plan = sequential(
+    plan = Sequence(
         [
-            ParkArmsAction(context.robot.all_arms),
+            ParkArmsAction(view.all_arms),
             ReachAction(
                 grasp=GraspCandidate(box, grasp_pose),
-                arm=left_or_only_arm(context.robot),
+                arm=left_or_only_arm(view),
             ),
-        ],
-        context=context,
-    ).plan
+        ]
+    )
 
-    with simulated_robot:
-        plan.perform()
-
+    run_plan(plan, extensions)
     end_effector_pose = left_arm.end_effector.tool_frame.global_transform
     end_effector_position = end_effector_pose.position.to_np()
     end_effector_orientation = end_effector_pose.quaternion.to_np()
@@ -202,18 +197,11 @@ def test_reach_action_multi(stationary_block_context):
 
 
 def test_move_gripper_multi(stationary_block_context):
-    world, view, context = stationary_block_context
+    world, view, extensions = stationary_block_context
 
-    plan = execute_single(
-        SetGripperAction(
-            left_or_only_arm(context.robot).end_effector, GripperState.OPEN
-        ),
-        context=context,
-    ).plan
+    plan = SetGripperAction(left_or_only_arm(view).end_effector, GripperState.OPEN)
 
-    with simulated_robot:
-        plan.perform()
-
+    executor = run_plan(plan, extensions)
     arm = view.all_arms[0]
     open_state = arm.end_effector.get_joint_state_by_type(GripperState.OPEN)
     close_state = arm.end_effector.get_joint_state_by_type(GripperState.CLOSE)
@@ -221,23 +209,16 @@ def test_move_gripper_multi(stationary_block_context):
     for connection, target in open_state.items():
         assert connection.position == pytest.approx(target, abs=0.01)
 
-    plan = execute_single(
-        SetGripperAction(
-            left_or_only_arm(context.robot).end_effector, GripperState.CLOSE
-        ),
-        context=context,
-    ).plan
+    plan = SetGripperAction(left_or_only_arm(view).end_effector, GripperState.CLOSE)
 
-    with simulated_robot:
-        plan.perform()
-
+    run_plan(plan, extensions)
     for connection, target in close_state.items():
         assert connection.position == pytest.approx(target, abs=0.01)
 
 
 def test_grasping(stationary_block_context):
-    world, robot_view, context = stationary_block_context
-    left_arm = left_or_only_arm(context.robot)
+    world, robot_view, extensions = stationary_block_context
+    left_arm = left_or_only_arm(robot_view)
 
     box_body = world.get_body_by_name("box1")
     description = GraspingAction(
@@ -245,15 +226,10 @@ def test_grasping(stationary_block_context):
             graspable_annotation(world, box_body),
             Pose.from_xyz_rpy(pitch=np.pi / 2, reference_frame=box_body),
         ),
-        left_or_only_arm(context.robot),
+        left_or_only_arm(robot_view),
     )
-    plan = sequential(
-        [ParkArmsAction(context.robot.all_arms), description],
-        context=context,
-    ).plan
-    with simulated_robot:
-        plan.perform()
-
+    plan = Sequence([ParkArmsAction(robot_view.all_arms), description])
+    run_plan(plan, extensions)
     # The grasp sits at the box's own origin, so that is where the tool frame ends up.
     assert np.allclose(
         box_body.global_pose.position.to_np(),
@@ -263,24 +239,21 @@ def test_grasping(stationary_block_context):
 
 
 def test_pick_up_multi(stationary_block_context):
-    world, view, context = stationary_block_context
+    world, view, extensions = stationary_block_context
 
-    left_arm = left_or_only_arm(context.robot)
+    left_arm = left_or_only_arm(view)
     box_body = world.get_body_by_name("box1")
-    plan = sequential(
+    plan = Sequence(
         [
-            ParkArmsAction(context.robot.all_arms),
+            ParkArmsAction(view.all_arms),
             PickUpAction(
                 graspable_annotation(world, box_body).grasp_candidates()[0],
-                left_or_only_arm(context.robot),
+                left_or_only_arm(view),
             ),
-        ],
-        context=context,
-    ).plan
+        ]
+    )
 
-    with simulated_robot:
-        plan.perform()
-
+    run_plan(plan, extensions)
     assert (
         world.get_connection(
             left_arm.end_effector.tool_frame,
@@ -288,8 +261,6 @@ def test_pick_up_multi(stationary_block_context):
         )
         is not None
     )
-
-    plan.validate()
 
 
 @pytest.fixture
@@ -304,29 +275,26 @@ def place_position(robot_setup) -> Point3:
 
 
 def test_place_multi(stationary_block_context, place_position):
-    world, view, context = stationary_block_context
+    world, view, extensions = stationary_block_context
 
-    left_arm = left_or_only_arm(context.robot)
+    left_arm = left_or_only_arm(view)
     box_body = world.get_body_by_name("box1")
 
-    plan = sequential(
+    plan = Sequence(
         [
-            ParkArmsAction(context.robot.all_arms),
+            ParkArmsAction(view.all_arms),
             PickUpAction(
                 graspable_annotation(world, box_body).grasp_candidates()[0],
-                left_or_only_arm(context.robot),
+                left_or_only_arm(view),
             ),
             PlaceAction(
                 graspable_annotation(world, box_body),
                 Pose(place_position, reference_frame=world.root),
             ),
-        ],
-        context=context,
-    ).plan
+        ]
+    )
 
-    with simulated_robot:
-        plan.perform()
-
+    run_plan(plan, extensions)
     with pytest.raises(NoEdgeBetweenNodes):
         world.get_connection(
             left_arm.end_effector.tool_frame,
@@ -336,7 +304,6 @@ def test_place_multi(stationary_block_context, place_position):
     milk_position = box_body.global_transform.position.to_np()
 
     assert milk_position[:3] == pytest.approx(place_position.to_list()[:3], abs=0.01)
-    plan.validate()
 
 
 @pytest.fixture
@@ -351,8 +318,8 @@ def anchor_position(robot_setup) -> Point3:
 
 
 def test_move_tcp_follows_sine_waypoints(stationary_block_context, anchor_position):
-    world, view, context = stationary_block_context
-    right_arm = right_or_only_arm(context.robot)
+    world, view, extensions = stationary_block_context
+    right_arm = right_or_only_arm(view)
     anchor = Pose(anchor_position, reference_frame=world.root)
     anchor_T = anchor.homogeneous_matrix
     offset_T = HomogeneousTransformationMatrix.from_xyz_axis_angle(
@@ -364,15 +331,10 @@ def test_move_tcp_follows_sine_waypoints(stationary_block_context, anchor_positi
     target_pose = (anchor_T @ offset_T).pose
     waypoints = PoseTrajectory(_make_sine_scan_poses(target_pose, lane_axis="z"))
 
-    plan = execute_single(
-        FollowToolCenterPointPathAction(
-            target_locations=waypoints, arm=right_or_only_arm(context.robot)
-        ),
-        context=context,
+    plan = FollowToolCenterPointPathAction(
+        target_locations=waypoints, arm=right_or_only_arm(view)
     )
-    with simulated_robot:
-        plan.perform()
-
+    run_plan(plan, extensions)
     tip_pose = right_arm.end_effector.tool_frame.global_transform
     expected = waypoints.poses[-1]
 

@@ -12,19 +12,19 @@ from giskardpy.motion_statechart.binding_policy import (
     GoalBindingPolicy,
     ForwardKinematicsBinding,
 )
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.data_types import (
-    DefaultWeights,
-    ObservationStateValues,
-)
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.exceptions import GoalPointsReferenceFrameMismatchError
-from giskardpy.motion_statechart.goals.templates import Parallel
+from cramph.composites import Parallel
+from cramph.node import CompositeNode, NodeArtifacts
 from giskardpy.motion_statechart.error_signals import (
     joint_position_and_velocity_variables,
     time_derivative_from_joint_motion,
 )
 from giskardpy.motion_statechart.graph_node import (
-    NodeArtifacts,
+    MotionNodeArtifacts,
     MotionStatechartNode,
     DebugExpression,
 )
@@ -79,10 +79,11 @@ class CartesianTask(ConvergingTask, ABC):
     CURRENT_COLOR: ClassVar[Color] = Color(R=1.0, G=0.0, B=0.0, A=1.0)
     """The color of the current debug expression marker (red)."""
 
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def set_up(self, context: StatechartContext) -> None:
         """
-        Bind the goal reference frame before the subclass describes its error against it.
+        Bind the goal reference frame, which the error is described against.
         """
+        super().set_up(context)
         self._forward_kinematics_binding = ForwardKinematicsBinding(
             name=PrefixedName("root_T_goal_ref", str(self.name)),
             root=self.root_link,
@@ -92,9 +93,7 @@ class CartesianTask(ConvergingTask, ABC):
         self._forward_kinematics_binding.bind(context.world)
         self.root_T_goal_reference_frame = self._forward_kinematics_binding.root_T_tip
 
-        return super().build(context)
-
-    def on_start(self, context: MotionStatechartContext):
+    def on_start(self, context: StatechartContext):
         if self.binding_policy == GoalBindingPolicy.Bind_on_start:
             self._forward_kinematics_binding.bind(context.world)
 
@@ -107,7 +106,7 @@ class CartesianTask(ConvergingTask, ABC):
 
     def add_goal_and_current_debug_expressions(
         self,
-        artifacts: NodeArtifacts,
+        artifacts: MotionNodeArtifacts,
         goal: SpatialType,
         current: SpatialType,
     ) -> None:
@@ -156,14 +155,14 @@ class CartesianPosition(CartesianTask):
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_point.reference_frame
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints for reaching the goal position.
 
         :param context: Provides access to world model and kinematic expressions.
         :return: The artifacts of this task, whose error is the distance between the tip and the goal point.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         root_P_goal = self.root_T_goal_reference_frame @ self.goal_point
 
         # Get current tip position in root frame
@@ -252,11 +251,18 @@ class CartesianPositionTrajectory(CartesianTask):
             [point.to_np()[:-1] for point in self.goal_points]
         )
 
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def set_up(self, context: StatechartContext) -> None:
+        """
+        Register the target point on the trajectory and the distance left to travel.
+        """
+        super().set_up(context)
         self._goal_points_to_np()
-        return super().build(context)
+        self._init_goal_reference_frame_P_current_target_point(
+            context.float_variable_data
+        )
+        self._init_remaining_distance(context.float_variable_data)
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints that pull the tip along the trajectory.
 
@@ -265,12 +271,7 @@ class CartesianPositionTrajectory(CartesianTask):
             :meth:`on_tick` can compute because it depends on how far along the
             trajectory the tip already is.
         """
-        artifacts = NodeArtifacts()
-        self._init_goal_reference_frame_P_current_target_point(
-            context.float_variable_data
-        )
-        self._init_remaining_distance(context.float_variable_data)
-
+        artifacts = MotionNodeArtifacts()
         root_P_goal = (
             self.root_T_goal_reference_frame
             @ self.goal_reference_frame_P_current_target_point
@@ -333,10 +334,16 @@ class CartesianPositionTrajectory(CartesianTask):
         )
         return float(distance_to_path + segment_lengths.sum())
 
-    def compile_current_point_on_tick(self, context: MotionStatechartContext):
+    def compile_current_point_on_tick(self, context: StatechartContext):
         """
         Computing the current point relative to the goal reference frame is expensive, this method turns it into
         a compiled expression.
+
+        .. warning:: Every build binds a new compiled function to the float variable data, and
+            :meth:`~krrood.symbolic_math.float_variable_data.FloatVariableData.bind_argument`
+            never releases the one bound by the previous build. A statechart that builds its nodes again
+            after a change of the world structure therefore keeps one stale compiled function per rebuild.
+
         :param context: the current context, needed for the world reference.
         """
         root_T_tip = context.world.compose_forward_kinematics_expression(
@@ -413,9 +420,7 @@ class CartesianPositionTrajectory(CartesianTask):
         # which creates a vector that pulls the robot back to the path AND forward.
         return p_projected + unit_tangent * self.look_ahead_distance
 
-    def on_tick(
-        self, context: MotionStatechartContext
-    ) -> ObservationStateValues | None:
+    def on_tick(self, context: StatechartContext) -> ObservationStateValues | None:
         """
         Update the target point on the trajectory and the distance left to travel.
 
@@ -487,10 +492,11 @@ class CartesianPositionStraight(CartesianTask):
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_point.reference_frame
 
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def set_up(self, context: StatechartContext) -> None:
         """
-        Bind the pose the line starts at before the constraints are described against it.
+        Bind the pose the line starts at, which the constraints are described against.
         """
+        super().set_up(context)
         self._line_start_binding = ForwardKinematicsBinding(
             name=PrefixedName("root_T_line_start", str(self.name)),
             root=self.root_link,
@@ -498,9 +504,8 @@ class CartesianPositionStraight(CartesianTask):
             float_variable_data=context.float_variable_data,
         )
         self._line_start_binding.bind(context.world)
-        return super().build(context)
 
-    def on_start(self, context: MotionStatechartContext) -> None:
+    def on_start(self, context: StatechartContext) -> None:
         """
         Start the line at the pose the tip has now.
 
@@ -511,7 +516,7 @@ class CartesianPositionStraight(CartesianTask):
         super().on_start(context)
         self._line_start_binding.bind(context.world)
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints for reaching the goal along a straight line.
 
@@ -521,7 +526,7 @@ class CartesianPositionStraight(CartesianTask):
         :param context: Provides access to world model and kinematic expressions.
         :return: The artifacts of this task, whose error is the distance between the tip and the goal point.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         root_P_goal = self.root_T_goal_reference_frame @ self.goal_point
         root_P_line_start = self._line_start_binding.root_T_tip.position
         root_P_tip = context.world.compose_forward_kinematics_expression(
@@ -596,14 +601,14 @@ class CartesianOrientation(CartesianTask):
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_orientation.reference_frame
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints for reaching the goal orientation.
 
         :param context: Provides access to world model and kinematic expressions.
         :return: The artifacts of this task, whose error is the angle between the tip orientation and the goal orientation.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         root_R_goal = self.root_T_goal_reference_frame @ self.goal_orientation
 
         # Get current tip orientation in root frame
@@ -629,12 +634,14 @@ class CartesianOrientation(CartesianTask):
 
 
 @dataclass(eq=False, repr=False)
-class CartesianPose(Parallel):
+class CartesianPose(EndedByOwner, CompositeNode):
     """
     This goal will use the kinematic chain between root and tip link to move tip_link into the 6D goal_pose.
 
     Position and orientation are separate tasks, because an error in meters and an error
-    in radians cannot be compared against one threshold.
+    in radians cannot be compared against one threshold. Both run in one
+    :class:`~cramph.composites.Parallel`, and this goal observes what that parallel
+    observes.
     """
 
     root_link: KinematicStructureEntity | None = field(default=None, kw_only=True)
@@ -679,12 +686,38 @@ class CartesianPose(Parallel):
     )
     """Describes when the goal is computed. See GoalBindingPolicy for more information."""
 
-    nodes: list[MotionStatechartNode] = field(default_factory=list, init=False)
+    @property
+    def parallel(self) -> Parallel:
+        """
+        The parallel running the position and the orientation task.
+        """
+        return self.nodes[0]
 
-    def expand(self, context: MotionStatechartContext) -> None:
+    def expand(self, context: StatechartContext) -> None:
+        """
+        Add the parallel running the position and the orientation task.
+        """
         if self.root_link is None:
             self.root_link = context.world.root
-        self.nodes = [
+        self._add_child_to_statechart(
+            Parallel(name=f"{self.name}/parallel", nodes=self._create_tasks())
+        )
+
+    @property
+    def inherent_fail_condition(self) -> sm.Scalar:
+        """
+        Fails as well once the parallel can no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
+        """
+        return sm.logic_or(
+            super().inherent_fail_condition, self.parallel.is_failed_or_interrupted
+        )
+
+    def _create_tasks(self) -> List[MotionStatechartNode]:
+        """
+        :return: The position and the orientation task.
+        """
+        return [
             CartesianPosition(
                 name=f"{self.name}/position",
                 root_link=self.root_link,
@@ -706,7 +739,12 @@ class CartesianPose(Parallel):
                 binding_policy=self.binding_policy,
             ),
         ]
-        super().expand(context)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        """
+        Observe what the parallel observes.
+        """
+        return NodeArtifacts(observation=self.parallel.observation_variable)
 
 
 @dataclass(eq=False, repr=False)
@@ -751,8 +789,8 @@ class CartesianPositionVelocityLimit(Task):
     over lower weighted constraints when conflicts occur.
     """
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
-        artifacts = NodeArtifacts()
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
+        artifacts = MotionNodeArtifacts()
         root_P_tip = context.world.compose_forward_kinematics_expression(
             self.root_link, self.tip_link
         ).position
@@ -808,8 +846,8 @@ class CartesianRotationVelocityLimit(Task):
     limit is enforced. Higher weights give this constraint soft priority
     over lower weighted constraints when conflicts occur."""
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
-        artifacts = NodeArtifacts()
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
+        artifacts = MotionNodeArtifacts()
 
         root_R_tip = context.world.compose_forward_kinematics_expression(
             self.root_link, self.tip_link
@@ -830,7 +868,7 @@ class CartesianRotationVelocityLimit(Task):
 
 
 @dataclass(eq=False, repr=False)
-class CartesianVelocityLimit(Parallel):
+class CartesianVelocityLimit(EndedByOwner, CompositeNode):
     """
     Combines both linear and angular velocity limits for a kinematic chain.
 
@@ -863,25 +901,50 @@ class CartesianVelocityLimit(Parallel):
     """Optimization weight determining how strongly both velocity
     limits are enforced. Higher weights give these constraints soft priority
     over lower weighted constraints when conflicts occur."""
-    nodes: List[MotionStatechartNode] = field(default_factory=list, init=False)
-    """List of motion nodes that run in parallel and enforce the velocity limits.
-    Contains a CartesianPositionVelocityLimit and CartesianRotationVelocityLimit node 
-    by default. Populated in __post_init__()."""
 
-    def __post_init__(self):
-        super().__post_init__()
+    @property
+    def parallel(self) -> Parallel:
+        """
+        The parallel running the linear and the angular velocity limit.
+        """
+        return self.nodes[0]
 
-        translational = CartesianPositionVelocityLimit(
-            root_link=self.root_link,
-            tip_link=self.tip_link,
-            max_linear_velocity=self.max_linear_velocity,
-            weight=self.weight,
+    def expand(self, context: StatechartContext) -> None:
+        """
+        Add the parallel running the linear and the angular velocity limit.
+        """
+        self._add_child_to_statechart(
+            Parallel(
+                name=f"{self.name}/parallel",
+                nodes=[
+                    CartesianPositionVelocityLimit(
+                        root_link=self.root_link,
+                        tip_link=self.tip_link,
+                        max_linear_velocity=self.max_linear_velocity,
+                        weight=self.weight,
+                    ),
+                    CartesianRotationVelocityLimit(
+                        root_link=self.root_link,
+                        tip_link=self.tip_link,
+                        max_angular_velocity=self.max_angular_velocity,
+                        weight=self.weight,
+                    ),
+                ],
+            )
         )
-        rotational = CartesianRotationVelocityLimit(
-            root_link=self.root_link,
-            tip_link=self.tip_link,
-            max_angular_velocity=self.max_angular_velocity,
-            weight=self.weight,
+
+    @property
+    def inherent_fail_condition(self) -> sm.Scalar:
+        """
+        Fails as well once the parallel can no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
+        """
+        return sm.logic_or(
+            super().inherent_fail_condition, self.parallel.is_failed_or_interrupted
         )
-        self.nodes.append(translational)
-        self.nodes.append(rotational)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        """
+        Observe what the parallel observes.
+        """
+        return NodeArtifacts(observation=self.parallel.observation_variable)

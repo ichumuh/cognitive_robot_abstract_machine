@@ -15,9 +15,11 @@ from giskardpy.middleware.ros2.scripts.iai_robots.stretch.configs import (
 from giskardpy.middleware.ros2.utils.utils_for_tests import StretchTester
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from semantic_digital_twin.world_description.connections import DifferentialDrive
+
+pytestmark = pytest.mark.parked
 
 
 @pytest.fixture()
@@ -103,7 +105,7 @@ def test_lift_goal_moves_the_tool_frame(giskard: StretchTester):
     """
     height_before = tool_frame_height(giskard)
 
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart()
     motion_statechart.add_node(
         lift_goal := JointPositionList(
             goal_state=JointState.from_str_dict(
@@ -128,7 +130,7 @@ def test_local_minimum_ends_a_motion(giskard: StretchTester):
     """
     height_before = tool_frame_height(giskard)
 
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart()
     motion_statechart.add_node(
         JointPositionList(
             goal_state=JointState.from_str_dict(

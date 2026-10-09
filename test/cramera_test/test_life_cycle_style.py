@@ -12,8 +12,8 @@ from cramera.knowledge.life_cycle_style import (
     StatusPresentationField,
 )
 from cramera.knowledge.views.chart import ChartViewPayload
-from giskardpy.motion_statechart.data_types import LifeCycleValues
-from giskardpy.motion_statechart.plotters.styles import DRAWING_METRICS
+from cramph.data_types import LifeCycleValues
+from cramph.plotters.styles import DRAWING_METRICS
 from semantic_digital_twin.world_description.geometry import Color
 
 

@@ -1,7 +1,7 @@
 """
 Publish native CRAM world and plan state to the browser viewer.
 
-World callbacks publish geometry and poses. Plan callbacks and native motion histories
+World callbacks publish geometry and poses. Plan callbacks and statechart histories
 publish execution progress.
 """
 
@@ -11,14 +11,12 @@ import atexit
 from dataclasses import dataclass, field
 from functools import partial
 
-from typing_extensions import Any, Callable, Optional, TYPE_CHECKING
+from typing_extensions import Any, Callable, Optional
 
-from coraplex.plans.plan_callbacks import PlanCallback
-from coraplex.plans.plan_node import MotionNode, PlanNode
+from coraplex.plans.designator import DesignatorParameters
 from coraplex.visualization import PlanVisualization, VisualizationSession
-from giskardpy.motion_statechart.motion_statechart import (
-    StateHistoryObserver,
-)
+from cramph.executor import ExecutorExtension, StatechartExecutor
+from cramph.statechart import StateHistory, StateHistoryObserver, Statechart
 from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
@@ -34,10 +32,6 @@ from cramera.live.ros_markers import RosMarkerListener
 from cramera.logging_setup import get_logger
 
 logger = get_logger(__name__)
-
-if TYPE_CHECKING:
-    from coraplex.plans.plan import Plan
-    from giskardpy.motion_statechart.motion_statechart import StateHistory
 
 # %% world synchronization
 
@@ -92,72 +86,77 @@ class WorldModelSync(ModelChangeCallback):
 
 
 @dataclass
-class BridgePlanCallback(PlanCallback, StateHistoryObserver):
+class StatechartPublishing(ExecutorExtension, StateHistoryObserver):
     """
-    Publish plan progress and changes recorded by its native motion histories.
+    Publish the progress of the statecharts an executor runs, and of the plan each of
+    them runs.
     """
 
     bridge: Bridge = field(kw_only=True)
     """
-    The bridge the plan's execution is published to.
+    The bridge the execution is published to.
     """
 
-    _histories: list[StateHistory] = field(default_factory=list, init=False, repr=False)
+    _statechart: Optional[Statechart] = field(default=None, init=False, repr=False)
     """
-    The motion histories subscribed to during this plan's execution.
+    The statechart being published, whose history this observes.
     """
 
-    def on_start(self, node: PlanNode) -> None:
+    def after_compile(self, executor: StatechartExecutor) -> None:
         """
-        Publish execution of the started node.
+        Start publishing the statechart `executor` compiled, unless it already is.
+        """
+        if executor.statechart is self._statechart:
+            return
+        self.observe(executor.statechart)
 
-        :param node: The plan node that started.
+    def after_run(self, executor: StatechartExecutor) -> None:
         """
-        if isinstance(node, MotionNode):
-            self.bridge.observe_motion_started(node)
-            chart = node.motion_statechart
-            if chart is not None:
-                if not any(history is chart.history for history in self._histories):
-                    chart.history.add_observer(self)
-                    self._histories.append(chart.history)
-                self.bridge.observe_chart(chart)
-        self.bridge.snapshot_plan()
+        Publish the statechart as the run left it, see :meth:`finish`.
+        """
+        self.finish()
 
-    def on_end(self, node: PlanNode) -> None:
+    def finish(self) -> None:
         """
-        Publish the completed node's final status.
-
-        :param node: The plan node that completed.
+        Publish the observed statechart as its run left it, and stop observing it.
         """
-        plan_ended = self.plan is not None and node is self.plan.root
-        self.bridge.snapshot_plan()
-        if isinstance(node, MotionNode) and plan_ended:
-            self.bridge.observe_chart(node.motion_statechart)
-        if (
-            not isinstance(node, MotionNode) or plan_ended
-        ) and self.bridge.recording is not None:
+        self.bridge.observe_chart(self._statechart)
+        if self.bridge.recording is not None:
             self.bridge.recording.update_statechart(self.bridge.executing_statechart())
-        if plan_ended:
-            self.stop()
+        self.stop()
+
+    def observe(self, statechart: Statechart) -> None:
+        """
+        Publish the plan's trees and the statechart before its first node runs, and
+        follow its history from then on.
+
+        :param statechart: The statechart about to run.
+        """
+        self.stop()
+        self._statechart = statechart
+        statechart.history.add_observer(self)
+        self.bridge.begin_plan(statechart)
+        self.bridge.observe_chart(statechart)
 
     def on_state_change(self, history: StateHistory) -> None:
         """
-        Publish the chart and plan after a native history snapshot changes.
+        Publish the chart and the plan after a snapshot of the statechart changed,
+        naming the chart after the action that started last.
 
         :param history: The subscribed history containing the changed state.
         """
-        self.bridge.observe_chart(
-            history.history[-1].life_cycle_state.motion_statechart
-        )
+        for node in history.nodes_started_in_latest_item():
+            if isinstance(node, DesignatorParameters):
+                self.bridge.observe_action_started(node)
+        self.bridge.observe_chart(self._statechart)
         self.bridge.snapshot_plan()
 
     def stop(self) -> None:
         """
-        Remove this plan's motion history subscriptions.
+        Remove the subscription to the history of the published statechart.
         """
-        for history in self._histories:
-            history.remove_observer(self)
-        self._histories.clear()
+        if self._statechart is not None:
+            self._statechart.history.remove_observer(self)
 
 
 def _finalize_recording_at_exit(
@@ -241,11 +240,11 @@ class LiveVisualization(PlanVisualization):
     The registered finalizer for this session's capture.
     """
 
-    _plan_callbacks: list[BridgePlanCallback] = field(
+    _publishings: list[StatechartPublishing] = field(
         default_factory=list, init=False, repr=False
     )
     """
-    The callbacks whose history subscriptions belong to this session.
+    The executor extensions whose history subscriptions belong to this session.
     """
 
     def start(self) -> LiveVisualization:
@@ -281,28 +280,24 @@ class LiveVisualization(PlanVisualization):
         VisualizationSession.register(self.stop)
         return self
 
-    def plan_callback(self, plan: Plan) -> BridgePlanCallback:
+    def executor_extension(self) -> StatechartPublishing:
         """
-        The callback that publishes the plan's execution to the viewer.
+        The extension that publishes the statecharts an executor runs to the viewer,
+        each plan's trees as soon as it is compiled.
 
-        Also publishes the plan's tree immediately, so the viewer shows it before the
-        first node runs.
-
-        :param plan: The plan about to be performed.
-        :return: The callback to append to the plan's ``node_callbacks``.
+        :return: The extension to add to the executor.
         """
-        self.bridge.begin_plan(plan)
-        callback = BridgePlanCallback(bridge=self.bridge, plan=plan)
-        self._plan_callbacks.append(callback)
-        return callback
+        publishing = StatechartPublishing(bridge=self.bridge)
+        self._publishings.append(publishing)
+        return publishing
 
     def stop(self) -> None:
         """
         Finalize the recording and release this session's callbacks, server and queries.
         """
-        for callback in self._plan_callbacks:
-            callback.stop()
-        self._plan_callbacks.clear()
+        for publishing in self._publishings:
+            publishing.stop()
+        self._publishings.clear()
         if self._exit_callback is not None:
             atexit.unregister(self._exit_callback)
             self._exit_callback = None

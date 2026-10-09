@@ -1,27 +1,222 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
-from dataclasses import dataclass, field, fields, replace
-from typing import Optional, Tuple, Type, TYPE_CHECKING, Iterator
+from dataclasses import dataclass, field
 
-from coraplex.datastructures.enums import ActionTrialVisualization, ExecutionType
-from coraplex.execution_environment import ExecutionEnvironment
-from coraplex.language import SequentialNode
-from coraplex.plans.executables import (
-    Executable,
-    GiskardExecutable,
-    UnderspecifiedExecutable,
+from typing_extensions import (
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Tuple,
+    Type,
 )
-from coraplex.plans.failures import PlanFailure
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import ActionNode, ExecutionBoundaryNode
+
+from coraplex.datastructures.enums import ActionTrialVisualization
+from coraplex.exceptions import NotAnUnderspecifiedNode
+from coraplex.plans.context_extensions import StatementGrounding
+from coraplex.plans.designator import DesignatorParameters
+from coraplex.plans.plan_transformation import PlanRewriting
 from coraplex.visualization import RvizVisualization
+from cramph.composites import (
+    Attempt,
+    ChildChooser,
+    CompositeNodeChoosingItsChild,
+    Sequence,
+)
+from cramph.context import ContextExtension, StatechartContext
+from cramph.exceptions import ExecutionFailure
+from cramph.node import StatechartNode
+from cramph.statechart import Statechart
+from giskardpy.motion_statechart.monitors.progress_monitors import Stalled
+from krrood.adapters.json_serializer import JSONField
 from krrood.entity_query_language.query.match import Match
+from krrood.ormatic.utils import classproperty
+from krrood.patterns.field_metadata import JSONMetadata
+from krrood.utils import get_full_class_name
 
 if TYPE_CHECKING:
-    from coraplex.datastructures.dataclasses import Context
-    from coraplex.robot_plans.actions.base import ActionDescription
+    from coraplex.plans.executors import PlanExecutor
     from semantic_digital_twin.world import World
+
+logger = logging.getLogger(__name__)
+
+
+# %% the node running an underspecified action
+
+
+@dataclass(eq=False, repr=False)
+class UnderspecifiedNode(CompositeNodeChoosingItsChild):
+    """
+    Runs an action described by an underspecified `a(...)` / `an(...)` statement.
+
+    The statement is grounded only when this node starts, against the world the nodes
+    before it left behind, and the grounded actions are tried until one succeeds. The
+    node fails once the statement yields no further action. If you want to limit the
+    number of attempts, add a limit clause to the statement.
+    """
+
+    statement: Match = field(
+        kw_only=True, metadata=JSONMetadata(serialize=False).as_dict()
+    )
+    """
+    The underspecified statement the actions are grounded from.
+
+    Not serialized: a process ticking the statechart elsewhere receives the chosen
+    actions rather than grounding them itself.
+    """
+
+    _proposals: Optional[Iterator[DesignatorParameters]] = field(
+        default=None, init=False, repr=False
+    )
+    """
+    The grounded actions of the statement, open from the first pull until they are
+    exhausted or released by :meth:`stop_grounding`.
+    """
+
+    _candidates_pulled: int = field(default=0, init=False, repr=False)
+    """
+    How many actions the current run through the statement has grounded.
+    """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (StatementGrounding,)
+
+    @property
+    def grounding(self) -> StatementGrounding:
+        """
+        :return: How the statement is grounded, as the context of the statechart says.
+        """
+        return self.context.require_extension(StatementGrounding)
+
+    @property
+    def candidate_limit(self) -> int:
+        """
+        :return: How many actions are grounded: the statement's own limit, or the
+            context's if it has none.
+        """
+        return self.statement._limit_ or self.grounding.candidates_to_try
+
+    @property
+    def reached_candidate_limit(self) -> bool:
+        """
+        :return: Whether the last run through the statement stopped because it grounded
+            :attr:`candidate_limit` actions.
+        """
+        return self._candidates_pulled == self.candidate_limit
+
+    def ground_next_child(self, trial: ActionTrial) -> Optional[StatechartNode]:
+        """
+        Grounds the statement into the next action that succeeds its trial, against the
+        world as it is now.
+
+        An action that fails its trial is discarded without ever touching the real
+        world, so a bad parameterization cannot poison a later attempt. The statement is
+        left suspended in between, so the next call resumes where this one stopped.
+
+        :param trial: The trial every grounded action is tried in first.
+        :return: The node running that action, given up on once it stops approaching its
+            goal, or None once the statement ran out of actions that succeed their
+            trial.
+        """
+        proposal = self._pull_next_proposal()
+        while proposal is not None:
+            if trial.succeeds(proposal):
+                return self._attempt_of(proposal)
+            proposal = self._pull_next_proposal()
+        self.stop_grounding()
+        return None
+
+    def stop_grounding(self) -> None:
+        """
+        Releases the statement's grounded actions once no further child will be asked
+        for.
+
+        A suspended generator keeps every value its frame holds alive, so closing it
+        frees whatever the statement only holds to ground actions with. The next
+        :meth:`ground_next_child` grounds the statement anew.
+        """
+        if self._proposals is None:
+            return
+        self._proposals.close()
+        self._proposals = None
+
+    def cleanup(self, context: StatechartContext) -> None:
+        self.stop_grounding()
+
+    def _pull_next_proposal(self) -> Optional[DesignatorParameters]:
+        """
+        :return: The next grounded action, or None once the statement is exhausted or
+            :attr:`candidate_limit` actions were grounded.
+        """
+        if self._proposals is None:
+            self._candidates_pulled = 0
+            self._proposals = self.grounding.query_backend.evaluate(self.statement)
+        if self.reached_candidate_limit:
+            self.stop_grounding()
+            return None
+        proposal = next(self._proposals, None)
+        if proposal is None:
+            self._proposals = None
+            return None
+        self._candidates_pulled += 1
+        return proposal
+
+    @staticmethod
+    def _attempt_of(proposal: DesignatorParameters) -> StatechartNode:
+        """
+        :return: `proposal`, in a sequence of its own for the nodes a plan
+            transformation puts beside it, given up on once it stops approaching its
+            goal, so this node can try the next action instead.
+        """
+        steps = Sequence(name=f"{proposal.name}/steps", nodes=[proposal])
+        return Attempt(
+            name=f"{proposal.name}/attempt",
+            task=steps,
+            failure_monitors=[Stalled(monitored_node=steps)],
+        )
+
+    @property
+    def chosen_actions(self) -> List[StatechartNode]:
+        """
+        :return: The grounded action every child chosen so far runs, in the order they
+            were chosen, each found below whatever runs it.
+        """
+        return [
+            next(
+                node
+                for node in [child, *child.descendants]
+                if isinstance(node, self.statement._type_)
+            )
+            for child in self.children
+        ]
+
+    def adopt_chosen_child(self, child: StatechartNode) -> None:
+        """
+        Run `child` next, rewritten by the plan transformations of the statechart, if it
+        carries any.
+        """
+        super().adopt_chosen_child(child)
+        rewriting = self.statechart.context.get_extension(PlanRewriting)
+        if rewriting is not None:
+            rewriting.rewrite(child)
+
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        """
+        :return: The JSON representation of the node choosing its child that this is, so
+            a process ticking the statechart elsewhere needs nothing of coraplex.
+        """
+        return {
+            **super().to_json(**kwargs),
+            JSONField.TYPE: get_full_class_name(CompositeNodeChoosingItsChild),
+        }
+
+    def __repr__(self):
+        return f"{self.statement._type_.__name__}"
 
 
 # %% trying a grounded action out before it is executed for real
@@ -34,42 +229,27 @@ class ActionTrial:
     succeed before it is attempted for real.
 
     One copy serves every candidate: after each attempt its model is rolled back and its
-    state restored, and when `context.world` has changed since, the copy replays those
-    model and state changes instead of being taken anew. Collision rules changed after
-    the copy was taken are not carried over.
+    state restored, and when the executor's world has changed since, the copy replays
+    those model and state changes instead of being taken anew. Collision rules changed
+    after the copy was taken are not carried over.
 
-    Trials never publish to a synchronizer, always run as
-    :attr:`~coraplex.datastructures.enums.ExecutionType.SIMULATED`, and always evaluate
-    pre- and postconditions. While the context is debugging, the copy is shown in RViz
-    under its own frame prefix and marker topic.
-    """
-
-    context: Context
-    """
-    The context the candidates were grounded in.
-
-    Only ever read from: a trial never mutates it or the world it points at, and the
-    candidates themselves are left untouched too, so they can still be attached and
-    executed for real afterwards.
+    Trials never publish to a synchronizer and always run simulated, in an executor of
+    :attr:`trial_executor_type` over the copy, with the context extensions of
+    :attr:`executor` rebound to the copy. While the executor is debugging, the copy is
+    shown in RViz under its own frame prefix and marker topic.
     """
 
-    _copied_context: Optional[Context] = field(default=None, init=False, repr=False)
+    executor: PlanExecutor
     """
-    The context pointing at the copy candidates are tried against, kept until that copy
-    no longer matches the world it was taken from.
+    The executor the candidates are grounded for.
+
+    Only ever read from: a trial never mutates its world, and the candidates themselves
+    are left untouched too, so they can still run for real afterwards.
     """
 
-    _source_versions: Optional[Tuple[int, int]] = field(
-        default=None, init=False, repr=False
-    )
+    trial_executor_type: Type[PlanExecutor]
     """
-    The model and state versions `context.world` had when the copy last matched it, used
-    to notice that it has moved on and the copy has to be caught up.
-    """
-
-    _replayed_modification_blocks: int = field(default=0, init=False, repr=False)
-    """
-    How many of the modification blocks of `context.world` the copy already holds.
+    The executor that runs a candidate in the copy, which simulates the robot.
     """
 
     copy_marker_alpha: float = field(default=0.9, kw_only=True)
@@ -78,117 +258,143 @@ class ActionTrial:
     world it copies where the two overlap.
     """
 
+    _copied_world: Optional[World] = field(default=None, init=False, repr=False)
+    """
+    The copy candidates are tried against.
+    """
+
+    _source_versions: Optional[Tuple[int, int]] = field(
+        default=None, init=False, repr=False
+    )
+    """
+    The model and state versions of the executor's world when the copy last matched it,
+    used to notice that it has moved on and the copy has to be caught up.
+    """
+
+    _replayed_modification_blocks: int = field(default=0, init=False, repr=False)
+    """
+    How many of the modification blocks of the executor's world the copy already holds.
+    """
+
     _visualization: Optional[RvizVisualization] = field(
         default=None, init=False, repr=False
     )
     """
-    The RViz publishing of the current copy, while the context is debugging.
+    The RViz publishing of the current copy, while the executor is debugging.
     """
 
-    def succeeds(self, action: ActionDescription) -> bool:
+    @property
+    def world(self) -> World:
+        """
+        :return: The world the candidates are grounded in.
+        """
+        return self.executor.world
+
+    def succeeds(self, action: DesignatorParameters) -> bool:
         """
         Run `action` against the copy and restore the copy afterwards.
 
-        The action is copied onto the copy first (see :meth:`_on_the_copy`): reading
-        through a reference to the world it was grounded in would be harmless, but an
+        The action is rebuilt from its own parameters, rebound onto the copy, because an
         action that modifies the model (attaching a grasped body, say) requires the
-        entities it is given to belong to the world being modified.
+        entities it is given to belong to the world being modified, and because a
+        statechart node belongs to one statechart only.
 
         The version to roll back to is read here rather than when the copy is taken, so
-        each attempt undoes only its own modifications. Reverting is itself recorded, so
-        rolling every attempt back to where the copy started would mean undoing a longer
-        and longer run of blocks, most of them already-undone ones.
-
-        The action is tried inside a sequence of its own, the way it is executed for
-        real, so that the nodes a plan transformation puts beside it are tried with it
-        rather than failing on a candidate that has no siblings.
+        each attempt undoes only its own modifications.
 
         :param action: The grounded action to try out.
-        :return: True if `action` runs to completion without failing.
+        :return: True if `action` runs to completion without raising an
+            :class:`~cramph.exceptions.ExecutionFailure`.
         """
-        context = self._copy()
-        world = context.world
-        plan = Plan(context=context)
-        candidate_sequence = SequentialNode()
-        candidate = ActionNode(designator=self._on_the_copy(action, world))
-        plan.add_node(candidate_sequence)
-        candidate_sequence.add_child(candidate)
+        world = self._copy()
+        candidate = self._on_the_copy(action, world)
         version = world.get_world_model_manager().version
 
-        with (
-            world.reset_state_context(),
-            ExecutionEnvironment(
-                ExecutionType.SIMULATED,
-                collision_avoidance=GiskardExecutable.collision_avoidance,
-            ),
-        ):
+        with world.reset_state_context():
             try:
-                candidate_sequence.perform()
+                executor = self._trial_executor(world)
+                statechart = Statechart(context=executor.context)
+                # The candidate runs in a sequence of its own, the way it runs for real,
+                # so the nodes a plan transformation puts beside it are tried with it.
+                statechart.add_node(Sequence(nodes=[candidate]))
+                executor.compile(statechart)
+                executor.execute()
                 return True
-            except PlanFailure:
+            except ExecutionFailure as failure:
+                logger.info(f"{action} failed its trial: {failure}")
                 return False
             finally:
-                if plan.action_trial is not None:
-                    plan.action_trial.discard()
                 # Undo the model changes before leaving the reset context restores the
                 # state, which needs the degrees of freedom it was snapshotted with.
                 world.rollback_to_version(version)
 
-    @staticmethod
-    def _on_the_copy(action: ActionDescription, world: World) -> ActionDescription:
+    def _trial_executor(self, world: World) -> PlanExecutor:
+        """
+        :param world: The copy a candidate is tried in.
+        :return: An executor running a candidate in `world`, configured like
+            :attr:`executor`, the robot and everything else its context extensions refer
+            to rebound to `world`.
+        """
+        return self.trial_executor_type(
+            world,
+            context_extensions=[
+                world.rebind_world_entities(extension)
+                for extension in self.executor.context_extensions
+            ],
+            collision_avoidance=self.executor.collision_avoidance,
+        )
+
+    @classmethod
+    def _on_the_copy(
+        cls, action: DesignatorParameters, world: World
+    ) -> DesignatorParameters:
         """
         :param action: The grounded action to try out.
         :param world: The copy to try it against.
         :return: A new action with the parameters of `action`, referring to `world`.
-            Only the parameters are carried over: the plan node of `action` belongs to
-            the plan it was grounded in, not to the trial.
+            The actions among those parameters are built anew the same way, since each
+            of them becomes a node of the statechart the trial runs.
         """
-        return replace(
-            action,
+        return type(action)(
             **{
-                parameter.name: world.rebind_world_entities(
-                    getattr(action, parameter.name)
+                name: (
+                    cls._on_the_copy(value, world)
+                    if isinstance(value, DesignatorParameters)
+                    else world.rebind_world_entities(value)
                 )
-                for parameter in fields(action)
-                if parameter.init
-            },
+                for name, value in action.designator_parameter.items()
+            }
         )
 
-    def _copy(self) -> Context:
+    def _copy(self) -> World:
         """
-        :return: The context pointing at the copy to try candidates against, caught up
-            with `context.world` if that has changed since the copy last matched it.
+        :return: The copy to try candidates against, caught up with the executor's world
+            if that has changed since the copy last matched it.
         """
         versions = (
-            self.context.world.get_world_model_manager().version,
-            self.context.world.state.version,
+            self.world.get_world_model_manager().version,
+            self.world.state.version,
         )
-        if self._copied_context is None:
+        if self._copied_world is None:
             self._take_copy()
         elif self._source_versions != versions:
             self._catch_up()
         self._source_versions = versions
-        return self._copied_context
+        return self._copied_world
 
     def _take_copy(self) -> None:
         """
-        Copy `context.world` and, while the context is debugging, start publishing the
-        copy.
+        Copy the executor's world and, while the executor is debugging, start publishing
+        the copy.
         """
-        world = deepcopy(self.context.world)
+        self._copied_world = deepcopy(self.world)
         self._replayed_modification_blocks = len(
-            self.context.world.get_world_model_manager().model_modification_blocks
+            self.world.get_world_model_manager().model_modification_blocks
         )
-        self._copied_context = replace(
-            self.context,
-            world=world,
-            robot=world.get_semantic_annotation_by_id(self.context.robot.id),
-            evaluate_conditions=True,
-        )
-        if self.context.debug:
+        if self.executor.debug:
             self._visualization = RvizVisualization(
-                world,
-                ros_node=self.context.ros_node,
+                self._copied_world,
+                ros_node=self.executor.ros_node,
                 collision_visualization=True,
                 frame_prefix=ActionTrialVisualization.FRAME_PREFIX,
                 marker_topic=ActionTrialVisualization.MARKER_TOPIC,
@@ -197,20 +403,20 @@ class ActionTrial:
 
     def _catch_up(self) -> None:
         """
-        Bring the copy up to date with `context.world`: replay the modifications made to
-        it since, the way copying it replays all of them, and take over its state.
+        Bring the copy up to date with the executor's world: replay the modifications
+        made to it since, the way copying it replays all of them, and take over its
+        state.
 
         The copy's own modifications are all rolled back by then, so it still matches
         the world as it was when it last caught up.
         """
         modification_blocks = (
-            self.context.world.get_world_model_manager().model_modification_blocks
+            self.world.get_world_model_manager().model_modification_blocks
         )
-        world = self._copied_context.world
-        with world.modify_world():
+        with self._copied_world.modify_world():
             for block in modification_blocks[self._replayed_modification_blocks :]:
-                block.update_references_for_world_and_apply(world=world)
-            world.state.merge_state(self.context.world.state)
+                block.update_references_for_world_and_apply(world=self._copied_world)
+            self._copied_world.state.merge_state(self.world.state)
         self._replayed_modification_blocks = len(modification_blocks)
 
     def discard(self) -> None:
@@ -218,7 +424,7 @@ class ActionTrial:
         Release the copy, so the next trial takes a fresh one.
         """
         self._stop_visualization()
-        self._copied_context = None
+        self._copied_world = None
         self._source_versions = None
 
     def _stop_visualization(self) -> None:
@@ -231,198 +437,49 @@ class ActionTrial:
         self._visualization = None
 
 
-# %% resolving an underspecified action to a candidate that works
+# %% grounding underspecified actions while the statechart runs
 
 
-@dataclass(eq=False, repr=False)
-class UnderspecifiedNode(ExecutionBoundaryNode):
+@dataclass
+class UnderspecifiedChildChooser(ChildChooser):
     """
-    An action or language expression that is described by an underspecified `an(...)`
-    match statement.
-
-    This node is used to generate fully specified actions  or language expressions.
-    The semantics are: try until it succeeds or fails if the underspecified action is exhausted.
-    It tries at most :attr:`candidate_limit` candidates.
+    Grounds the statement of every :class:`UnderspecifiedNode` of a statechart into the
+    action it runs next.
     """
 
-    underspecified_action: Match = field(kw_only=True)
+    executor: PlanExecutor
     """
-    The underspecified statement that can be used to generate actions.
-    """
-
-    _action_iterator: Optional[Iterator[ActionDescription]] = field(
-        default=None, kw_only=True
-    )
-    """
-    The iterator that is used to generate the actions.
-
-    Only available after the first call to notify.
+    The executor whose statechart holds the nodes, which also tries their candidates.
     """
 
-    current_candidate: Optional[ActionNode] = field(
-        default=None, init=False, repr=False
-    )
+    trial_executor_type: Type[PlanExecutor]
     """
-    The action candidate this node currently resolves to, set by `advance` at execution
-    time.
-
-    On failure, `advance` replaces it with the next candidate.
+    The executor the candidates are tried in, see :class:`ActionTrial`.
     """
 
-    current_candidate_sequence: Optional[SequentialNode] = field(
-        default=None, init=False, repr=False
-    )
+    trial: ActionTrial = field(init=False)
     """
-    The sequence that is executed for the current candidate.
-
-    It holds the candidate and everything a plan transformation put beside it, so that
-    those nodes are part of what this node runs rather than being skipped.
+    The trial every node tries its candidates against, so they all try them in one copy
+    of the world.
     """
 
-    _candidates_pulled: int = field(default=0, init=False, repr=False)
-    """
-    How many candidates the current run through the underspecified statement has
-    produced.
-    """
+    def __post_init__(self):
+        self.trial = ActionTrial(
+            executor=self.executor, trial_executor_type=self.trial_executor_type
+        )
 
-    _transformations_applied: bool = field(default=False, init=False, repr=False)
-    """
-    Whether the plan transformations matching this node have rewritten the plan around
-    it already, so that expanding the plan again does not apply them a second time.
-    """
-
-    @property
-    def designator_type(self) -> Type:
-        return self.underspecified_action._type_
-
-    @property
-    def candidate_limit(self) -> int:
+    def choose_child(
+        self, node: CompositeNodeChoosingItsChild, context: StatechartContext
+    ) -> Optional[StatechartNode]:
         """
-        :return: How many candidates this node tries: the underspecified statement's own
-            limit, or the context's if it has none.
+        :raises NotAnUnderspecifiedNode: If `node` carries no statement to ground.
         """
-        return self.underspecified_action._limit_ or self.context.candidates_to_try
+        if not isinstance(node, UnderspecifiedNode):
+            raise NotAnUnderspecifiedNode(node=node)
+        return node.ground_next_child(self.trial)
 
-    @property
-    def reached_candidate_limit(self) -> bool:
+    def cleanup(self) -> None:
         """
-        :return: Whether the last run through the underspecified statement stopped
-            because it produced :attr:`candidate_limit` candidates.
+        Release the trial's world copy.
         """
-        return self._candidates_pulled == self.candidate_limit
-
-    @property
-    def trial(self) -> ActionTrial:
-        """
-        The trial every candidate of this node is tried against.
-
-        It is the trial of this node's plan, shared with every other underspecified node
-        of the plan, so they all try their candidates in one copy of the world rather
-        than each paying for its own.
-        """
-        if self.plan.action_trial is None:
-            self.plan.action_trial = ActionTrial(context=self.context)
-        return self.plan.action_trial
-
-    def _pull_next_action(self) -> Optional[ActionDescription]:
-        """
-        Pull the next grounded action from the iterator, without attaching it anywhere.
-
-        :return: The next grounded action, or None if the iterator is exhausted or has
-            produced :attr:`candidate_limit` candidates already.
-        """
-        if self._action_iterator is None:
-            self._action_iterator = self.context.query_backend.evaluate(
-                self.underspecified_action
-            )
-            self._candidates_pulled = 0
-
-        if self.reached_candidate_limit:
-            self.stop_grounding()
-            return None
-        action = next(self._action_iterator, None)
-        if action is None:
-            self._action_iterator = None
-            return None
-        self._candidates_pulled += 1
-        return action
-
-    def _attach(self, action: ActionDescription) -> ActionNode:
-        """
-        Wrap a grounded action in an `ActionNode` and add it below a fresh attempt
-        sequence of this node.
-
-        :param action: The grounded action to attach.
-        :return: The new candidate node.
-        """
-        candidate_sequence = SequentialNode()
-        candidate = ActionNode(designator=action)
-        self.add_child(candidate_sequence)
-        candidate_sequence.add_child(candidate)
-        self.current_candidate_sequence = candidate_sequence
-        self.current_candidate = candidate
-        return candidate
-
-    def stop_grounding(self) -> None:
-        """
-        Release the action iterator once no further candidate will be requested from it.
-
-        Between candidates the iterator is left suspended (rather than exhausted) so a
-        later retry can resume the search instead of restarting it; a suspended
-        generator keeps every value its frame holds alive, including resources a
-        candidate generator only builds to validate against (for example a location's
-        deep-copied test world). Once a candidate is accepted and no retry will happen,
-        closing the iterator here releases those resources immediately instead of
-        retaining them for this node's whole lifetime. The trial's copy of the world is
-        kept, since the plan's other underspecified nodes try their candidates in it
-        too.
-        """
-        if self._action_iterator is not None:
-            self._action_iterator.close()
-            self._action_iterator = None
-
-    def notify(self):
-        # Resolution is deferred to execution time: the underspecified statement can
-        # only be grounded once the preceding actions have run and mutated the world
-        # (e.g. the torso is raised, the object is in the gripper). The grounding
-        # happens in UnderspecifiedExecutable, so expansion only lets the plan
-        # transformations matching this node rewrite the plan around it.
-        if self._transformations_applied:
-            return
-        self._transformations_applied = True
-        self.plan.apply_plan_transformations(self)
-
-    def advance(self) -> bool:
-        """
-        Resolve the next candidate that survives a trial, and expand it against the
-        current world state.
-
-        Every grounded action is first tried against a disposable copy of the world
-        (:class:`ActionTrial`), which is rolled back between candidates; a candidate that
-        fails there is discarded without ever being attached to the plan or touching the
-        real world, so a bad parameterization cannot poison a later attempt. Only a
-        candidate that survives its trial is attached and returned.
-
-        Driven by :class:`~pycram.plans.executables.UnderspecifiedExecutable` to ground the
-        action at execution time, and reused by failure handling to retry with a freshly
-        generated action.
-
-        :return: True if a new candidate was generated, False if the iterator is
-            exhausted without any candidate surviving its trial.
-        """
-        action = self._pull_next_action()
-        while action is not None:
-            if self.trial.succeeds(action):
-                self._attach(action)
-                self.current_candidate_sequence.notify()
-                return True
-            action = self._pull_next_action()
-        return False
-
-    def parse(self) -> Executable:
-        # Defer resolution to execution: the returned executable grounds the action
-        # when it is reached, against the world state produced by the preceding nodes.
-        return UnderspecifiedExecutable(node=self, context=self.context)
-
-    def __repr__(self):
-        return f"{self.designator_type.__name__}"
+        self.trial.discard()

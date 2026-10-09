@@ -8,13 +8,13 @@ import json
 
 import pytest
 
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import ActionNode, MotionNode, PlanNode
 from coraplex.robot_plans.actions.core.robot_body import (
     ParkArmsAction,
     SetGripperAction,
 )
-from giskardpy.motion_statechart.data_types import LifeCycleValues
+from cramph.context import StatechartContext
+from cramph.data_types import LifeCycleValues
+from cramph.statechart import Statechart
 from krrood.entity_query_language.factories import inference
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from semantic_digital_twin.datastructures.definitions import GripperState
@@ -27,7 +27,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 from cramera.live.bridge import Bridge
 from cramera.recording_fields import SceneField
 
-from .dataset.plan_metadata import AnnotationTargetMotion
+from .test_live_bridge import ActionDescription, make_plan_node, make_statechart
 
 # %% lifecycle publication
 
@@ -39,12 +39,10 @@ def test_plan_snapshot_keeps_the_native_lifecycle(status: LifeCycleValues) -> No
 
     :param status: The native lifecycle state to publish.
     """
-    plan = Plan()
-    node = PlanNode(status=status)
-    plan.add_node(node)
+    node = make_plan_node("PlanNode", life_cycle_state=status)
     bridge = Bridge()
 
-    bridge.begin_plan(plan)
+    bridge.begin_plan(make_statechart(node))
 
     assert bridge.plan_state.nodes[0].status is status
     assert (
@@ -65,13 +63,14 @@ def test_parent_lifecycle_is_independent_of_finished_children(
 
     :param status: The parent's current lifecycle, including a reset.
     """
-    plan = Plan()
-    parent = PlanNode(status=LifeCycleValues.RUNNING)
-    plan.add_edge(parent, PlanNode(status=LifeCycleValues.SUCCEEDED))
+    child = make_plan_node("PlanNode", life_cycle_state=LifeCycleValues.SUCCEEDED)
+    parent = make_plan_node(
+        "PlanNode", life_cycle_state=LifeCycleValues.RUNNING, children=[child]
+    )
     bridge = Bridge()
-    bridge.begin_plan(plan)
+    bridge.begin_plan(make_statechart(parent))
 
-    parent.status = status
+    parent.life_cycle_state = status
     bridge.snapshot_plan()
 
     assert bridge.plan_state.nodes[0].status is status
@@ -95,13 +94,13 @@ def test_designator_description_uses_native_parameter_verbalization(
     [robot] = pr2_world_copy.get_semantic_annotations_by_type(PR2)
     gripper = robot.all_arms[gripper_index].end_effector
     action = SetGripperAction(gripper=gripper, motion=GripperState.CLOSE)
-    plan = Plan()
-    plan.add_node(ActionNode(designator=action))
+    statechart = Statechart(context=StatechartContext(world=pr2_world_copy))
+    statechart.add_node(action)
     bridge = Bridge()
 
-    bridge.begin_plan(plan)
+    bridge.begin_plan(statechart)
 
-    [entry] = bridge.get_plan()["nodes"]
+    entry, *_ = bridge.get_plan()["nodes"]
     assert entry[SceneField.DESCRIPTION] == verbalize_expression(
         inference(type(action))(**action.designator_parameter)
     )
@@ -118,13 +117,13 @@ def test_native_arm_selection_is_verbalized(
     :param pr2_world_copy: The world containing the native robot annotations.
     :param arm_indices: The indices of the native arms selected for parking.
     """
-    plan = Plan()
     [robot] = pr2_world_copy.get_semantic_annotations_by_type(PR2)
     action = ParkArmsAction(arms=[robot.all_arms[index] for index in arm_indices])
-    plan.add_node(ActionNode(designator=action))
+    statechart = Statechart(context=StatechartContext(world=pr2_world_copy))
+    statechart.add_node(action)
     bridge = Bridge()
 
-    bridge.begin_plan(plan)
+    bridge.begin_plan(statechart)
 
     assert bridge.plan_state.nodes[0].description == verbalize_expression(
         inference(type(action))(**action.designator_parameter)
@@ -142,18 +141,14 @@ def test_gripper_state_enum_is_not_mistaken_for_a_target_body(
     motion = GripperState.CLOSE
     body = Body(name=PrefixedName(motion.name))
     [robot] = pr2_world_copy.get_semantic_annotations_by_type(PR2)
-    plan = Plan()
-    plan.add_node(
-        ActionNode(
-            designator=SetGripperAction(
-                gripper=robot.all_arms[0].end_effector, motion=motion
-            )
-        )
+    statechart = Statechart(context=StatechartContext(world=pr2_world_copy))
+    statechart.add_node(
+        SetGripperAction(gripper=robot.all_arms[0].end_effector, motion=motion)
     )
     bridge = Bridge()
     bridge.publish_bodies({str(body.name): body})
 
-    bridge.begin_plan(plan)
+    bridge.begin_plan(statechart)
 
     assert bridge.plan_state.nodes[0].target is None
 
@@ -164,13 +159,13 @@ def test_native_annotation_resolves_its_published_body_name() -> None:
     """
     body = Body(name=PrefixedName("handle", prefix="world"))
     annotation = Handle(root=body, name=body.name)
-    plan = Plan()
-    plan.add_node(
-        MotionNode(designator=AnnotationTargetMotion(target_annotation=annotation))
+    node = make_plan_node(
+        "MotionNode",
+        designator=ActionDescription({"target_annotation": annotation}),
     )
     bridge = Bridge()
     bridge.publish_bodies({body.name.name: body})
 
-    bridge.begin_plan(plan)
+    bridge.begin_plan(make_statechart(node))
 
     assert bridge.plan_state.nodes[0].target == body.name.name

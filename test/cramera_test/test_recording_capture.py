@@ -6,7 +6,6 @@ from cramera.live.recording import Recording
 
 from .test_live_recording import snapshot
 
-
 # %% snapshot ownership
 
 

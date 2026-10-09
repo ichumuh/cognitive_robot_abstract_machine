@@ -8,8 +8,6 @@ from typing_extensions import Optional, Type, Any
 
 from coraplex.datastructures.enums import DetectionTechnique
 from coraplex.plans.failures import PerceptionObjectNotFound
-from coraplex.plans.factories import sequential, execute_single, try_in_order
-from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction, LookAtAction
 from semantic_digital_twin.spatial_types.spatial_types import Pose

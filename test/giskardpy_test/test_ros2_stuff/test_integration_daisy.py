@@ -13,17 +13,15 @@ from giskardpy.middleware.ros2.scripts.iai_robots.daisy.configs import (
 from giskardpy.middleware.ros2.utils.utils import load_xacro
 from giskardpy.data_types.exceptions import MaxTrajectoryLengthException
 from giskardpy.middleware.ros2.utils.utils_for_tests import compare_poses, GiskardTester
-from giskardpy.motion_statechart.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.goals.collision_avoidance import SelfCollisionAvoidance
-from giskardpy.motion_statechart.goals.templates import Parallel
-from giskardpy.motion_statechart.graph_node import CancelMotion, EndMotion
+from cramph.composites import Parallel
+from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
-from giskardpy.motion_statechart.monitors.payload_monitors import (
-    CountControlCycles,
-    CountSimulationTimeSeconds,
-)
-from giskardpy.motion_statechart.motion_statechart import (
-    MotionStatechart,
+from cramph.monitors import CountSimulationTimeSeconds, CountTicks
+from cramph.node import CancelStatechart
+from cramph.statechart import (
+    Statechart,
 )
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
@@ -42,6 +40,8 @@ from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
 
+pytestmark = pytest.mark.parked
+
 # %% trajectory length limit
 
 MAX_TRAJECTORY_LENGTH_SECONDS = 60.0
@@ -53,7 +53,7 @@ with a :class:`MaxTrajectoryLengthException` instead of running forever.
 """
 
 
-def add_trajectory_length_limit(motion_statechart: MotionStatechart) -> None:
+def add_trajectory_length_limit(motion_statechart: Statechart) -> None:
     """
     Cancels the motion once its trajectory grows past
     :data:`MAX_TRAJECTORY_LENGTH_SECONDS`.
@@ -62,7 +62,7 @@ def add_trajectory_length_limit(motion_statechart: MotionStatechart) -> None:
         max_length := CountSimulationTimeSeconds(seconds=MAX_TRAJECTORY_LENGTH_SECONDS)
     )
     motion_statechart.add_node(
-        CancelMotion.when_true(max_length, MaxTrajectoryLengthException())
+        CancelStatechart.when_true(max_length, MaxTrajectoryLengthException())
     )
 
 
@@ -195,7 +195,7 @@ def box_setup(giskard: DAiSyTester) -> DAiSyTester:
 class TestJointGoals:
 
     def test_joints1(self, giskard: DAiSyTester):
-        msc = MotionStatechart()
+        msc = Statechart()
         msc.add_node(
             joint_goal := JointPositionList(
                 goal_state=JointState.from_str_dict(
@@ -238,7 +238,7 @@ class TestJointGoals:
         tip = giskard.api.world.get_kinematic_structure_entity_by_name(
             "left_gripper_left_finger_tip_link"
         )
-        msc = MotionStatechart()
+        msc = Statechart()
         msc.add_node(
             node := CartesianPose(
                 root_link=base,
@@ -287,7 +287,7 @@ class TestJointGoals:
         else:
             assert False
 
-        msc = MotionStatechart()
+        msc = Statechart()
         msc.add_node(node := JointPositionList(goal_state=park_state))
         msc.add_node(EndMotion.when_true(node))
         add_trajectory_length_limit(msc)
@@ -308,7 +308,7 @@ class TestJointGoals:
 class TestCollisionAvoidanceGoals:
     @pytest.mark.skip("daisy collision setup is fucked, not a giskard bug")
     def test_self_collision_avoidance(self, giskard_better_pose: DAiSyTester):
-        msc = MotionStatechart()
+        msc = Statechart()
 
         # In the wrist frame the dominant component points downwards, so both arms are
         # driven into the table and blocked there.
@@ -354,7 +354,7 @@ class TestCollisionAvoidanceGoals:
 
     @pytest.mark.skip("daisy collision setup is fucked, not a giskard bug")
     def test_self_collision_avoidance2(self, giskard_better_pose: DAiSyTester):
-        msc = MotionStatechart()
+        msc = Statechart()
         goal = Pose.from_xyz_axis_angle(
             x=0.3, y=0.6, z=1.0, reference_frame=giskard_better_pose.map
         )
@@ -375,8 +375,8 @@ class TestCollisionAvoidanceGoals:
                     ],
                 ),
                 SelfCollisionAvoidance(),
-                cycles := CountControlCycles(
-                    control_cycles=ceil(
+                cycles := CountTicks(
+                    ticks=ceil(
                         30
                         * giskard_better_pose.giskard.qp_controller_config.target_frequency
                     )

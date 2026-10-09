@@ -1,0 +1,852 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum, auto
+
+from typing_extensions import List
+
+import krrood.symbolic_math.symbolic_math as sm
+from cramph.node import EndedByOwner, SucceedsOnObservingTrue, FailsOnObservingFalse
+from cramph.context import StatechartContext
+from cramph.data_types import LifeCycleValues, ObservationStateValues
+from cramph.exceptions import StatechartError
+from cramph.composites import Sequence
+from cramph.node import (
+    StatechartNode,
+    CompositeNode,
+    NodeArtifacts,
+    CancelStatechart,
+    expanded_child_field,
+)
+from cramph.monitors import CountTicks, Pulse
+from krrood.symbolic_math.symbolic_math import FloatVariable
+
+
+@dataclass
+class NodeAssertionError(StatechartError):
+    """
+    Raised by test statechart nodes when a behaviour they assert on is violated.
+    """
+
+    reason: str
+    """
+    Description of the violated assertion.
+    """
+
+    def error_message(self) -> str:
+        return self.reason
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass(eq=False, repr=False)
+class ConstTrueNode(EndedByOwner, StatechartNode):
+    """
+    A node that has always reached its goal, so ending it always succeeds it.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(eq=False, repr=False)
+class ConstFalseNode(EndedByOwner, StatechartNode):
+    """
+    A node that never reaches its goal, so nothing but being released ever ends it.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_false())
+
+
+@dataclass(eq=False, repr=False)
+class NodeWithOwnStructureCopy(EndedByOwner, StatechartNode):
+    """
+    A kind of node declared outside of the statechart's own node classes, whose structure
+    copy is an instance of this kind.
+    """
+
+    def create_structure_copy(self) -> NodeWithOwnStructureCopy:
+        return NodeWithOwnStructureCopy(name=self.name)
+
+
+@dataclass(eq=False, repr=False)
+class SpecializedNodeWithOwnStructureCopy(NodeWithOwnStructureCopy):
+    """
+    A specialization of :class:`NodeWithOwnStructureCopy` whose structure copy falls back to that kind.
+    """
+
+    detail: int = field(default=0, kw_only=True)
+    """
+    A value only the specialization has, and its structure copy does not.
+    """
+
+
+@dataclass(repr=False, eq=False)
+class ChangeStateOnEvents(EndedByOwner, StatechartNode):
+
+    state: str | None = None
+
+    def on_start(self, context: StatechartContext):
+        self.state = "on_start"
+
+    def on_pause(self, context: StatechartContext):
+        self.state = "on_pause"
+
+    def on_unpause(self, context: StatechartContext):
+        self.state = "on_unpause"
+
+    def on_end(self, context: StatechartContext):
+        self.state = "on_end"
+
+    def on_reset(self, context: StatechartContext):
+        self.state = "on_reset"
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithChainedChildren(EndedByOwner, CompositeNode):
+    """
+    A composite node whose second child starts once its first child observes True, and
+    which observes what its second child observes.
+    """
+
+    sub_node1: ConstTrueNode = expanded_child_field()
+    sub_node2: ConstTrueNode = expanded_child_field()
+
+    def expand(self, context: StatechartContext) -> None:
+        self.sub_node1 = ConstTrueNode(name="sub muh1")
+        self._add_child_to_statechart(self.sub_node1)
+        self.sub_node2 = ConstTrueNode(name="sub muh2")
+        self._add_child_to_statechart(self.sub_node2)
+        self.sub_node1.success_condition = self.sub_node1.observes_true
+        self.sub_node2.start_condition = self.sub_node1.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=self.sub_node2.observation_variable)
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithNestedCompositeChild(EndedByOwner, CompositeNode):
+    """
+    A composite node with a single composite child, observing what that child observes.
+    """
+
+    inner: CompositeNodeWithChainedChildren = expanded_child_field()
+
+    def expand(self, context: StatechartContext) -> None:
+        self.inner = CompositeNodeWithChainedChildren(name="inner")
+        self._add_child_to_statechart(self.inner)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.inner.observation_variable))
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeCancellingIfChildRunsAfterItsEnd(
+    SucceedsOnObservingTrue, CompositeNode
+):
+    """
+    A composite node that cancels the statechart if one of its children runs after it
+    has ended.
+
+    Uses a CancelStatechart node to raise an exception if the child node runs after the
+    parent has stopped.
+    """
+
+    ticking1: CountTicks = expanded_child_field()
+    ticking2: CountTicks = expanded_child_field()
+    cancel: CancelStatechart = expanded_child_field()
+
+    def expand(self, context: StatechartContext) -> None:
+        self.ticking1 = CountTicks(name="3ticks", ticks=3)
+        self.ticking2 = CountTicks(name="2ticks", ticks=2)
+        self.cancel = CancelStatechart(
+            name="Cancel_on_tick_after_done",
+            exception=NodeAssertionError(reason="Node ticked after template stopped"),
+        )
+
+        self._add_children_to_statechart(
+            nodes=[
+                self.ticking1,
+                self.ticking2,
+                self.cancel,
+            ]
+        )
+        self.cancel.start_condition = self.ticking1.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.ticking2.observation_variable))
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithChildSucceedingBeforeItStarts(EndedByOwner, CompositeNode):
+    """
+    A composite node whose child has its success condition met before it starts.
+
+    node1 waits 1 tick, then starts node 3. node2 fulfills the success condition of node
+    3 immediately. node3 should start when node1 is True and transition to RUNNING with
+    Observationstate UNKNOWN. On the next tick, node3 should be ended because its end
+    condition is already fulfilled by node2.
+    """
+
+    node1: CountTicks = expanded_child_field()
+    node2: ConstTrueNode = expanded_child_field()
+    node3: ConstTrueNode = expanded_child_field()
+
+    def expand(self, context: StatechartContext) -> None:
+        self.node1 = CountTicks(ticks=1)
+        self.node2 = ConstTrueNode()
+        self.node3 = ConstTrueNode()
+
+        self._add_children_to_statechart(nodes=[self.node1, self.node2, self.node3])
+
+        self.node3.start_condition = self.node1.observes_true
+        self.node3.success_condition = self.node2.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.node3.observation_variable))
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeCancellingIfPausedChildResumesAfterItsEnd(
+    SucceedsOnObservingTrue, CompositeNode
+):
+    """
+    A composite node that cancels the statechart if a paused child resumes after it has
+    ended.
+
+    Uses a CancelStatechart node to raise an exception if the child node runs after the
+    parent has stopped.
+    """
+
+    ticking1: CountTicks = expanded_child_field()
+    ticking2: CountTicks = expanded_child_field()
+    ticking3: CountTicks = expanded_child_field()
+    pulse: Pulse = expanded_child_field()
+    cancel: CancelStatechart = expanded_child_field()
+
+    def expand(self, context: StatechartContext) -> None:
+        self.ticking1 = CountTicks(name="3ticks", ticks=3)
+        self.ticking2 = CountTicks(name="trigger_cancel_after_unpause", ticks=4)
+        self.ticking3 = CountTicks(name="2ticks", ticks=2)
+        self.pulse = Pulse()
+        self.cancel = CancelStatechart(
+            name="Cancel_on_tick_after_done",
+            exception=NodeAssertionError(reason="Node ticked after template stopped"),
+        )
+
+        self._add_children_to_statechart(
+            nodes=[self.ticking1, self.ticking2, self.ticking3, self.cancel, self.pulse]
+        )
+        self.pulse.start_condition = self.ticking3.observes_true
+        self.ticking2.pause_condition = self.pulse.observes_true
+        self.cancel.start_condition = self.ticking2.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.ticking1.observation_variable))
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeResumingItsPausedChildren(SucceedsOnObservingTrue, CompositeNode):
+    """
+    A composite node whose children, paused along with it, resume once it resumes while
+    their own pause conditions do not hold.
+    """
+
+    count_ticks1: CountTicks = expanded_child_field()
+    count_ticks2: CountTicks = expanded_child_field()
+    cancel: CancelStatechart = expanded_child_field()
+
+    def expand(self, context: StatechartContext) -> None:
+        self.count_ticks1 = CountTicks(ticks=2)
+        self.count_ticks2 = CountTicks(ticks=5)
+        self.cancel = CancelStatechart(
+            name="check_unpause_failed",
+            exception=NodeAssertionError(reason="Node did not unpause correctly"),
+        )
+
+        self._add_child_to_statechart(self.count_ticks1)
+        self._add_child_to_statechart(Sequence(nodes=[self.count_ticks2, self.cancel]))
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        """
+        :attr:`count_ticks1` is read through its observation, which is what it has
+        counted while it runs.
+        """
+        return NodeArtifacts(
+            observation=sm.Scalar(self.count_ticks1.observation_variable)
+        )
+
+
+# %% nodes that differ in what they can be judged by
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingNothingYet(EndedByOwner, StatechartNode):
+    """
+    A node that runs without ever deciding what it observes, so ending it can only
+    interrupt it.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_trinary_unknown())
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingAPredicate(EndedByOwner, StatechartNode):
+    """
+    A node whose observation reads a life cycle predicate, which only a transition
+    condition may do.
+    """
+
+    watched_node: StatechartNode = field(default=None, kw_only=True)
+    """
+    The node whose outcome this node tries to observe.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.watched_node.is_succeeded))
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingLastObservation(EndedByOwner, StatechartNode):
+    """
+    A node whose observation reads the observation another node took most recently.
+    """
+
+    watched_node: StatechartNode = field(default=None, kw_only=True)
+    """
+    The node whose most recent observation this node observes.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.watched_node.last_observation))
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingAnObservationPredicate(EndedByOwner, StatechartNode):
+    """
+    A node that observes whether another node observed True on the previous
+    tick.
+    """
+
+    watched_node: StatechartNode = field(default=None, kw_only=True)
+    """
+    The node whose observation this node asks about.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(self.watched_node.observes_true))
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingTheOppositeOfAnObservationPredicate(EndedByOwner, StatechartNode):
+    """
+    A node that observes True while another node does not observe True.
+    """
+
+    watched_node: StatechartNode = field(default=None, kw_only=True)
+    """
+    The node whose observation this node contradicts.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(
+            observation=sm.logic_not(sm.Scalar(self.watched_node.observes_true))
+        )
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingAFixedValue(EndedByOwner, StatechartNode):
+    """
+    A node that observes the same value on every tick and leaves ending it to its
+    owner.
+    """
+
+    observation: ObservationStateValues = field(kw_only=True)
+    """
+    What this node observes on every tick.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar(float(self.observation)))
+
+
+@dataclass(eq=False, repr=False)
+class NodeFailingOnObservingFalse(FailsOnObservingFalse, NodeObservingAFixedValue):
+    """
+    A node that fails itself once it observes False and leaves succeeding to its owner.
+    """
+
+
+@dataclass(eq=False, repr=False)
+class NodeSucceedingOnObservingTrue(SucceedsOnObservingTrue, NodeObservingAFixedValue):
+    """
+    A node that succeeds once it observes True and declares no failure of its own.
+    """
+
+
+@dataclass(eq=False, repr=False)
+class NodeDeclaringNoWayToSucceed(StatechartNode):
+    """
+    A node class that leaves open how it succeeds.
+    """
+
+
+@dataclass(repr=False, eq=False)
+class NodeDeclaringItsOwnFailure(EndedByOwner, CompositeNode):
+    """
+    A node short of its goal that declares it cannot continue, which is what a node may
+    decide about itself where succeeding is left to its owner.
+
+    Being a composite node is what gives it an :meth:`expand` hook to declare
+    the failure in; it runs no children of its own.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.fail_condition = sm.Scalar.const_true()
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_false())
+
+
+# %% goals that end their child
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeCuttingOffItsChildAtItsGoal(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child has reached its goal but is never ended on its
+    own terms, so the child is only ever taken down by this node ending.
+    """
+
+    child: ConstTrueNode = expanded_child_field()
+    """
+    The child that sits at its goal until it is cut off.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.child = ConstTrueNode()
+        self._add_child_to_statechart(self.child)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeCuttingOffItsChild(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child is short of its goal and is never ended on its
+    own terms, so the child is only ever taken down by this node ending.
+    """
+
+    child: ConstFalseNode = expanded_child_field()
+    """
+    The child that keeps running until it is cut off.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.child = ConstFalseNode()
+        self._add_child_to_statechart(self.child)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithChildInterruptedBySibling(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child is interrupted by a sibling on the first tick,
+    so that a caller ending this node on that same tick makes the two ways of being
+    interrupted compete.
+    """
+
+    trigger: ConstTrueNode = expanded_child_field()
+    """
+    Turns true on the first tick, which is what interrupts the child.
+    """
+
+    child: ConstFalseNode = expanded_child_field()
+    """
+    The child that is interrupted while its observation is false.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.trigger = ConstTrueNode()
+        self.child = ConstFalseNode()
+        self._add_children_to_statechart(nodes=[self.trigger, self.child])
+        self.child.interrupt_condition = self.trigger.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithChildFailingOnItsOwn(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child declares its own failure on the first tick, so
+    that a caller ending this node on that same tick makes the child's own outcome
+    compete with being cut off.
+    """
+
+    trigger: ConstTrueNode = expanded_child_field()
+    """
+    Turns true on the first tick, which is what makes the child declare its failure.
+    """
+
+    child: ConstFalseNode = expanded_child_field()
+    """
+    The child that gives up while its observation is false.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.trigger = ConstTrueNode()
+        self.child = ConstFalseNode()
+        self._add_children_to_statechart(nodes=[self.trigger, self.child])
+        self.child.fail_condition = self.trigger.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithChildSucceedingOnItsOwn(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child declares its own success on the first tick, so
+    that a caller ending this node on that same tick makes the child's own outcome
+    compete with being cut off.
+    """
+
+    trigger: ConstTrueNode = expanded_child_field()
+    """
+    Turns true on the first tick, which is what makes the child declare its success.
+    """
+
+    child: ConstFalseNode = expanded_child_field()
+    """
+    The child that declares its success while its observation is false.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.trigger = ConstTrueNode()
+        self.child = ConstFalseNode()
+        self._add_children_to_statechart(nodes=[self.trigger, self.child])
+        self.child.success_condition = self.trigger.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithChildStartingLate(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child waits for a delay before it starts, so the
+    child's start is decided while this node is already running and its ending
+    conditions have a settled value.
+    """
+
+    delay_in_ticks: int = field(default=2, kw_only=True)
+    """
+    How many ticks pass before the child's start condition turns true.
+    """
+
+    child: ConstFalseNode = expanded_child_field()
+    """
+    The child whose start is being observed.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        delay = CountTicks(ticks=self.delay_in_ticks)
+        self.child = ConstFalseNode()
+        self._add_children_to_statechart(nodes=[delay, self.child])
+        self.child.start_condition = delay.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_false())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeCuttingOffItsUndecidedChild(EndedByOwner, CompositeNode):
+    """
+    Composite node whose child never decides what it observes, so this node
+    ending is the only thing that ever ends it.
+    """
+
+    child: NodeObservingNothingYet = expanded_child_field()
+    """
+    The child that observes nothing until it is ended.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.child = NodeObservingNothingYet()
+        self._add_child_to_statechart(self.child)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeCuttingOffItsGrandchild(EndedByOwner, CompositeNode):
+    """
+    Composite node holding another composite node, so that ending
+    it reaches a node more than one level below it.
+    """
+
+    inner_node: CompositeNodeCuttingOffItsChild = expanded_child_field()
+    """
+    The node between this one and the grandchild.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.inner_node = CompositeNodeCuttingOffItsChild()
+        self._add_child_to_statechart(self.inner_node)
+
+    @property
+    def grandchild(self) -> ConstFalseNode:
+        """
+        :return: The node two levels below this node, which is short of its goal until
+            this node ends.
+        """
+        return self.inner_node.child
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_true())
+
+
+# %% nodes that record what the statechart does to them
+
+
+class LifeCycleCallback(Enum):
+    """
+    A callback the statechart runs on a node when its life cycle state changes.
+    """
+
+    START = auto()
+    """
+    :meth:`~cramph.node.StatechartNode.on_start`.
+    """
+
+    PAUSE = auto()
+    """
+    :meth:`~cramph.node.StatechartNode.on_pause`.
+    """
+
+    UNPAUSE = auto()
+    """
+    :meth:`~cramph.node.StatechartNode.on_unpause`.
+    """
+
+    END = auto()
+    """
+    :meth:`~cramph.node.StatechartNode.on_end`.
+    """
+
+    RESET = auto()
+    """
+    :meth:`~cramph.node.StatechartNode.on_reset`.
+    """
+
+
+@dataclass(eq=False, repr=False)
+class NodeRecordingItsCallbacks(EndedByOwner, StatechartNode):
+    """
+    A node that never reaches its goal and records every life cycle callback run on it.
+    """
+
+    callbacks: List[LifeCycleCallback] = field(default_factory=list, init=False)
+    """
+    The callbacks run on this node since :meth:`take_callbacks` was last called, in the
+    order they ran.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_false())
+
+    def take_callbacks(self) -> List[LifeCycleCallback]:
+        """
+        :return: The callbacks recorded so far, which are forgotten afterwards.
+        """
+        callbacks = self.callbacks
+        self.callbacks = []
+        return callbacks
+
+    def on_start(self, context: StatechartContext):
+        self.callbacks.append(LifeCycleCallback.START)
+
+    def on_pause(self, context: StatechartContext):
+        self.callbacks.append(LifeCycleCallback.PAUSE)
+
+    def on_unpause(self, context: StatechartContext):
+        self.callbacks.append(LifeCycleCallback.UNPAUSE)
+
+    def on_end(self, context: StatechartContext):
+        self.callbacks.append(LifeCycleCallback.END)
+
+    def on_reset(self, context: StatechartContext):
+        self.callbacks.append(LifeCycleCallback.RESET)
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingTrueOnlyOnTick(EndedByOwner, StatechartNode):
+    """
+    A node whose observation expression is False but whose
+    :meth:`~cramph.node.StatechartNode.on_tick` overrides
+    it with True, counting how often it is ticked.
+    """
+
+    on_tick_calls: int = field(default=0, init=False)
+    """
+    How often :meth:`on_tick` was called.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_false())
+
+    def on_tick(self, context: StatechartContext) -> ObservationStateValues:
+        self.on_tick_calls += 1
+        return ObservationStateValues.TRUE
+
+
+@dataclass(eq=False, repr=False)
+class NodeWritingAVariableOnStart(EndedByOwner, StatechartNode):
+    """
+    A node that sets a float variable to True when it starts, so what its start callback
+    wrote can be observed by another node.
+    """
+
+    variable: FloatVariable = field(init=False)
+    """
+    The variable written when this node starts, False until then.
+    """
+
+    def set_up(self, context: StatechartContext) -> None:
+        self.variable = FloatVariable(f"{self.name}/written_on_start")
+        context.float_variable_data.register_expression(self.variable)
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=sm.Scalar.const_trinary_unknown())
+
+    def on_start(self, context: StatechartContext):
+        context.float_variable_data.set_value(
+            self.variable, float(ObservationStateValues.TRUE)
+        )
+
+
+@dataclass(eq=False, repr=False)
+class NodeObservingAWrittenVariable(EndedByOwner, StatechartNode):
+    """
+    A node that observes True once another node's start callback wrote its variable.
+    """
+
+    writer: NodeWritingAVariableOnStart = field(kw_only=True)
+    """
+    The node whose written variable this node observes.
+    """
+
+    @property
+    def prerequisite_nodes(self) -> List[StatechartNode]:
+        """
+        :return: :attr:`writer`, which creates the variable this node reads.
+        """
+        return [self.writer]
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(
+            observation=sm.if_eq(
+                self.writer.variable,
+                float(ObservationStateValues.TRUE),
+                sm.Scalar.const_true(),
+                sm.Scalar.const_false(),
+            )
+        )
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeObservingItsSecondChildRun(EndedByOwner, CompositeNode):
+    """
+    Composite node that observes True once its second child is running, which
+    starts once its first child succeeded, so the second child is started and then cut off
+    by this node ending.
+    """
+
+    first: ConstTrueNode = expanded_child_field()
+    """
+    The child that succeeds as soon as it observes its goal.
+    """
+
+    second: NodeRecordingItsCallbacks = expanded_child_field()
+    """
+    The child that starts once :attr:`first` succeeded and is cut off by this node.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.first = ConstTrueNode()
+        self.second = NodeRecordingItsCallbacks()
+        self._add_children_to_statechart(nodes=[self.first, self.second])
+        self.first.success_condition = self.first.observes_true
+        self.second.start_condition = self.first.is_succeeded
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(
+            observation=sm.if_eq(
+                self.second.life_cycle_variable,
+                int(LifeCycleValues.RUNNING),
+                sm.Scalar.const_true(),
+                sm.Scalar.const_false(),
+            )
+        )
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeWithARecordingChild(EndedByOwner, CompositeNode):
+    """
+    Composite node holding one child that records its callbacks and would start
+    whenever it may.
+    """
+
+    child: NodeRecordingItsCallbacks = expanded_child_field()
+    """
+    The child whose callbacks are recorded.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.child = NodeRecordingItsCallbacks()
+        self._add_child_to_statechart(self.child)
+
+
+@dataclass(repr=False, eq=False)
+class CompositeNodeObservingItsCancellingChildRun(EndedByOwner, CompositeNode):
+    """
+    Composite node that observes True once its :class:`CancelStatechart` child is
+    running, which starts once its other child observes True, so the cancelling node is
+    started and then cut off by this node ending.
+    """
+
+    trigger: ConstTrueNode = expanded_child_field()
+    """
+    The child whose observation starts :attr:`cancel`.
+    """
+
+    cancel: CancelStatechart = expanded_child_field()
+    """
+    The child that is cut off right after starting.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
+        self.trigger = ConstTrueNode()
+        self.cancel = CancelStatechart(
+            exception=NodeAssertionError(reason="cancelled right after starting")
+        )
+        self._add_children_to_statechart(nodes=[self.trigger, self.cancel])
+        self.cancel.start_condition = self.trigger.observes_true
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(
+            observation=sm.if_eq(
+                self.cancel.life_cycle_variable,
+                int(LifeCycleValues.RUNNING),
+                sm.Scalar.const_true(),
+                sm.Scalar.const_false(),
+            )
+        )

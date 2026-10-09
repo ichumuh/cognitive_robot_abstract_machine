@@ -2,24 +2,33 @@ import builtins
 import importlib
 import sys
 
+import pytest
+
 import krrood.symbolic_math.symbolic_math as sm
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.debug_expression_publisher import (
     DebugExpressionPublisher,
 )
 from giskardpy.motion_statechart.graph_node import DebugExpression
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
-from giskardpy.ros_executor import Ros2Executor
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world import World
+from giskardpy.motion_statechart.debug_expression_publisher import (
+    DebugExpressionPublishing,
+)
+from giskardpy.motion_control import MotionControl
+from giskardpy.motion_statechart.ros_context import RosNodeAccess
+from cramph.context import StatechartContext
+from cramph.exceptions import MissingExecutorExtensionError
+from cramph.executor import StatechartExecutor
+from ..motion_control_context import create_context_with_motion_control
 
 
-def align_planes_statechart(world: World) -> MotionStatechart:
+def align_planes_statechart(world: World) -> Statechart:
     root = world.root
     tip = world.get_body_by_name("bot")
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart()
     motion_statechart.add_node(
         AlignPlanes(
             root_link=root,
@@ -42,19 +51,22 @@ def build_align_planes_task(world: World) -> AlignPlanes:
         tip_normal=Vector3.Z(reference_frame=tip),
         name="align",
     )
-    artifacts = task.build(MotionStatechartContext(world=world))
-    task._debug_expressions = artifacts.debug_expressions
+    artifacts = task.build(create_context_with_motion_control(world))
+    task._artifacts = artifacts
     return task
 
 
-def test_ros_executor_importable_without_rclpy(monkeypatch):
-    """giskardpy.ros_executor must stay importable when rclpy is not installed."""
+def test_ros_node_access_importable_without_rclpy(monkeypatch):
+    """
+    giskardpy.motion_statechart.ros_context must stay importable when rclpy is not
+    installed.
+    """
     modules_to_evict = [
         name
         for name in sys.modules
         if name == "rclpy"
         or name.startswith("rclpy.")
-        or name == "giskardpy.ros_executor"
+        or name == "giskardpy.motion_statechart.ros_context"
         or name == "giskardpy.motion_statechart.debug_expression_publisher"
     ]
     for name in modules_to_evict:
@@ -69,7 +81,7 @@ def test_ros_executor_importable_without_rclpy(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", blocking_import)
 
-    importlib.import_module("giskardpy.ros_executor")
+    importlib.import_module("giskardpy.motion_statechart.ros_context")
 
 
 def test_align_planes_sets_visualisation_frame(cylinder_bot_world):
@@ -93,7 +105,7 @@ def test_attach_visualizes_spatial_debug_expressions_only(
     task.debug_expressions.append(
         DebugExpression(name="scalar_only", expression=sm.Scalar(1.0))
     )
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart()
     motion_statechart.add_node(task)
 
     publisher = DebugExpressionPublisher(world=cylinder_bot_world, node=rclpy_node)
@@ -118,7 +130,7 @@ def test_vector_with_reference_frame_is_transformed_to_visualisation_frame(
 
 def test_stop_clears_previously_published_markers(rclpy_node, cylinder_bot_world):
     task = build_align_planes_task(cylinder_bot_world)
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart()
     motion_statechart.add_node(task)
 
     publisher = DebugExpressionPublisher(world=cylinder_bot_world, node=rclpy_node)
@@ -132,7 +144,7 @@ def test_stop_clears_previously_published_markers(rclpy_node, cylinder_bot_world
 
 def test_attach_publisher_tracks_state_changes(rclpy_node, cylinder_bot_world):
     task = build_align_planes_task(cylinder_bot_world)
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart()
     motion_statechart.add_node(task)
 
     publisher = DebugExpressionPublisher(world=cylinder_bot_world, node=rclpy_node)
@@ -144,47 +156,60 @@ def test_attach_publisher_tracks_state_changes(rclpy_node, cylinder_bot_world):
 def test_executor_publishes_debug_expressions_when_enabled(
     rclpy_node, cylinder_bot_world
 ):
-    executor = Ros2Executor(
-        MotionStatechartContext(world=cylinder_bot_world),
-        ros_node=rclpy_node,
-        publish_debug_expressions=True,
+    executor = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[
+            RosNodeAccess(rclpy_node),
+            MotionControl(),
+            DebugExpressionPublishing(rclpy_node),
+        ],
     )
 
     executor.compile(align_planes_statechart(cylinder_bot_world))
 
     namespaces = {
         request.namespace
-        for request in executor._debug_expression_publisher._publisher._requests
+        for request in executor.require_extension(
+            DebugExpressionPublishing
+        ).publisher._publisher._requests
     }
     assert "align/current_normal" in namespaces
 
 
 def test_executor_skips_debug_expressions_by_default(rclpy_node, cylinder_bot_world):
-    executor = Ros2Executor(
-        MotionStatechartContext(world=cylinder_bot_world),
-        ros_node=rclpy_node,
+    executor = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[RosNodeAccess(rclpy_node), MotionControl()],
     )
 
     executor.compile(align_planes_statechart(cylinder_bot_world))
 
-    assert executor._debug_expression_publisher is None
+    with pytest.raises(MissingExecutorExtensionError):
+        executor.require_extension(DebugExpressionPublishing)
 
 
 def test_recompile_stops_previous_debug_expression_publisher(
     rclpy_node, cylinder_bot_world
 ):
-    executor = Ros2Executor(
-        MotionStatechartContext(world=cylinder_bot_world),
-        ros_node=rclpy_node,
-        publish_debug_expressions=True,
+    executor = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[
+            RosNodeAccess(rclpy_node),
+            MotionControl(),
+            DebugExpressionPublishing(rclpy_node),
+        ],
     )
     executor.compile(align_planes_statechart(cylinder_bot_world))
-    previous_publisher = executor._debug_expression_publisher._publisher
+    previous_publisher = executor.require_extension(
+        DebugExpressionPublishing
+    ).publisher._publisher
 
     executor.compile(align_planes_statechart(cylinder_bot_world))
 
     callbacks = cylinder_bot_world.state.state_change_callbacks
     assert all(callback is not previous_publisher for callback in callbacks)
-    current_publisher = executor._debug_expression_publisher._publisher
+    current_publisher = executor.require_extension(
+        DebugExpressionPublishing
+    ).publisher._publisher
     assert current_publisher is not previous_publisher
     assert any(callback is current_publisher for callback in callbacks)

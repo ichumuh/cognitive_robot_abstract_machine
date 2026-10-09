@@ -11,11 +11,10 @@ from typing_extensions import Self, Type
 import coraplex.visualization as visualization_module
 from coraplex.datastructures.enums import VisualizationBackend, VisualizationOption
 from coraplex.exceptions import VisualizationBackendUnavailable
-from coraplex.plans.factories import sequential
 from coraplex.visualization import WorldVisualization
 from semantic_digital_twin.world import World
 
-from .test_optional_visualization import ObservedScene, installed_scene
+from .test_optional_visualization import ObservedScene, an_executor, installed_scene
 
 
 # %% partial acquisition
@@ -143,21 +142,21 @@ def test_plugin_stop_failure_detaches_observers_and_allows_restart(
     provider = selected.provider
     failure = Mock(side_effect=RuntimeError())
     monkeypatch.setattr(provider, "stop", failure)
-    plan = sequential([]).plan
-    selected.attach_plan(plan)
+    executor = an_executor()
+    selected.attach_plan(executor)
     with pytest.raises(RuntimeError):
         selected.stop()
-    assert plan.node_callbacks == []
+    assert executor.extensions == []
     assert not selected.is_rendering
     selected.start()
     try:
         assert selected.provider is not provider
-        selected.attach_plan(plan)
-        assert selected.provider.plans == [plan]
+        selected.attach_plan(executor)
+        assert executor.extensions == selected.provider.extensions
     finally:
         selected.stop()
     failure.assert_called_once_with()
-    assert plan.node_callbacks == []
+    assert executor.extensions == []
 
 
 def test_plugin_entry_point_must_load_a_provider_class(installed_scene: Mock) -> None:
@@ -169,7 +168,7 @@ def test_plugin_entry_point_must_load_a_provider_class(installed_scene: Mock) ->
 
 def test_stopped_plugin_does_not_attach_observers(installed_scene: Mock) -> None:
     selected = visualization_module.PluginVisualization(World())
-    plan = sequential([]).plan
-    selected.attach_plan(plan)
-    assert plan.node_callbacks == []
+    executor = an_executor()
+    selected.attach_plan(executor)
+    assert executor.extensions == []
     installed_scene.assert_not_called()

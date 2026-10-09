@@ -5,7 +5,6 @@ from enum import StrEnum
 from ipaddress import ip_address
 from urllib.parse import urlsplit
 
-
 # %% origin vocabulary
 
 

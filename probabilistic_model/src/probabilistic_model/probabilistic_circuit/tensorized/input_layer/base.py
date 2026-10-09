@@ -137,7 +137,8 @@ class InputLayer(Layer, ABC):
 
         The nodes keep the order of the layers, so the nodes of ``layers[k]`` occupy one
         contiguous block. Only layers that were truncated from the same layer are
-        concatenated, which is why the shared parameters may be taken from the first one.
+        concatenated, which is why the shared parameters may be taken from the first
+        one.
 
         :param layers: The layers to join.
         :return: The joined layer.
@@ -283,8 +284,8 @@ class InputLayer(Layer, ABC):
 
         :param assignment: The assignment of the variable of this layer.
         :param singleton_allowed: Whether singletons are allowed.
-        :return: The truncated layer, with as many nodes as this one, and the
-            log-probabilities of its nodes.
+        :return: The truncated layer, with as many nodes as this one, and the log-
+            probabilities of its nodes.
         """
         raise NotImplementedError
 
@@ -353,8 +354,8 @@ class InputLayer(Layer, ABC):
         Condition every node of this layer on a value of its variable at once.
 
         :param value: The value.
-        :return: The conditioned layer, with as many nodes as this one, and the
-            log-likelihoods of the value under its nodes.
+        :return: The conditioned layer, with as many nodes as this one, and the log-
+            likelihoods of the value under its nodes.
         """
         raise NotImplementedError
 

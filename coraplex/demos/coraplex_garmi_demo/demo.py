@@ -2,9 +2,6 @@ import os
 from pathlib import Path
 
 from krrood.entity_query_language.factories import entity, an, variable, count
-from coraplex.datastructures.dataclasses import Context
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 
@@ -25,6 +22,10 @@ from semantic_digital_twin.world_description.connections import (
 )
 import coraplex
 from test.conftest import world_with_urdf_factory
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
+from cramph.composites import Sequence
 
 # %% Environment Setup
 environment_path = os.path.join("package://iai_apartment/urdf/apartment.urdf")
@@ -70,7 +71,6 @@ except ImportError:
     pass
 
 # %% Demo
-context = Context.from_world(world)
 garmi = world.get_semantic_annotations_by_type(Garmi)[0]
 milk_place_pose = Pose(Point3(x=2.2, y=7.6, z=0.865), reference_frame=world.root)
 
@@ -78,8 +78,8 @@ milk_place_pose = Pose(Point3(x=2.2, y=7.6, z=0.865), reference_frame=world.root
 # number_of_arms = an(entity(count(robot.end_effectors))).tolist()
 
 # print(number_of_arms)
-with simulated_robot:
-    sequential(
-        [ParkArmsAction(garmi.all_arms)],
-        context,
-    ).perform()
+executor = SimulatedPlanExecutor(world, context_extensions=[RobotAccess(garmi)])
+statechart = Statechart(context=executor.context)
+statechart.add_node(Sequence([ParkArmsAction(garmi.all_arms)]))
+executor.compile(statechart)
+executor.execute()

@@ -4,18 +4,14 @@ from dataclasses import field, dataclass
 from typing_extensions import List
 
 import krrood.symbolic_math.symbolic_math as sm
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.exceptions import EmptyGoalStateError
-from giskardpy.motion_statechart.graph_node import NodeArtifacts, Task
+from giskardpy.motion_statechart.graph_node import MotionNodeArtifacts, Task
 from giskardpy.motion_statechart.graph_node import ConvergingTask
 from semantic_digital_twin.datastructures.joint_state import JointState
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
-    ActiveConnection,
-    PrismaticConnection,
     ActiveConnection1DOF,
 )
 
@@ -49,7 +45,7 @@ class JointPositionList(ConvergingTask):
     The maximum velocity of the joints.
     """
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build one equality constraint per joint of the goal state.
 
@@ -61,7 +57,7 @@ class JointPositionList(ConvergingTask):
         if len(self.goal_state) == 0:
             raise EmptyGoalStateError(node=self)
 
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         errors = []
         for connection, target in self.goal_state.items():
             current = connection.dof.variables.position
@@ -137,8 +133,8 @@ class JointVelocityLimit(Task):
     :class:`JointPositionList`).
     """
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
-        artifacts = NodeArtifacts()
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
+        artifacts = MotionNodeArtifacts()
         velocities = []
         for connection in self.connections:
             position = connection.dof.variables.position

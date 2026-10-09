@@ -10,7 +10,8 @@ from typing import Any, Dict, List
 import rclpy
 from json_msgs.action import JsonAction
 
-from giskardpy.executor import Executor, RealTimePacer
+from cramph.executor import StatechartExecutor
+from cramph.executor import RealTimePacer
 from giskardpy.middleware.ros2 import rospy
 from giskardpy.middleware.ros2.action_server import ActionServerHandler
 from giskardpy.middleware.ros2.client_presence import ClientWatchdog
@@ -50,7 +51,7 @@ class MotionServer:
     even if it fails.
     """
 
-    executor: Executor
+    executor: StatechartExecutor
     """
     Compiles and ticks the motion statecharts of incoming goals.
     """
@@ -268,7 +269,9 @@ class MotionServer:
         tracker = WorldEntityWithIDKwargsTracker.from_world(self.world)
         kwargs = tracker.create_kwargs()
         kwargs["world"] = self.world
-        motion_statechart = goal.parse_motion_statechart(**kwargs)
+        motion_statechart = goal.parse_motion_statechart(
+            context=self.executor.context, **kwargs
+        )
         self.executor.compile(motion_statechart)
         self.feedback_publisher.publish_structure()
         rospy.get_node().get_logger().info("Done parsing goal message.")
@@ -283,10 +286,8 @@ class MotionServer:
         try:
             self.client_watchdog.stop_watching()
             self.control_loop.stop()
-            if self.executor.motion_statechart is not None:
-                self.executor.motion_statechart.cleanup_nodes(
-                    context=self.executor.context
-                )
+            if self.executor.statechart is not None:
+                self.executor.statechart.cleanup_nodes()
             self.feedback_publisher.publish()
             self.write_debug_plots()
         finally:
@@ -362,7 +363,7 @@ class MotionServer:
 
         A goal whose statechart could not be compiled has no states to report.
         """
-        if self.executor.motion_statechart is None:
+        if self.executor.statechart is None:
             return {}
         return self.feedback_publisher.create_states()
 
@@ -374,7 +375,7 @@ class MotionServer:
         it raise would end the loop that serves goals, leaving every later client
         waiting for a result that no one is going to produce.
         """
-        if self.executor.motion_statechart is None:
+        if self.executor.statechart is None:
             return
         for plotter in self.post_goal_plotters:
             try:

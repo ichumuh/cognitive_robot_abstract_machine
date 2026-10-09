@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
-from typing_extensions import Self
+
+from typing_extensions import Optional, Self
 
 from krrood.entity_query_language.factories import a, variable
-from coraplex.datastructures.dataclasses import Context
 from coraplex.locations.locations import ReachabilityLocation
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.plans.underspecified import UnderspecifiedNode
+from cramph.composites import Sequence
+from cramph.context import StatechartContext
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.mixins import HasApproachesGraspPoses
 from coraplex.robot_plans.actions.composite.facing import FaceAndLookAtAction
 from coraplex.robot_plans.actions.core.container import OpenAction
@@ -30,21 +33,43 @@ from semantic_digital_twin.grasping.grasp_candidates import (
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
+# %% actions running other actions as their steps
 
-@dataclass
-class TransportAction(ActionDescription):
+
+@dataclass(eq=False, repr=False)
+class ActionOfSteps(Action, ABC):
+    """
+    An action running other actions as its steps, each given either as the action or as
+    an underspecified statement of it.
+    """
+
+    @staticmethod
+    def _node_running(step: Action) -> StatechartNode:
+        """
+        :param step: A step of this action.
+        :return: The step itself, or the node grounding its statement once it is
+            reached.
+        """
+        if isinstance(step, Match):
+            return UnderspecifiedNode(statement=step)
+        return step
+
+
+@dataclass(eq=False, repr=False)
+class TransportAction(ActionOfSteps):
     """
     Picks an object up with one step and puts it down with another.
     """
 
     pick_up: MoveAndPickUpAction
     """
-    The step that picks the object up.
+    The step that picks the object up, or an underspecified statement of it.
     """
 
     place: MoveAndPlaceAction
     """
-    The step that puts down what :attr:`pick_up` picked up.
+    The step that puts down what :attr:`pick_up` picked up, or an underspecified
+    statement of it.
     """
 
     @classmethod
@@ -53,8 +78,9 @@ class TransportAction(ActionDescription):
         graspable: HasGraspCandidates,
         target_location: Pose,
         arm: Arm,
-        context: Context,
+        context: StatechartContext,
         number_of_grasps: int = IsAmongTheClosestGraspsTo.number_of_grasps,
+        seed: Optional[int] = None,
     ) -> Self:
         """
         A transport that takes `graspable` to `target_location`, standing wherever each
@@ -64,9 +90,11 @@ class TransportAction(ActionDescription):
         :param graspable: The object to transport.
         :param target_location: Where to put the object down.
         :param arm: The arm that carries the object.
-        :param context: The context the standing poses are sampled in.
+        :param context: The context of the plan the steps run in, whose robot performs
+            them.
         :param number_of_grasps: How many of the object's grasps closest to a standing
             pose are tried from there.
+        :param seed: Seed for sampling the standing poses; ``None`` samples afresh.
         :return: The transport, standing near the object to pick it up and near the
             target to place it.
         """
@@ -76,13 +104,17 @@ class TransportAction(ActionDescription):
                 arm=arm,
                 context=context,
                 number_of_grasps=number_of_grasps,
+                seed=seed,
             ),
             place=a(MoveAndPlaceAction)(
                 navigate=a(NavigateAction)(
                     target_location=variable(
                         Pose,
                         domain=ReachabilityLocation(
-                            target_pose=target_location, arm=arm, context=context
+                            target_pose=target_location,
+                            arm=arm,
+                            context=context,
+                            seed=seed,
                         ),
                     )
                 ),
@@ -96,21 +128,20 @@ class TransportAction(ActionDescription):
             ),
         )
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential(
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
             [
                 ParkArmsAction(self.robot.all_arms),
-                self.pick_up,
+                self._node_running(self.pick_up),
                 ParkArmsAction(self.robot.all_arms),
-                self.place,
+                self._node_running(self.place),
                 ParkArmsAction(self.robot.all_arms),
             ]
         )
 
 
-@dataclass
-class PickAndPlaceAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class PickAndPlaceAction(ActionOfSteps):
     """
     Picks an object up with one step and puts it down with another, without moving the
     base of the robot.
@@ -118,38 +149,45 @@ class PickAndPlaceAction(ActionDescription):
 
     pick_up: PickUpAction
     """
-    The step that picks the object up.
+    The step that picks the object up, or an underspecified statement of it.
     """
 
     place: PlaceAction
     """
-    The step that puts down what :attr:`pick_up` picked up.
+    The step that puts down what :attr:`pick_up` picked up, or an underspecified
+    statement of it.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential([self.pick_up, self.place])
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            [
+                self._node_running(self.pick_up),
+                self._node_running(self.place),
+            ]
+        )
 
 
-@dataclass
-class MoveAndPlaceAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class MoveAndPlaceAction(ActionOfSteps):
     """
     Navigates to where the robot stands, faces the target and places the object there.
     """
 
     navigate: NavigateAction
     """
-    The step to where the robot stands while placing.
+    The step to where the robot stands while placing, or an underspecified statement of
+    it.
     """
 
     face_and_look_at: FaceAndLookAtAction
     """
-    The turn towards the target and the look at it.
+    The turn towards the target and the look at it, or an underspecified statement of
+    them.
     """
 
     place: PlaceAction
     """
-    The step that puts the object down.
+    The step that puts the object down, or an underspecified statement of it.
     """
 
     @classmethod
@@ -176,30 +214,37 @@ class MoveAndPlaceAction(ActionDescription):
             ),
         )
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential([self.navigate, self.face_and_look_at, self.place])
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            [
+                self._node_running(self.navigate),
+                self._node_running(self.face_and_look_at),
+                self._node_running(self.place),
+            ]
+        )
 
 
-@dataclass
-class MoveAndPickUpAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class MoveAndPickUpAction(ActionOfSteps):
     """
     Navigates to where the robot stands, faces the object and picks it up.
     """
 
     navigate: NavigateAction
     """
-    The step to where the robot stands while picking up.
+    The step to where the robot stands while picking up, or an underspecified statement
+    of it.
     """
 
     face_and_look_at: FaceAndLookAtAction
     """
-    The turn towards the object and the look at it.
+    The turn towards the object and the look at it, or an underspecified statement of
+    them.
     """
 
     pick_up: PickUpAction
     """
-    The step that picks the object up.
+    The step that picks the object up, or an underspecified statement of it.
     """
 
     @classmethod
@@ -238,8 +283,9 @@ class MoveAndPickUpAction(ActionDescription):
         cls,
         graspable: HasGraspCandidates,
         arm: Arm,
-        context: Context,
+        context: StatechartContext,
         number_of_grasps: int = IsAmongTheClosestGraspsTo.number_of_grasps,
+        seed: Optional[int] = None,
     ) -> Match:
         """
         A pick-up of `graspable`, standing wherever it can be reached from and taking it
@@ -250,9 +296,11 @@ class MoveAndPickUpAction(ActionDescription):
 
         :param graspable: The object to pick up.
         :param arm: The arm to pick up with.
-        :param context: The context the standing poses are sampled in.
+        :param context: The context of the plan the steps run in, whose robot performs
+            them.
         :param number_of_grasps: How many of the object's grasps closest to a standing
             pose are tried from there.
+        :param seed: Seed for sampling the standing poses; ``None`` samples afresh.
         :return: The pick-up, with the standing pose and the grasp left open.
         """
         grasps = graspable.grasp_candidates()
@@ -262,7 +310,7 @@ class MoveAndPickUpAction(ActionDescription):
                 target_location=variable(
                     Pose,
                     domain=ReachabilityLocation(
-                        target_pose=object_pose, arm=arm, context=context
+                        target_pose=object_pose, arm=arm, context=context, seed=seed
                     ),
                 )
             ),
@@ -283,13 +331,18 @@ class MoveAndPickUpAction(ActionDescription):
             )
         )
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential([self.navigate, self.face_and_look_at, self.pick_up])
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            [
+                self._node_running(self.navigate),
+                self._node_running(self.face_and_look_at),
+                self._node_running(self.pick_up),
+            ]
+        )
 
 
-@dataclass
-class MoveAndOpenAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class MoveAndOpenAction(ActionOfSteps):
     """
     Navigates to where the robot stands, faces the handle and opens its container.
     """
@@ -306,7 +359,7 @@ class MoveAndOpenAction(ActionDescription):
 
     open_container: OpenAction
     """
-    The step that opens the container.
+    The step that opens the container, or an underspecified statement of it.
     """
 
     @classmethod
@@ -328,6 +381,11 @@ class MoveAndOpenAction(ActionDescription):
             open_container=OpenAction(handle=handle, arm=arm),
         )
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential([self.navigate, self.face_and_look_at, self.open_container])
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            [
+                self._node_running(self.navigate),
+                self._node_running(self.face_and_look_at),
+                self._node_running(self.open_container),
+            ]
+        )

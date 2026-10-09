@@ -16,10 +16,8 @@ from coraplex.exceptions import (
     UnknownVisualizationOption,
     VisualizationBackendUnavailable,
 )
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_callbacks import PlanCallback
-from coraplex.plans.plan_node import PlanNode
+from cramph.context import StatechartContext
+from cramph.executor import ExecutorExtension, StatechartExecutor
 from coraplex.visualization import (
     PlanVisualization,
     WorldVisualization,
@@ -53,9 +51,9 @@ class ObservedScene(PlanVisualization):
     Whether the host stopped the scene.
     """
 
-    plans: list[Plan] = field(default_factory=list)
+    extensions: list[ExecutorExtension] = field(default_factory=list)
     """
-    The plans attached to this scene.
+    The executor extensions this scene created, one per executor attached to it.
     """
 
     def start(self):
@@ -71,14 +69,21 @@ class ObservedScene(PlanVisualization):
         """
         self.stopped = True
 
-    def plan_callback(self, plan: Plan) -> PlanCallback:
+    def executor_extension(self) -> ExecutorExtension:
         """
-        Create an observer associated with the requested plan.
+        Create an observer for the statecharts of one executor.
+        """
+        extension = ExecutorExtension()
+        self.extensions.append(extension)
+        return extension
 
-        :param plan: The observed plan.
-        """
-        self.plans.append(plan)
-        return PlanCallback(plan=plan)
+
+def an_executor() -> StatechartExecutor:
+    """
+    :return: An executor whose statecharts a visualization can observe, with no
+        extension of its own.
+    """
+    return StatechartExecutor(context=StatechartContext(world=World()))
 
 
 @pytest.fixture
@@ -112,8 +117,8 @@ def test_explicit_backend_selection_uses_installed_provider(
     monkeypatch.setenv(VisualizationOption.BACKEND, VisualizationBackend.CRAMERA.value)
     world = World()
     selected = WorldVisualization.from_environment(world).start()
-    plan = sequential([]).plan
-    selected.attach_plan(plan)
+    executor = an_executor()
+    selected.attach_plan(executor)
     provider = selected.provider
 
     installed_scene.assert_called_once_with(
@@ -122,23 +127,12 @@ def test_explicit_backend_selection_uses_installed_provider(
     )
     assert provider.world is world
     assert provider.started
-    assert provider.plans == [plan]
-    assert [callback.plan for callback in plan.node_callbacks] == [plan]
+    assert len(provider.extensions) == 1
+    assert executor.extensions == provider.extensions
     selected.stop()
     assert provider.stopped
-    assert plan.node_callbacks == []
+    assert executor.extensions == []
     assert not selected.is_rendering
-
-
-def test_provider_can_observe_plan_node_returned_by_demo(installed_scene) -> None:
-    """
-    The native PlanNode demo API and direct Plan API share one observer boundary.
-    """
-    selected = PluginVisualization(World()).start()
-    root = sequential([])
-    selected.attach_plan(root)
-    assert selected.provider.plans == [root.plan]
-    selected.stop()
 
 
 def test_missing_provider_has_actionable_native_error(monkeypatch) -> None:
@@ -167,7 +161,7 @@ def test_none_backend_leaves_world_callbacks_unchanged() -> None:
     world = World()
     callbacks = list(world.state.state_change_callbacks)
     selected = HeadlessVisualization(world).start()
-    selected.attach_plan(sequential([]))
+    selected.attach_plan(an_executor())
     assert world.state.state_change_callbacks == callbacks
     assert not selected.is_rendering
     selected.stop()
@@ -208,8 +202,7 @@ def test_demonstration_keeps_all_repetitions_and_explicit_viewer(
     try:
         demonstration.run()
         selected = demonstration.visualization
-        assert len(selected.provider.plans) == demonstration.repetitions
-        assert all(isinstance(plan, Plan) for plan in selected.provider.plans)
+        assert len(selected.provider.extensions) == demonstration.repetitions
         assert selected.is_rendering
     finally:
         demonstration.stop_visualization()
@@ -347,17 +340,17 @@ def test_native_entry_point_collection_loads_selected_provider(monkeypatch) -> N
     selected.stop()
 
 
-def test_attaching_same_plan_twice_observes_it_once(installed_scene) -> None:
+def test_attaching_same_executor_twice_observes_it_once(installed_scene) -> None:
     """
-    A plan and its root node identify the same observation subscription.
+    An executor is observed by one subscription, however often it is attached.
     """
     selected = PluginVisualization(World()).start()
-    root = sequential([])
+    executor = an_executor()
     try:
-        selected.attach_plan(root)
-        selected.attach_plan(root.plan)
-        assert selected.provider.plans == [root.plan]
-        assert [callback.plan for callback in root.plan.node_callbacks] == [root.plan]
+        selected.attach_plan(executor)
+        selected.attach_plan(executor)
+        assert len(selected.provider.extensions) == 1
+        assert executor.extensions == selected.provider.extensions
     finally:
         selected.stop()
 
@@ -368,9 +361,9 @@ def test_stop_accepts_a_callback_already_removed_by_caller(installed_scene) -> N
     """
     selected = PluginVisualization(World()).start()
     provider = selected.provider
-    plan = sequential([]).plan
-    selected.attach_plan(plan)
-    plan.node_callbacks.clear()
+    executor = an_executor()
+    selected.attach_plan(executor)
+    executor.extensions.clear()
     selected.stop()
     assert provider.stopped
     assert not selected.is_rendering

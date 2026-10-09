@@ -24,7 +24,6 @@ from .test_live_bundle import attached_bridge
 from .test_live_recording import statechart
 from .test_server import post, server as viewer_server
 
-
 # %% shared recording and endpoint fixtures
 
 

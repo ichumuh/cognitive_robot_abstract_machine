@@ -14,8 +14,8 @@ from visualization_msgs.msg import InteractiveMarker, InteractiveMarkerControl, 
 from visualization_msgs.msg import InteractiveMarkerFeedback
 
 from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.monitors.payload_monitors import CountSeconds
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.monitors import CountSeconds
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.middleware.ros2.python_interface import GiskardWrapper
 from giskardpy.middleware.ros2 import rospy
@@ -172,7 +172,7 @@ class InteractiveMarkerNode:
             reference_frame=kinematic_chain_marker.tip_body,
         )
 
-        motion_statechart = MotionStatechart()
+        motion_statechart = Statechart()
         motion_statechart.add_nodes(
             [
                 goal_transformation := CartesianPose(

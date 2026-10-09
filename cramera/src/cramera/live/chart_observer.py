@@ -1,18 +1,18 @@
 """
-Watching the motion statechart an executor is ticking.
+Watching the statechart an executor is ticking.
 
-A statechart exists only while giskardpy executes it: one is compiled per merged motion
-group and thrown away afterwards. What a viewer shows of it, and what a recording keeps
-of it, is therefore a snapshot per tick -- taken here, so the live bridge and the
-recording use the same observations.
+A statechart runs a whole plan and grows while it runs, as underspecified actions are
+grounded. What a viewer shows of it, and what a recording keeps of it, is therefore a
+snapshot per tick -- taken here, so the live bridge and the recording use the same
+observations.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from giskardpy.motion_statechart.data_types import LifeCycleValues
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.data_types import LifeCycleValues
+from cramph.statechart import Statechart
 from typing_extensions import List, Optional, Tuple
 
 from cramera.live.chart_structure import (
@@ -30,7 +30,7 @@ class ChartObserver:
     One executor's statechart, as snapshots.
 
     Remembers what it last saw, so a chart is re-serialized only when the executor
-    compiled a new one.
+    compiled a new one, or the chart gained nodes or transitions.
     """
 
     title: str = ""
@@ -38,14 +38,14 @@ class ChartObserver:
     What the run calls what the chart is executing, shown above it.
     """
 
-    _chart: Optional[MotionStatechart] = field(default=None, init=False)
+    _chart: Optional[Statechart] = field(default=None, init=False)
     """
     The chart last seen, to recognize a newly compiled one.
     """
 
     _structure: Optional[ChartStructure] = field(default=None, init=False)
     """
-    Its nodes and transitions, which only change when the chart does.
+    Its nodes and transitions, which only change when the chart does or grows.
     """
 
     _sent_node_states: Optional[Tuple[List[str], List[ObservationName]]] = field(
@@ -55,7 +55,7 @@ class ChartObserver:
     Where its nodes stood when :meth:`change` last reported them.
     """
 
-    def snapshot(self, chart: Optional[MotionStatechart]) -> Optional[ChartSnapshot]:
+    def snapshot(self, chart: Optional[Statechart]) -> Optional[ChartSnapshot]:
         """
         What the chart looks like now, or None when nothing is executing.
 
@@ -63,7 +63,12 @@ class ChartObserver:
         """
         if chart is None:
             return None
-        if chart is not self._chart or self._structure is None:
+        if (
+            chart is not self._chart
+            or self._structure is None
+            or len(self._structure.nodes) != len(chart.nodes)
+            or len(self._structure.edges) != len(chart.rx_graph.edge_index_map())
+        ):
             self._chart = chart
             self._structure = structure_of(chart)
             self._sent_node_states = None
@@ -93,7 +98,7 @@ class ChartObserver:
             edges=list(structure.edges),
         )
 
-    def change(self, chart: Optional[MotionStatechart]) -> Optional[ChartSnapshot]:
+    def change(self, chart: Optional[Statechart]) -> Optional[ChartSnapshot]:
         """
         The snapshot to send a viewer that already holds the last one: None while the
         chart stands where it was reported to stand.

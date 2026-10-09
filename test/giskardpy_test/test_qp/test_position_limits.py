@@ -1,16 +1,17 @@
 import numpy as np
 import pytest
 
-from giskardpy.executor import Executor
-from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.qp.dof_limits import DegreeOfFreedomDecisionVariables, DirectLimits
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import ActiveConnection
 from semantic_digital_twin.robots.pr2 import PR2Joint
+from giskardpy.motion_control import MotionControl
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
 
 TARGET_FREQUENCY = 20
 PREDICTION_HORIZON = 10
@@ -28,17 +29,20 @@ def test_joint_goal_inside_limits_reached(pr2_world_state_reset):
     upper = dof.limits.upper.position
     goal = 1.0
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(
         goal_state=JointState.from_mapping({connection: goal})
     )
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     assert np.isclose(connection.position, goal, atol=0.01)
@@ -51,17 +55,20 @@ def test_joint_goal_clamped_to_upper_limit(pr2_world_state_reset):
     upper = dof.limits.upper.position
     goal_beyond_limit = upper + 2.0
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(
         goal_state=JointState.from_mapping({connection: goal_beyond_limit})
     )
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     assert np.isclose(connection.position, upper, atol=0.01)
@@ -73,17 +80,20 @@ def test_joint_goal_clamped_to_lower_limit(pr2_world_state_reset):
     lower = dof.limits.lower.position
     goal_beyond_limit = lower - 2.0
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(
         goal_state=JointState.from_mapping({connection: goal_beyond_limit})
     )
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     assert np.isclose(connection.position, lower, atol=0.01)
@@ -98,17 +108,20 @@ def test_joint_above_upper_limit_recovers(pr2_world_state_reset):
     connection.position = upper + 0.5
     goal = 1.0
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(
         goal_state=JointState.from_mapping({connection: goal})
     )
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     assert np.isclose(connection.position, goal, atol=0.01)
@@ -124,17 +137,20 @@ def test_joint_below_lower_limit_recovers(pr2_world_state_reset):
     connection.position = lower - 0.5
     goal = -1.0
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(
         goal_state=JointState.from_mapping({connection: goal})
     )
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     assert np.isclose(connection.position, goal, atol=0.01)
@@ -158,15 +174,18 @@ def test_multiple_joints_outside_limits_recover(pr2_world_state_reset):
         upper_arm_roll: 0.0,
     }
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(goal_state=JointState.from_mapping(goals))
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     for conn, goal in goals.items():
@@ -314,7 +333,11 @@ def test_joint_goal_at_upper_limit_is_reached(prismatic_bot):
     connection = _connection(prismatic_bot)
     upper = connection.dof.limits.upper.position
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=prismatic_bot),
+        extensions=[MotionControl(qp_controller_config=_default_config())],
+    )
+    msc = Statechart(context=kin_sim.context)
     joint_goal = JointPositionList(
         goal_state=JointState.from_mapping({connection: upper}),
         threshold=LIMIT_REACHING_TOLERANCE,
@@ -322,14 +345,9 @@ def test_joint_goal_at_upper_limit_is_reached(prismatic_bot):
     msc.add_node(joint_goal)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = joint_goal.observation_variable
+    end.start_condition = joint_goal.observes_true
 
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=prismatic_bot, qp_controller_config=_default_config()
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     assert np.isclose(connection.position, upper, atol=LIMIT_REACHING_TOLERANCE)

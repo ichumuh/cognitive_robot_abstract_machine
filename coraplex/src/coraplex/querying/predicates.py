@@ -15,11 +15,10 @@ from krrood.entity_query_language.verbalization.vocabulary.parts_of_speech impor
     Noun,
     predicate_clause,
 )
-from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
+from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import (
-    KinematicStructureEntity,
     Body,
 )
 

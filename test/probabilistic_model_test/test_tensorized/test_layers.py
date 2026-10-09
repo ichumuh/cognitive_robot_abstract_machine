@@ -94,7 +94,6 @@ from probabilistic_model.probabilistic_circuit.tensorized.utils import (
 from probabilistic_model.utils import MissingDict
 from .test_layered_probabilistic_circuit import shared_children_circuit
 
-
 x = Continuous("x")
 y = Continuous("y")
 n = Integer("n")

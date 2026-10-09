@@ -1,6 +1,6 @@
 """
 Tests of the cramera visualization backend: binding the bridge to a world through the
-world's own callbacks and publishing plan execution through plan callbacks.
+world's own callbacks and publishing plan execution through an executor extension.
 """
 
 from __future__ import annotations
@@ -16,17 +16,19 @@ from semantic_digital_twin.world_description.connections import (
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
-from coraplex.language import SequentialNode
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import PlanNode
-from giskardpy.motion_statechart.data_types import LifeCycleValues
+from coraplex.plans.designator import DesignatorParameters
+from cramph.context import StatechartContext
+from cramph.data_types import LifeCycleValues
+from cramph.executor import StatechartExecutor
+from cramph.nodes_for_testing import ConstTrueNode
+from cramph.statechart import Statechart
 
 from cramera import paths
 from cramera.live import visualization as visualization_module
 from cramera.live.bridge import Bridge
 from cramera.live.recording import Recording, RecordingState
 from cramera.live.visualization import (
-    BridgePlanCallback,
+    StatechartPublishing,
     LiveVisualization,
     WorldModelSync,
     WorldStateSync,
@@ -34,6 +36,7 @@ from cramera.live.visualization import (
 
 from .dataset.motion_execution import motion_execution
 from .test_live_bridge import (
+    ActionDescription,
     make_chart,
     nodes_by_kind,
 )
@@ -181,61 +184,48 @@ class TestWorldSync:
 # %% plan synchronization
 
 
-class TestBridgePlanCallback:
+@dataclass(eq=False, repr=False)
+class ActionNamingTheChart(ConstTrueNode, DesignatorParameters):
     """
-    Native node callbacks publish the lifecycle already owned by the plan.
+    A node that is an action, as far as naming the published chart goes.
     """
 
-    def test_a_motion_start_publishes_native_status(self, motion_execution) -> None:
-        """
-        A start callback publishes the state assigned by native execution.
 
-        :param motion_execution: A native motion, chart, and observing callback.
-        """
-        motion_execution.motion.status = LifeCycleValues.RUNNING
-        motion_execution.callback.on_start(motion_execution.motion)
-        assert (
-            nodes_by_kind(motion_execution.bridge)["MotionNode"]["status"]
-            == motion_execution.motion.status.name
-        )
+class TestStatechartPublishing:
+    def test_compiling_publishes_the_plan_tree(self, motion_execution):
+        motion_execution.compile()
 
-    @pytest.mark.parametrize("status", LifeCycleValues.terminal_states())
-    def test_a_motion_end_publishes_native_status(
-        self, motion_execution, status: LifeCycleValues
-    ) -> None:
-        """
-        An end callback publishes the motion's native terminal outcome.
+        assert nodes_by_kind(motion_execution.bridge)["Sequence"] is not None
 
-        :param motion_execution: A native motion, chart, and observing callback.
-        :param status: The native terminal outcome to publish.
-        """
-        motion_execution.motion.status = status
-        motion_execution.callback.on_end(motion_execution.motion)
-        assert (
-            nodes_by_kind(motion_execution.bridge)["MotionNode"]["status"]
-            == status.name
-        )
-
-    def test_a_native_history_change_publishes_the_statechart(self, motion_execution):
+    def test_a_started_action_names_the_chart(self, world):
         bridge = Bridge()
-        callback = BridgePlanCallback(bridge=bridge)
+        publishing = StatechartPublishing(bridge=bridge)
+        statechart = Statechart(context=StatechartContext(world=world))
+        statechart.add_node(action := ActionNamingTheChart(name="action"))
+        executor = StatechartExecutor(
+            context=statechart.context, extensions=[publishing]
+        )
+
+        executor.compile(statechart)
+
+        assert bridge._chart_title == type(action).__name__
+
+    def test_a_history_change_publishes_the_statechart(self, motion_execution):
+        motion_execution.compile()
+
         motion_execution.record(LifeCycleValues.RUNNING)
-        callback.on_state_change(motion_execution.chart.history)
-        assert bridge.get_chart()["nodes"] != []
 
-    def test_a_non_motion_node_republishes_its_execution_boundaries(self) -> None:
-        """
-        A native execution scope publishes both its start and completion.
-        """
-        bridge = Bridge()
-        plan = Plan()
-        node = PlanNode()
-        plan.add_node(node)
-        bridge.begin_plan(plan)
-        plan.node_callbacks.append(BridgePlanCallback(bridge=bridge, plan=plan))
-        with node.execution_scope():
-            assert bridge.plan_state.nodes[0].status is LifeCycleValues.RUNNING
-        assert bridge.plan_state.nodes[0].status is LifeCycleValues.SUCCEEDED
+        assert motion_execution.bridge.get_chart()["nodes"] != []
+
+    def test_a_started_node_republishes_the_plan(self, motion_execution):
+        motion_execution.compile()
+
+        motion_execution.record(LifeCycleValues.RUNNING)
+
+        assert (
+            nodes_by_kind(motion_execution.bridge)["ConstTrueNode"]["status"]
+            == LifeCycleValues.RUNNING.name
+        )
 
 
 # %% the backend
@@ -368,27 +358,13 @@ class TestLiveVisualization:
         assert bridge.live_server is None
         assert state_sync not in world.state.state_change_callbacks
 
-    def test_plan_callback_publishes_the_plan_tree(
-        self, world: World, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """
-        Registering a native plan callback publishes its initial hierarchy.
-
-        :param world: The native world served by the viewer.
-        :param monkeypatch: Fixture replacing the HTTP server with a local recorder.
-        """
+    def test_the_executor_extension_publishes_to_the_bridge(self, world, monkeypatch):
         bridge = Bridge()
         monkeypatch.setattr(
             visualization_module, "serve", lambda passed_bridge, port: ServerRecorder()
         )
         live = LiveVisualization(world=world, bridge=bridge).start()
-        plan = Plan()
-        plan.add_node(SequentialNode())
+        publishing = live.executor_extension()
 
-        callback = live.plan_callback(plan)
-
-        assert isinstance(callback, BridgePlanCallback)
-        assert callback.bridge is bridge
-        assert (
-            nodes_by_kind(bridge)["SequentialNode"]["status"] == plan.root.status.name
-        )
+        assert isinstance(publishing, StatechartPublishing)
+        assert publishing.bridge is bridge

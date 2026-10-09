@@ -10,7 +10,6 @@ from enum import StrEnum
 from cramera.live.frame_range import FrameRange, InvalidFrameRange
 from cramera.live.recording_storage import SceneDestination, save_recording_bundle
 
-
 # %% request fields
 
 

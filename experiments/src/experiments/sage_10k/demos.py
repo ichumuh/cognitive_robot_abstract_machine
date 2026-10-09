@@ -7,9 +7,10 @@ import numpy as np
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
 from krrood.entity_query_language.factories import *
-from coraplex.datastructures.dataclasses import Context
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan import Plan
+from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from cramph.context import ContextExtension
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from typing_extensions import List
 from experiments.sage_10k.sage10k_actions import Sage10kOpenDoor
 from coraplex.robot_plans.actions.composite.transporting import (
     MoveAndPickUpAction,
@@ -40,6 +41,8 @@ from semantic_digital_twin.grasping.grasp_candidates import HasGraspCandidates
 from semantic_digital_twin.spatial_types import Point3, Pose, Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
+from cramph.composites import Sequence
+from cramph.node import StatechartNode
 
 
 @dataclass
@@ -131,9 +134,23 @@ class Sage10kAbstractDemoHSRB:
         main_entrance: DoorWithType = an(entity(door_v)).first()
         return main_entrance
 
+    @cached_property
+    def context_extensions(self) -> List[ContextExtension]:
+        """
+        What the demo's plan reads from its context: the robot of the world, and the
+        probabilistic backend its statements are grounded with.
+        """
+        return [
+            RobotAccess(self.world.get_semantic_annotations_by_type(AbstractRobot)[0]),
+            StatementGrounding(query_backend=ProbabilisticBackend()),
+        ]
+
     @property
-    def plan(self) -> Plan:
-        pass
+    def plan(self) -> StatechartNode:
+        """
+        The plan the robot executes in this demo.
+        """
+        raise NotImplementedError
 
 
 @dataclass
@@ -184,7 +201,6 @@ class Sage10kGymDemo(Sage10kAbstractDemoHSRB):
     @property
     def plan(self):
         arm = self.arm
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
         open_door = Sage10kOpenDoor(self.main_entrance)
 
         [body] = self.world.get_bodies_by_global_position(
@@ -198,7 +214,7 @@ class Sage10kGymDemo(Sage10kAbstractDemoHSRB):
             ).where(semantic_annotation.root == body)
         ).first()
 
-        plan = sequential(
+        plan = Sequence(
             [
                 open_door,
                 ParkArmsAction(self.robot.all_arms),
@@ -222,9 +238,8 @@ class Sage10kGymDemo(Sage10kAbstractDemoHSRB):
                     object_designator=object_of_interest,
                     target_location=self.place_pose,
                 ),
-            ],
-            context=context,
-        ).plan
+            ]
+        )
         return plan
 
 
@@ -275,8 +290,7 @@ class Sage10kTVStudioDemo(Sage10kAbstractDemoHSRB):
         return target.first()
 
     @property
-    def plan(self) -> Plan:
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
+    def plan(self) -> StatechartNode:
         open_door = Sage10kOpenDoor(self.main_entrance)
         mpa = MoveAndPickUpAction.from_standing_position(
             standing_position=Pose.from_xyz_rpy(
@@ -291,7 +305,7 @@ class Sage10kTVStudioDemo(Sage10kAbstractDemoHSRB):
         )
         present_book = NavigateAction(target_location=self.robot_starting_pose)
 
-        return sequential([open_door, mpa, present_book], context=context).plan
+        return Sequence([open_door, mpa, present_book])
 
 
 @dataclass
@@ -355,7 +369,6 @@ class Sage10kCraftsmanLobbyDemo(Sage10kAbstractDemoHSRB):
         target_pose = Pose.from_xyz_rpy(
             x=5.48, y=7.46, z=0.8, yaw=-np.pi / 2, reference_frame=self.world.root
         )
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
         open_door = Sage10kOpenDoor(self.main_entrance)
         mpu = MoveAndPickUpAction.from_standing_position(
             standing_position=self.pickup_navigation_pose,
@@ -370,7 +383,7 @@ class Sage10kCraftsmanLobbyDemo(Sage10kAbstractDemoHSRB):
             object_designator=self.book_to_pick,
         )
 
-        return sequential([open_door, mpu, mpp], context=context).plan
+        return Sequence([open_door, mpu, mpp])
 
 
 @dataclass
@@ -417,8 +430,7 @@ class Sage10kTropicalWarehouse(Sage10kAbstractDemoHSRB):
         return target
 
     @property
-    def plan(self) -> Plan:
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
+    def plan(self) -> StatechartNode:
         navigate1 = NavigateAction(
             target_location=Pose.from_xyz_rpy(
                 2.86, 5.89, reference_frame=self.world.root
@@ -439,10 +451,9 @@ class Sage10kTropicalWarehouse(Sage10kAbstractDemoHSRB):
         park_arms = ParkArmsAction([self.arm])
         present = NavigateAction(target_location=self.robot_starting_pose)
 
-        return sequential(
-            [open_door, park_arms, navigate1, mpu, park_arms, navigate2, present],
-            context=context,
-        ).plan
+        return Sequence(
+            [open_door, park_arms, navigate1, mpu, park_arms, navigate2, present]
+        )
 
 
 @dataclass
@@ -489,8 +500,7 @@ class Sage10kVaporwave(Sage10kAbstractDemoHSRB):
         return target
 
     @property
-    def plan(self) -> Plan:
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
+    def plan(self) -> StatechartNode:
         mpu = MoveAndPickUpAction.from_standing_position(
             standing_position=self.pickup_navigation_pose,
             grasp=self.target_to_pick.grasp_candidates()[0],
@@ -510,16 +520,7 @@ class Sage10kVaporwave(Sage10kAbstractDemoHSRB):
             object_designator=self.target_to_pick,
         )
 
-        return sequential(
-            [
-                open_door,
-                park_arms,
-                mpu,
-                ParkArmsAction([self.arm]),
-                mpp,
-            ],
-            context=context,
-        ).plan
+        return Sequence([open_door, park_arms, mpu, ParkArmsAction([self.arm]), mpp])
 
 
 @dataclass
@@ -568,8 +569,7 @@ class Sage10kEclecticResidence(Sage10kAbstractDemoHSRB):
         return target
 
     @property
-    def plan(self) -> Plan:
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
+    def plan(self) -> StatechartNode:
         navigate1 = NavigateAction(
             Pose.from_xyz_rpy(x=1.27, y=4.45, reference_frame=self.world.root)
         )
@@ -586,7 +586,7 @@ class Sage10kEclecticResidence(Sage10kAbstractDemoHSRB):
         park_arms = ParkArmsAction([self.arm])
         present = NavigateAction(target_location=self.robot_starting_pose)
 
-        return sequential(
+        return Sequence(
             [
                 open_door,
                 navigate1,
@@ -595,9 +595,8 @@ class Sage10kEclecticResidence(Sage10kAbstractDemoHSRB):
                 ParkArmsAction([self.arm]),
                 navigate2,
                 present,
-            ],
-            context=context,
-        ).plan
+            ]
+        )
 
 
 @dataclass
@@ -607,10 +606,9 @@ class Sage10kSouthwesternStoreDemo(Sage10kAbstractDemoHSRB):
     @property
     def plan(self):
         arm = self.arm
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
         open_door = Sage10kOpenDoor(self.main_entrance)
 
-        plan = sequential(
+        plan = Sequence(
             [
                 open_door,
                 ParkArmsAction(self.robot.all_arms),
@@ -641,9 +639,8 @@ class Sage10kSouthwesternStoreDemo(Sage10kAbstractDemoHSRB):
                         x=0.48, y=4.81, reference_frame=self.world.root
                     )
                 ),
-            ],
-            context=context,
-        ).plan
+            ]
+        )
         return plan
 
     @property
@@ -724,10 +721,9 @@ class Sage10kBrutalistStoreDemo(Sage10kAbstractDemoHSRB):
     @property
     def plan(self):
         arm = self.arm
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
         open_door = Sage10kOpenDoor(self.main_entrance)
 
-        plan = sequential(
+        plan = Sequence(
             [
                 open_door,
                 ParkArmsAction(self.robot.all_arms),
@@ -752,9 +748,8 @@ class Sage10kBrutalistStoreDemo(Sage10kAbstractDemoHSRB):
                         x=12, y=8.13, reference_frame=self.world.root
                     )
                 ),
-            ],
-            context=context,
-        ).plan
+            ]
+        )
         return plan
 
     @property
@@ -823,11 +818,10 @@ class Sage10kAmericanBuffetDemo(Sage10kAbstractDemoHSRB):
     @property
     def plan(self):
         arm = self.arm
-        context = Context.from_world(self.world, query_backend=ProbabilisticBackend())
         open_door = Sage10kOpenDoor(self.main_entrance)
         navigate = Pose.from_xyz_rpy(x=5.14, y=2.85, reference_frame=self.world.root)
 
-        plan = sequential(
+        plan = Sequence(
             [
                 open_door,
                 ParkArmsAction(self.robot.all_arms),
@@ -843,9 +837,8 @@ class Sage10kAmericanBuffetDemo(Sage10kAbstractDemoHSRB):
                     object_designator=self.object_of_interest,
                     target_location=self.place_pose,
                 ),
-            ],
-            context=context,
-        ).plan
+            ]
+        )
         return plan
 
     @property

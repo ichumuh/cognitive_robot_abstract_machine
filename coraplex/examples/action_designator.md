@@ -45,8 +45,8 @@ We will start with a simple example of the {meth}`~coraplex.robot_plans.Navigate
 
 First, we need a BulletWorld with a robot.
 
-All plans need a context in which they are performed, this context consists of the world as well as the robot that is to 
-perform the plan.
+All plans are performed by an executor, in a world, by a robot. The robot, and how the plan samples its locations, are
+given to the executor as context extensions. The `run` function below gives every plan an executor of its own.
 
 ```python
 import os
@@ -56,7 +56,6 @@ from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.world import World
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.spatial_types.spatial_types import HomogeneousTransformationMatrix, Pose
-from coraplex.datastructures.dataclasses import Context
 from coraplex.testing import setup_world
 
 world = setup_world()
@@ -64,7 +63,23 @@ pr2 = PR2.from_world(world)
 
 # A location samples its candidates from a costmap, so a seed is what makes this
 # example run the same way twice.
-context = Context(world=world, robot=pr2, sampling_seed=0)
+from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
+
+extensions = [RobotAccess(pr2), StatementGrounding(sampling_seed=0)]
+context = SimulatedPlanExecutor(world, context_extensions=extensions).context
+
+def run(plan):
+    """
+    Run `plan` simulated in `world`, with the robot and settings in `extensions`.
+    """
+    executor = SimulatedPlanExecutor(world, context_extensions=extensions)
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(plan)
+    executor.compile(statechart)
+    executor.execute()
+    return executor
 
 
 ```
@@ -75,57 +90,42 @@ world in which the designator are executed as well as the robot which executes t
 
 ```python
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
-from coraplex.plans.factories import sequential, execute_single
 
 pose = Pose.from_xyz_quaternion(1.3, 2, 0, 0, 0, 0, 1, reference_frame=world.root)
 
 # This is the Designator Description
-navigate_description = NavigateAction(target_location=pose)
-
-# The plan containing the navigation designator
-plan = execute_single(navigate_description, context=context).plan
+plan = NavigateAction(target_location=pose)
 ```
 
 What we now did was: create the pose where we want to move the robot, create a description describing a navigation with
 a list of possible poses (in this case the list contains only one pose) and create plan from the
 description.
 
-To execute the created plan just call perform on it.
+To execute the created plan, put it into a statechart of an executor, compile and execute it, as `run` does.
 
 ```python
-from coraplex.execution_environment import simulated_robot
-
-with simulated_robot:
-    plan.perform()
+run(plan)
 ```
 
-Every designator that is performed needs to be in an environment that specifies where to perform the designator either
-on the real robot or the simulated one. This environment is called {meth}`~coraplex.process_module.simulated_robot`  similar there is also
-a {meth}`~coraplex.process_module.real_robot` environment.
-
-There are also decorators which do the same thing but for whole methods, they are called {meth}`~coraplex.process_module.with_real_robot` 
-and {meth}`~coraplex.process_module.with_simulated_robot`.
+Where a plan is performed is chosen by its executor: a
+{class}`~coraplex.plans.executors.SimulatedPlanExecutor` performs it on the simulated robot, a
+{class}`~coraplex.plans.executors.RobotPlanExecutor` on the real one.
 
 ## Move Torso
 
 This action designator moves the torso up or down, specifically it sets the torso joint to a given value.
 
-We start again by creating a description and resolving it to a designator. Afterwards, the designator is performed in
-a {meth}`~coraplex.process_module.simulated_robot` environment.
+We start again by creating the action. Afterwards, it is performed by a simulated executor.
 
 ```python
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
-from coraplex.execution_environment import simulated_robot
 from semantic_digital_twin.datastructures.definitions import TorsoState
 
 torso_pose = TorsoState.HIGH
 
-torso_desig = MoveTorsoAction(torso_pose)
+plan = MoveTorsoAction(torso_pose)
 
-plan = execute_single(torso_desig, context=context).plan
-
-with simulated_robot:
-    plan.perform()
+run(plan)
 ```
 
 ## Set Gripper
@@ -135,15 +135,13 @@ As the name implies, this action designator is used to open or close the gripper
 The procedure is similar to the last time, but this time we will shorten it a bit.
 
 ```python
-from coraplex.execution_environment import simulated_robot
 from coraplex.robot_plans.actions.core.robot_body import SetGripperAction
 from semantic_digital_twin.datastructures.definitions import GripperState
 
 gripper = pr2.right_arm.end_effector
 motion = GripperState.OPEN
 
-with simulated_robot:
-    execute_single(SetGripperAction(gripper=gripper, motion=motion), context=context).perform()
+run(SetGripperAction(gripper=gripper, motion=motion))
 ```
 
 ## Park Arms
@@ -152,10 +150,8 @@ Park arms is used to move one or both arms into the default parking position.
 
 ```python
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
-from coraplex.execution_environment import simulated_robot
 
-with simulated_robot:
-    execute_single(ParkArmsAction(pr2.all_arms), context=context).perform()
+run(ParkArmsAction(pr2.all_arms))
 ```
 
 ## Pick Up and Place
@@ -169,7 +165,6 @@ the example on object designators for more details.
 To start we need an environment in which we can pick up and place things as well as an object to pick up.
 
 ```python
-from coraplex.execution_environment import simulated_robot
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
@@ -179,27 +174,24 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 
 import rclpy
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
+from cramph.composites import Sequence
 
 arm = pr2.right_arm
 milk = world.get_semantic_annotations_by_type(Milk)[0]
 
-with simulated_robot:
-    sequential(
-        [ParkArmsAction(pr2.all_arms),
-         MoveTorsoAction(TorsoState.HIGH),
-         NavigateAction(
-             Pose.from_xyz_rpy(1.5, 2.4, 0.0, reference_frame=world.root)
-         ),
-         PickUpAction(
-             grasp=next(iter(milk.grasp_candidates())),
-             arm=arm,
-         ),
-         PlaceAction(
-             object_designator=milk,
-             target_location=Pose.from_xyz_rpy(2.4, 2.2, 1, reference_frame=world.root),
-         )],
-        context=context,
-    ).perform()
+run(Sequence([ParkArmsAction(pr2.all_arms),
+     MoveTorsoAction(TorsoState.HIGH),
+     NavigateAction(
+         Pose.from_xyz_rpy(1.5, 2.4, 0.0, reference_frame=world.root)
+     ),
+     PickUpAction(
+         grasp=next(iter(milk.grasp_candidates())),
+         arm=arm,
+     ),
+     PlaceAction(
+         object_designator=milk,
+         target_location=Pose.from_xyz_rpy(2.4, 2.2, 1, reference_frame=world.root),
+     )]))
 ```
 
 ## Look At
@@ -208,11 +200,9 @@ Look at lets the robot look at a specific point, for example if it should look a
 
 ```python
 from coraplex.robot_plans.actions.core.navigation import LookAtAction
-from coraplex.execution_environment import simulated_robot
 
 target_location = Pose.from_xyz_rpy(3, 2, 1, reference_frame=world.root)
-with simulated_robot:
-    execute_single(LookAtAction(target=target_location), context=context).perform()
+run(LookAtAction(target=target_location))
 ```
 
 ## Detect
@@ -252,20 +242,20 @@ don't need to do this if you already have spawned it in a previous example.
 
 ```python
 from coraplex.robot_plans import *
-from coraplex.execution_environment import simulated_robot
 from coraplex.robot_plans.actions.composite.transporting import TransportAction
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
+from cramph.composites import Sequence
 
 description = TransportAction.from_graspable_by_closest_grasps(
     world.get_semantic_annotations_by_type(Milk)[0],
     Pose.from_xyz_quaternion(3.0, 2.2, 1.04, 0.0, 0.0, 1.0, 0.0, reference_frame=world.root),
     pr2.left_arm,
     context,
+    seed=0,
 )
-with simulated_robot:
-    sequential([MoveTorsoAction(TorsoState.HIGH),
-                description], context=context).perform()
+run(Sequence([MoveTorsoAction(TorsoState.HIGH),
+            description]))
 ```
 
 ## Opening
@@ -278,9 +268,9 @@ apartment.
 
 ```python
 from coraplex.robot_plans import *
-from coraplex.execution_environment import simulated_robot
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from coraplex.robot_plans.actions.core.container import OpenAction
+from cramph.composites import Sequence
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle
 
 # Opening reaches for a handle, so it is named by the handle's annotation rather than by
@@ -290,14 +280,13 @@ with world.modify_world():
         handle := Handle(root=world.get_body_by_name("handle_cab10_t"))
     )
 
-with simulated_robot:
-    sequential([
-        MoveTorsoAction(TorsoState.HIGH),
-        ParkArmsAction(pr2.all_arms),
-        NavigateAction(Pose.from_xyz_quaternion(1.7074915981292725, 2.6873629093170166, 0.0,
-                                                -0.0, 0.0, 0.5253598267689507, -0.850880163370435,
-                                                reference_frame=world.root)),
-        OpenAction(handle, pr2.right_arm)], context=context).perform()
+run(Sequence([
+    MoveTorsoAction(TorsoState.HIGH),
+    ParkArmsAction(pr2.all_arms),
+    NavigateAction(Pose.from_xyz_quaternion(1.7074915981292725, 2.6873629093170166, 0.0,
+                                            -0.0, 0.0, 0.5253598267689507, -0.850880163370435,
+                                            reference_frame=world.root)),
+    OpenAction(handle, pr2.right_arm)]))
 ```
 
 ## Closing
@@ -310,14 +299,13 @@ the apartment. Additionally, we open the drawer such that we can close it with t
 
 ```python
 from coraplex.robot_plans.actions.core.container import CloseAction
-from coraplex.execution_environment import simulated_robot
+from cramph.composites import Sequence
 
-with simulated_robot:
-    sequential([
-        MoveTorsoAction(TorsoState.HIGH),
-        ParkArmsAction(pr2.all_arms),
-        NavigateAction(Pose.from_xyz_quaternion(1.72, 2.65, 0.0,
-                                                -0.0, 0.0, 0.5253598267689507, -0.850880163370435,
-                                                reference_frame=world.root)),
-        CloseAction(handle, pr2.right_arm)], context=context).perform()
+run(Sequence([
+    MoveTorsoAction(TorsoState.HIGH),
+    ParkArmsAction(pr2.all_arms),
+    NavigateAction(Pose.from_xyz_quaternion(1.72, 2.65, 0.0,
+                                            -0.0, 0.0, 0.5253598267689507, -0.850880163370435,
+                                            reference_frame=world.root)),
+    CloseAction(handle, pr2.right_arm)]))
 ```

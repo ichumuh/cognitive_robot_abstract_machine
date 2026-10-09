@@ -9,7 +9,6 @@ import pytest
 
 from cramera.live import runner
 
-
 # %% command lifetime
 
 

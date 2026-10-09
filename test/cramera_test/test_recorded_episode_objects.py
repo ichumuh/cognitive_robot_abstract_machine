@@ -8,7 +8,6 @@ from cramera.live.bridge import Bridge
 
 from .test_recording_save_transaction import recorded_bridge
 
-
 # %% recorded object references
 
 

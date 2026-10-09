@@ -1,18 +1,12 @@
 """
-Native plan status publication and plan inspection after recording.
+Plan status publication and plan inspection after recording.
 """
 
 from __future__ import annotations
 
 from typing_extensions import TYPE_CHECKING
 
-from coraplex.language import SequentialNode
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import ActionNode, MotionNode
-from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.motions.base import BaseMotion
-
-from giskardpy.motion_statechart.data_types import (
+from cramph.data_types import (
     LifeCycleValues,
     ObservationStateValues,
 )
@@ -28,7 +22,7 @@ from cramera.generated_json import GeneratedJson
 from cramera import paths
 
 from .dataset.motion_execution import motion_execution
-from .test_live_bridge import nodes_by_kind, plan_bridge
+from .test_live_bridge import make_plan_node, make_statechart, nodes_by_kind
 from .test_live_bundle import attached_bridge
 from .test_recording_bundle import frame_with_milk
 from .test_live_recording import statechart, snapshot
@@ -40,9 +34,9 @@ if TYPE_CHECKING:
 # %% native status publication
 
 
-class TestNativePlanStatus:
+class TestPlanStatus:
     """
-    Native lifecycle values retain their meaning in the viewer.
+    Life cycle values retain their meaning in the viewer.
     """
 
     def test_an_unstarted_parent_keeps_its_state_with_a_running_child(self) -> None:
@@ -50,37 +44,26 @@ class TestNativePlanStatus:
         A child's execution does not replace its parent's current lifecycle.
         """
         bridge = Bridge()
-        child = MotionNode(designator=BaseMotion(), status=LifeCycleValues.RUNNING)
-        root = SequentialNode()
-        plan = Plan()
-        plan.add_edge(root, child)
-        bridge.begin_plan(plan)
-        assert nodes_by_kind(bridge)["SequentialNode"]["status"] == root.status.name
+        child = make_plan_node("MotionNode", life_cycle_state=LifeCycleValues.RUNNING)
+        root = make_plan_node("SequentialNode", children=[child])
 
-    def test_a_paused_motion_publishes_a_paused_status(self) -> None:
-        """
-        A paused native motion is serialized with its native lifecycle name.
-        """
+        bridge.begin_plan(make_statechart(root))
+
+        assert (
+            nodes_by_kind(bridge)["SequentialNode"]["status"]
+            == root.life_cycle_state.name
+        )
+
+    def test_a_paused_motion_publishes_a_paused_status(self):
         bridge = Bridge()
-        motion = MotionNode(designator=BaseMotion(), status=LifeCycleValues.PAUSED)
-        plan = Plan()
-        plan.add_node(motion)
-        bridge.begin_plan(plan)
-        assert nodes_by_kind(bridge)["MotionNode"]["status"] == motion.status.name
+        motion = make_plan_node("MotionNode", life_cycle_state=LifeCycleValues.PAUSED)
 
-    def test_unexecuted_conditions_do_not_keep_a_completed_action_running(
-        self, plan_bridge
-    ) -> None:
-        """
-        An action retains completion even when its condition was not executed.
+        bridge.begin_plan(make_statechart(motion))
 
-        :param plan_bridge: The bridge and its native plan nodes.
-        """
-        bridge, _, action, condition, motion = plan_bridge
-        action.status = motion.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == action.status.name
-        assert nodes_by_kind(bridge)["ConditionNode"]["status"] == condition.status.name
+        assert (
+            nodes_by_kind(bridge)["MotionNode"]["status"]
+            == motion.life_cycle_state.name
+        )
 
 
 # %% plan persistence
@@ -102,7 +85,7 @@ class TestMotionHistoryRecording:
         bridge.recording.start()
         chart = motion_execution.chart
         chart.observation_state.data[-1] = ObservationStateValues.FALSE
-        motion_execution.callback.on_start(motion_execution.motion)
+        motion_execution.compile()
         motion_execution.record(LifeCycleValues.RUNNING)
         bridge.recording.append(
             snapshot(frames={"joint": 0.5}), statechart=bridge.executing_statechart()
@@ -111,7 +94,7 @@ class TestMotionHistoryRecording:
         chart.observation_state.data[-1] = ObservationStateValues.TRUE
 
         motion_execution.record(LifeCycleValues.SUCCEEDED)
-        motion_execution.callback.on_end(motion_execution.plan.root)
+        motion_execution.publishing.finish()
 
         [recorded] = bridge.recording.stop()
         assert recorded.statechart == bridge.executing_statechart()
@@ -130,14 +113,14 @@ class TestMotionHistoryRecording:
         bridge = motion_execution.bridge
         bridge.recording = Recording()
         bridge.recording.start()
-        motion_execution.callback.on_start(motion_execution.motion)
+        motion_execution.compile()
         motion_execution.record(LifeCycleValues.RUNNING)
         bridge.recording.append(snapshot(), statechart=bridge.executing_statechart())
         original = bridge.recording.stop()
         motion_execution.chart.observation_state.data[-1] = ObservationStateValues.TRUE
 
         motion_execution.record(LifeCycleValues.SUCCEEDED)
-        motion_execution.callback.on_end(motion_execution.plan.root)
+        motion_execution.publishing.finish()
 
         assert bridge.recording.stop() == original
 
@@ -154,13 +137,13 @@ class TestRecordedPlan:
         :param tmp_path: Temporary directory for the exported recording.
         """
         bridge = attached_bridge()
-        child = ActionNode(
-            designator=ActionDescription(), status=LifeCycleValues.SUCCEEDED
+        child = make_plan_node("ActionNode", life_cycle_state=LifeCycleValues.SUCCEEDED)
+        root = make_plan_node(
+            "SequentialNode",
+            life_cycle_state=LifeCycleValues.SUCCEEDED,
+            children=[child],
         )
-        root = SequentialNode(status=LifeCycleValues.SUCCEEDED)
-        plan = Plan()
-        plan.add_edge(root, child)
-        bridge.begin_plan(plan)
+        bridge.begin_plan(make_statechart(root))
 
         scene = write_recording_bundle(
             bridge, [frame_with_milk()], 20.0, tmp_path / "recording", "finished_run"
@@ -170,7 +153,7 @@ class TestRecordedPlan:
         assert recorded_root["label"] == type(root).__name__
         assert recorded_root["status"] == LifeCycleValues.SUCCEEDED.name
         [recorded_child] = recorded_root["children"]
-        assert recorded_child["label"] == type(child.designator).__name__
+        assert recorded_child["label"] == type(child).__name__
         assert recorded_child["children"] == []
 
     def test_trim_keeps_the_statecharts_of_the_selected_frames(

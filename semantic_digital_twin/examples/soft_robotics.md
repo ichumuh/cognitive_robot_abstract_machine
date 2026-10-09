@@ -56,15 +56,21 @@ print("PCC Robot Ready. Set fixed frame to 'piecewise_constant_curvature/base' i
 We use Giskardpy's constraint-based task planner to move the soft tip through a sequence of 3D Cartesian coordinates.
 
 ```{code-cell} ipython3
-from giskardpy.executor import Executor, SimulationPacer
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.goals.templates import Sequence
+from cramph.context import StatechartContext
+from cramph.executor import SimulationPacer, StatechartExecutor
+from giskardpy.motion_control import MotionControl
+from cramph.composites import Sequence
 from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from semantic_digital_twin.spatial_types import Point3
 
-msc_pcc = MotionStatechart()
+executor_pcc = StatechartExecutor(
+    context=StatechartContext(world=world_pcc),
+    pacer=SimulationPacer(real_time_factor=1),
+    extensions=[MotionControl()],
+)
+msc_pcc = Statechart(context=executor_pcc.context)
 msc_pcc.add_node(
     goal_pcc := Sequence(
         [
@@ -89,10 +95,6 @@ msc_pcc.add_node(
 msc_pcc.add_node(EndMotion.when_true(goal_pcc))
 
 # Execute the motion statechart
-executor_pcc = Executor(
-    context=MotionStatechartContext(world=world_pcc),
-    pacer=SimulationPacer(real_time_factor=1),
-)
 executor_pcc.compile(msc_pcc)
 executor_pcc.tick_until_end()
 ```
@@ -120,7 +122,12 @@ print("Cosserat Robot Ready. Set fixed frame to 'cosserat/base' in RViz.")
 We run the same Giskardpy sequence on the Cosserat model. We include a distal target to trigger stretching.
 
 ```{code-cell} ipython3
-msc_cos = MotionStatechart()
+executor_cos = StatechartExecutor(
+    context=StatechartContext(world=world_cosserat),
+    pacer=SimulationPacer(real_time_factor=1),
+    extensions=[MotionControl()],
+)
+msc_cos = Statechart(context=executor_cos.context)
 msc_cos.add_node(
     goal_cos := Sequence(
         [
@@ -145,10 +152,6 @@ msc_cos.add_node(
 )
 msc_cos.add_node(EndMotion.when_true(goal_cos))
 
-executor_cos = Executor(
-    context=MotionStatechartContext(world=world_cosserat),
-    pacer=SimulationPacer(real_time_factor=1),
-)
 executor_cos.compile(msc_cos)
 executor_cos.tick_until_end()
 ```

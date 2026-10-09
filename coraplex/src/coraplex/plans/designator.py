@@ -1,72 +1,91 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, Field
-from typing import TYPE_CHECKING, Dict
+import sys
+from dataclasses import dataclass, Field, fields
+from functools import cached_property
 
-from typing_extensions import Optional, List, Any
+from typing_extensions import Any, Dict, List, TypeVar, get_type_hints
 
-from krrood.class_diagrams.attribute_introspector import (
-    DataclassOnlyIntrospector,
-)
+from krrood.entity_query_language.core.variable import Variable
+from krrood.entity_query_language.factories import variable
 from krrood.ormatic.utils import classproperty
-from coraplex.exceptions import ContextIsUnavailable
-from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.world import World
+from krrood.patterns.field_metadata import ParameterMetadata
 
-if TYPE_CHECKING:
-    from coraplex.plans.plan import Plan
-    from coraplex.plans.plan_node import PlanNode
-    from coraplex.datastructures.dataclasses import Context
+T = TypeVar("T")
 
 
-@dataclass
-class Designator:
+@dataclass(eq=False)
+class DesignatorParameters:
     """
-    Abstract base class for designators.
+    Reads back the parameters a designator was built with, off its dataclass fields.
 
-    Designators are objects that can be executed and are managed by a plan node.
+    Carries no state of its own, so anything can mix it in to describe itself by the
+    arguments it was given, whatever else it happens to be.
     """
-
-    plan_node: Optional[PlanNode] = field(
-        kw_only=True, default=None, repr=False, init=False
-    )
-    """
-    The plan node that manages the designator.
-    """
-
-    @property
-    def plan(self) -> Plan:
-        if self.plan_node is None:
-            raise ContextIsUnavailable(self)
-        return self.plan_node.plan
-
-    @property
-    def robot(self) -> AbstractRobot:
-        if self.plan_node is None:
-            raise ContextIsUnavailable(self)
-        return self.plan.robot
-
-    @property
-    def world(self) -> World:
-        if self.plan_node is None:
-            raise ContextIsUnavailable(self)
-        return self.plan_node.plan.world
-
-    @property
-    def context(self) -> Context:
-        return self.plan.context
 
     @classproperty
     def fields(cls) -> List[Field]:
         """
-        The parameters of this designator: the fields a caller constructs it with.
+        The fields of this designator a caller sets: every field taking a constructor
+        argument, unless it is marked as no parameter with
+        :class:`~krrood.patterns.field_metadata.ParameterMetadata`.
 
-        :return: The fields of this designator.
+        :return: The fields the caller parameterizes this designator with.
         """
-        return [
-            discovered.field for discovered in DataclassOnlyIntrospector().discover(cls)
+        parameter_fields = [
+            dataclass_field
+            for dataclass_field in fields(cls)
+            if dataclass_field.init and cls._is_parameter(dataclass_field)
         ]
+        type_hints = cls.get_type_hints()
+        for parameter_field in parameter_fields:
+            parameter_field.type = type_hints[parameter_field.name]
+        return parameter_fields
+
+    @staticmethod
+    def _is_parameter(dataclass_field: Field) -> bool:
+        """
+        :return: Whether `dataclass_field` is not marked as no parameter.
+        """
+        metadata = dataclass_field.metadata.get(ParameterMetadata)
+        return metadata is None or metadata.is_parameter
 
     @property
     def designator_parameter(self) -> Dict[str, Any]:
+        """
+        :return: Every parameter of this designator, by the name it was given under.
+        """
         return {f.name: getattr(self, f.name) for f in self.fields}
+
+    @cached_property
+    def bound_variables(self) -> Dict[T, Variable[T] | T]:
+        """
+        :return: A variable per parameter of this designator, bound to the value it was
+            given.
+        """
+        return self._create_variables()
+
+    def _create_variables(self) -> Dict[str, Variable[T] | T]:
+        """
+        Creates krrood variables for all parameter of this designator.
+
+        :return: A dict with parameters as keys and variables as values.
+        """
+        return {
+            f.name: variable(
+                type(getattr(self, f.name)),
+                ([getattr(self, f.name)]),
+            )
+            for f in self.fields
+        }
+
+    @classmethod
+    def get_type_hints(cls) -> Dict[str, Any]:
+        """
+        Returns the type hints of the __init__ method of this designator_description
+        description.
+
+        :return:
+        """
+        global_namespace = sys.modules[cls.__module__].__dict__
+        return get_type_hints(cls.__init__, globalns=global_namespace)

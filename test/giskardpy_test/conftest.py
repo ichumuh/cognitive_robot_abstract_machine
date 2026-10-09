@@ -18,8 +18,8 @@ from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
     SetSeedConfiguration,
     SetOdometry,
 )
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
-from krrood.symbolic_math.symbolic_math import trinary_logic_and
+from cramph.statechart import Statechart
+from krrood.symbolic_math.symbolic_math import logic_and
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
@@ -93,7 +93,7 @@ def giskard_factory(init_rospy, robot: GiskardTester):
             robot.api.world.get_connection_by_name(name): target
             for name, target in seed_joint_state.items()
         }
-        msc = MotionStatechart()
+        msc = Statechart()
 
         initial_config = SetSeedConfiguration(
             name="initial configuration",
@@ -107,12 +107,12 @@ def giskard_factory(init_rospy, robot: GiskardTester):
             )
             base_pose_reached = SetOdometry(name="initial pose", base_pose=base_goal)
             msc.add_node(base_pose_reached)
-            done = trinary_logic_and(
-                initial_config.observation_variable,
-                base_pose_reached.observation_variable,
+            done = logic_and(
+                initial_config.observes_true,
+                base_pose_reached.observes_true,
             )
         else:
-            done = initial_config.observation_variable
+            done = initial_config.observes_true
         end = EndMotion(name="end")
         msc.add_node(end)
         end.start_condition = done

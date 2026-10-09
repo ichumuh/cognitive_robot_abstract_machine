@@ -9,15 +9,20 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import DifferentialDrive
 from semantic_digital_twin.world_description.world_entity import (
-    Body,
     KinematicStructureEntity,
 )
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from cramph.node import EndedByOwner, SucceedsOnObservingTrue, FailsOnObservingFalse
+from cramph.composites import Sequence, Parallel
+from cramph.node import CompositeNode, NodeArtifacts
+from krrood.symbolic_math.symbolic_math import (
+    Scalar,
+    logic_or,
+    trinary_if_cases,
+)
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.exceptions import UnexpectedWorldEntityCountError
-from giskardpy.motion_statechart.graph_node import Goal, MotionStatechartNode
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianOrientation,
     CartesianPositionStraight,
@@ -26,9 +31,12 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 
 
 @dataclass(eq=False, repr=False)
-class DifferentialDriveBaseGoal(Sequence):
+class DifferentialDriveBaseGoal(
+    SucceedsOnObservingTrue, FailsOnObservingFalse, CompositeNode
+):
     """
-    A sequence that moves the robot to a goal pose using a differential drive.
+    Moves the robot to a goal pose using a differential drive, running these steps in
+    one :class:`~cramph.composites.Sequence`:
 
     1. Orient to goal position
     2. Drive to goal position
@@ -57,14 +65,22 @@ class DifferentialDriveBaseGoal(Sequence):
     Task priority relative to other tasks.
     """
 
-    nodes: list[MotionStatechartNode] = field(default_factory=list, init=False)
-
     threshold: float = field(default=0.01, kw_only=True)
     """
     Threshold when the drive goals for the base are considered achieved.
     """
 
-    def expand(self, context: MotionStatechartContext) -> None:
+    @property
+    def sequence(self) -> Sequence:
+        """
+        The sequence running the three steps.
+        """
+        return self.nodes[0]
+
+    def expand(self, context: StatechartContext) -> None:
+        """
+        Add the sequence running the three steps.
+        """
         if self.diff_drive_connection is None:
             diff_drives = context.world.get_connections_by_type(DifferentialDrive)
             if len(diff_drives) == 0:
@@ -100,7 +116,7 @@ class DifferentialDriveBaseGoal(Sequence):
             reference_frame=map,
         )
 
-        self.nodes = [
+        steps = [
             CartesianOrientation(
                 name=f"{self.name}/step1",
                 root_link=map,
@@ -128,14 +144,33 @@ class DifferentialDriveBaseGoal(Sequence):
                 orientation_threshold=self.threshold,
             ),
         ]
-        super().expand(context)
+        self._add_child_to_statechart(
+            Sequence(name=f"{self.name}/sequence", nodes=steps)
+        )
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        """
+        Report the outcome of the sequence.
+        """
+        return NodeArtifacts(
+            observation=trinary_if_cases(
+                cases=[
+                    (self.sequence.is_succeeded, Scalar.const_true()),
+                    (self.sequence.is_failed_or_interrupted, Scalar.const_false()),
+                ],
+                else_result=Scalar.const_trinary_unknown(),
+            )
+        )
 
 
 @dataclass(eq=False, repr=False)
-class CartesianPoseStraight(Parallel):
+class CartesianPoseStraight(EndedByOwner, CompositeNode):
     """
     Like CartesianPose, but constrains the tip link to move in a straight line towards
     the goal.
+
+    Both tasks run in one :class:`~cramph.composites.Parallel`, and this goal observes
+    what that parallel observes.
     """
 
     root_link: KinematicStructureEntity = field(kw_only=True)
@@ -167,10 +202,18 @@ class CartesianPoseStraight(Parallel):
     See GoalBindingPolicy for more information.
     """
 
-    nodes: list[MotionStatechartNode] = field(default_factory=list, init=False)
+    @property
+    def parallel(self) -> Parallel:
+        """
+        The parallel running the position and the orientation task.
+        """
+        return self.nodes[0]
 
-    def expand(self, context: MotionStatechartContext) -> None:
-        self.nodes = [
+    def expand(self, context: StatechartContext) -> None:
+        """
+        Add the parallel running the position and the orientation task.
+        """
+        tasks = [
             CartesianPositionStraight(
                 name=self.name + "/position",
                 root_link=self.root_link,
@@ -188,4 +231,22 @@ class CartesianPoseStraight(Parallel):
                 binding_policy=self.binding_policy,
             ),
         ]
-        super().expand(context)
+        self._add_child_to_statechart(
+            Parallel(name=f"{self.name}/parallel", nodes=tasks)
+        )
+
+    @property
+    def inherent_fail_condition(self) -> Scalar:
+        """
+        Fails as well once the parallel can no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
+        """
+        return logic_or(
+            super().inherent_fail_condition, self.parallel.is_failed_or_interrupted
+        )
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        """
+        Observe what the parallel observes.
+        """
+        return NodeArtifacts(observation=self.parallel.observation_variable)

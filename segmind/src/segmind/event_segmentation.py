@@ -9,16 +9,17 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
 from typing_extensions import List, Optional, Self, Sequence, Type
 
 from segmind.detector_selection import DetectorSelection
 from segmind.detectors.atomic_event_detectors_nodes import MotionDetector
 from segmind.detectors.base import AbstractDetector, SegmindContext
-from segmind.episode_segmenter import EpisodeSegmenterExecutor
+from segmind.episode_segmenter import EpisodeSegmentation
 from segmind.event_logger import EventLogger
 from segmind.exceptions import NoSemanticAnnotationToWatch
-from segmind.statecharts.segmind_statechart import SegmindStatechart
+from segmind.statecharts.segmind_statechart import DetectorStatechartBuilder
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -58,7 +59,7 @@ class Segmind:
     The least time, in seconds, the world is left to other threads after a tick.
     """
 
-    executor: EpisodeSegmenterExecutor = field(init=False)
+    executor: StatechartExecutor = field(init=False)
     """
     Compiles and ticks the detectors.
     """
@@ -74,10 +75,13 @@ class Segmind:
     """
 
     def __post_init__(self) -> None:
-        self.executor = EpisodeSegmenterExecutor(
-            context=MotionStatechartContext(world=self.world)
+        self.executor = StatechartExecutor(
+            context=StatechartContext(world=self.world),
+            extensions=[EpisodeSegmentation()],
         )
-        self.executor.compile(SegmindStatechart().build_statechart(self.detectors))
+        self.executor.compile(
+            DetectorStatechartBuilder(self.detectors).build(self.executor.context)
+        )
 
     @classmethod
     def create_for_bodies(

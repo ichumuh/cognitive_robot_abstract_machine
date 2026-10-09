@@ -1,4 +1,3 @@
-from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingCone
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world import World
@@ -7,6 +6,7 @@ from test.giskardpy_test.test_motion_statechart.debug_expression_helpers import 
     GOAL_COLOR,
     debug_expression_by_name,
 )
+from ..motion_control_context import create_context_with_motion_control
 
 
 class TestPointingDebugExpressions:
@@ -26,7 +26,7 @@ class TestPointingDebugExpressions:
             name="point",
         )
 
-        artifacts = task.build(MotionStatechartContext(world=cylinder_bot_world))
+        artifacts = task.build(create_context_with_motion_control(cylinder_bot_world))
 
         goal = debug_expression_by_name(artifacts.debug_expressions, "point/goal")
         current = debug_expression_by_name(artifacts.debug_expressions, "point/current")
@@ -47,7 +47,7 @@ class TestPointingDebugExpressions:
             name="cone",
         )
 
-        artifacts = task.build(MotionStatechartContext(world=cylinder_bot_world))
+        artifacts = task.build(create_context_with_motion_control(cylinder_bot_world))
 
         goal = debug_expression_by_name(artifacts.debug_expressions, "cone/goal")
         current = debug_expression_by_name(artifacts.debug_expressions, "cone/current")

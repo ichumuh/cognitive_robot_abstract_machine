@@ -2,21 +2,21 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing_extensions import TYPE_CHECKING, Type
+from typing_extensions import TYPE_CHECKING, List, Type
 
 from krrood.entity_query_language.factories import ConditionType, get_false_statements
 from krrood.exceptions import DataclassException
 from coraplex.datastructures.enums import (
-    ExecutionType,
     VisualizationBackend,
     VisualizationOption,
 )
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
-    from coraplex.plans.designator import Designator
-    from coraplex.plans.plan_node import PlanNode
-    from coraplex.robot_plans.actions.base import ActionDescription
+    from coraplex.plans.designator import DesignatorParameters
+    from coraplex.robot_plans.actions.base import Action
+    from cramph.composites import CompositeNodeChoosingItsChild
+    from cramph.node import StatechartNode
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
     from semantic_digital_twin.grasping.grasp_candidates import HasGraspCandidates
     from semantic_digital_twin.world_description.world_entity import (
@@ -80,26 +80,38 @@ class VisualizationBackendUnavailable(DataclassException):
 
 # %% plan execution
 @dataclass
-class ContextIsUnavailable(DataclassException):
+class PlanNotCompiled(DataclassException):
     """
-    Raised when an instance that tries to access the context of a plan has no reference
-    to the plan.
-
-    Most likely raised when an action created a subplan without calling
-    `ActionDescription.add_subplan`
-    """
-
-    instance: Designator
-    """
-    The instance where the plan node is None.
+    Raised when a plan executor is asked to execute before it compiled a plan.
     """
 
     def error_message(self) -> str:
-        return f"{self.instance} has no plan node."
+        return "No plan was compiled to execute."
+
+    def suggest_correction(self) -> str:
+        return "call compile with the plan before calling execute."
+
+
+@dataclass
+class NotAnUnderspecifiedNode(DataclassException):
+    """
+    Raised when a node asks for a child to be grounded that carries no underspecified
+    statement.
+    """
+
+    node: CompositeNodeChoosingItsChild
+    """
+    The node that asked.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.node} carries no underspecified statement to ground a child from."
+        )
 
     def suggest_correction(self) -> str:
         return (
-            "did you forget to call `add_subplan` when creating plans inside actions?"
+            "build nodes that choose their child in a plan with `a(...)` or `an(...)`."
         )
 
 
@@ -131,53 +143,13 @@ class CannotMatchOnType(DataclassException):
 
 
 @dataclass
-class CannotInsertBesideRoot(DataclassException):
-    """
-    Raised when a node is to be inserted before or after the root node, which has no
-    parent that could hold the new sibling.
-    """
-
-    root: PlanNode
-    """
-    The root node that was given as the reference node.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"{self.root} is the root of the plan and has no parent to hold a sibling."
-        )
-
-    def suggest_correction(self) -> str:
-        return "insert the node as the last child of the root instead"
-
-
-@dataclass
-class NodeNotInPlanTree(DataclassException):
-    """
-    Raised when the nodes before a node are asked for, but the node cannot be reached
-    from the root of its plan.
-    """
-
-    node: PlanNode
-    """
-    The node that is not part of its plan's tree.
-    """
-
-    def error_message(self) -> str:
-        return f"{self.node} cannot be reached from the root of its plan."
-
-    def suggest_correction(self) -> str:
-        return "add the node below the plan's root before asking what precedes it"
-
-
-@dataclass
 class ReachHasNoFinalApproach(DataclassException):
     """
     Raised when the final approach of a reach is asked for, but no tool center point
     motion lies below the reach's node.
     """
 
-    plan_node: PlanNode
+    plan_node: StatechartNode
     """
     The node of the reach.
     """
@@ -190,12 +162,31 @@ class ReachHasNoFinalApproach(DataclassException):
 
 
 @dataclass
+class ToolPathNotFound(DataclassException):
+    """
+    Raised when the goal moving a tool along its path is asked for, but no such goal
+    lies below the tool action's node.
+    """
+
+    plan_node: StatechartNode
+    """
+    The node of the tool action.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.plan_node} has no goal moving its tool along a path below it."
+
+    def suggest_correction(self) -> str:
+        return "ask for the tool path only once the tool action has been expanded"
+
+
+@dataclass
 class MissingWaypoints(DataclassException):
     """
     Raised when a waypoint motion or tool action produced no waypoints to follow.
     """
 
-    instance: Designator
+    instance: DesignatorParameters
     """
     The designator that has no waypoints.
     """
@@ -213,7 +204,7 @@ class WipingTargetMissing(DataclassException):
     Raised when a wiping action is created without a surface to wipe.
     """
 
-    instance: Designator
+    instance: DesignatorParameters
     """
     The wiping action that has no target.
     """
@@ -252,7 +243,7 @@ class MissingToolFrame(DataclassException):
 class ConditionNotSatisfied(PlanFailure):
 
     pre_condition: bool
-    action: Type[ActionDescription]
+    action: Type[Action]
     condition: ConditionType
 
     def error_message(self) -> str:
@@ -261,6 +252,29 @@ class ConditionNotSatisfied(PlanFailure):
             return f"{prefix}-Condition for Action '{self.action.__name__}' is not satisfied"
         false_statements = get_false_statements(self.condition)
         return f"{prefix}-Condition for Action '{self.action.__name__}' is not satisfied, following statements could not be satisfied: {[s._name_ for s in false_statements]}"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class MotionDidNotFinish(PlanFailure):
+    """
+    Raised when a plan ended without succeeding.
+    """
+
+    unfinished_motions: List[StatechartNode]
+    """
+    The nodes that did not succeed, whether they failed, were interrupted or never
+    ended.
+    """
+
+    def error_message(self) -> str:
+        reports = ", ".join(
+            f"{motion.unique_name} ({motion.life_cycle_state.name})"
+            for motion in self.unfinished_motions
+        )
+        return f"Motion did not finish, following motions did not succeed: {reports}"
 
     def suggest_correction(self) -> str:
         return ""
@@ -283,24 +297,6 @@ class ObjectIsNotHeld(DataclassException):
 
     def suggest_correction(self) -> str:
         return "place the object after a pick-up of it."
-
-
-@dataclass
-class UnknownExecutionType(DataclassException):
-    """
-    Raised when an executable is run with an execution type it does not handle.
-    """
-
-    execution_type: ExecutionType
-    """
-    The execution type that is not supported.
-    """
-
-    def error_message(self) -> str:
-        return f"Unknown execution type: {self.execution_type}"
-
-    def suggest_correction(self) -> str:
-        return ""
 
 
 @dataclass

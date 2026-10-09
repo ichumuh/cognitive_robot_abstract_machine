@@ -2,30 +2,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Tuple, List
 
-from typing_extensions import Optional, Dict, Any
+from typing_extensions import Optional, Dict, Any, List
 
-from coraplex.plans.plan_node import PlanNode
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.variable import Variable
-from coraplex.datastructures.dataclasses import Context
-from coraplex.robot_plans import MoveManipulatorMotion
 from krrood.entity_query_language.factories import variable_from
 from semantic_digital_twin.reasoning.predicates import allclose
 from semantic_digital_twin.robots.robot_parts import Arm, EndEffector
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
+from coraplex.plans.context_extensions import MotionToleranceConfig, RobotAccess
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from coraplex.datastructures.trajectory import PoseTrajectory
-from coraplex.plans.factories import execute_single
-from coraplex.robot_plans.actions.base import ActionDescription, DescriptionType
-from coraplex.robot_plans.mixins import HasMaxJointVelocity, HasTcpGoalThresholds
-from coraplex.robot_plans.motions.gripper import (
-    MoveGripperMotion,
-    MoveTCPWaypointsMotion,
+from coraplex.robot_plans.actions.base import Action
+from coraplex.robot_plans.mixins import (
+    HasMaxJointVelocity,
+    MovesGripper,
+    MovesToolCenterPoint,
 )
-from coraplex.robot_plans.motions.robot_body import MoveJointsMotion
-from coraplex.validation.goal_validator import create_multiple_joint_goal_validator
+from cramph.composites import Parallel, Sequence
+from cramph.node import StatechartNode
+from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
+from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
+from giskardpy.motion_statechart.tasks.joint_tasks import (
+    JointPositionList,
+    JointVelocityLimit,
+)
+from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.definitions import (
     TorsoState,
     GripperState,
@@ -33,42 +41,40 @@ from semantic_digital_twin.datastructures.definitions import (
 )
 
 
-@dataclass
-class MoveTorsoAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class MoveTorsoAction(Action):
     """
     Move the torso of the robot up and down.
     """
 
     torso_state: TorsoState
     """
-    The state of the torso that should be set
+    The state of the torso that should be set.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_action_body(self) -> StatechartNode:
         joint_state = self.robot.get_torso().get_joint_state_by_type(self.torso_state)
-        return execute_single(
-            MoveJointsMotion(
-                [c.name.name for c in joint_state.connections],
-                joint_state.target_values,
-            ),
-        )
+        return Sequence([JointPositionList(goal_state=joint_state)])
 
     @staticmethod
     def post_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
+        variables: Dict[str, Variable],
+        context: StatechartContext,
+        kwargs: Dict[str, Any],
     ) -> SymbolicExpression | bool:
         """
         The target joint state for the torso needs to be achieved.
         """
-        joint_state = context.robot.get_torso().get_joint_state_by_type(
-            kwargs["torso_state"]
+        joint_state = (
+            context.require_extension(RobotAccess)
+            .robot.get_torso()
+            .get_joint_state_by_type(kwargs["torso_state"])
         )
         return variable_from(joint_state).is_achieved()
 
 
-@dataclass
-class SetGripperAction(ActionDescription):
+@dataclass(eq=False, repr=False)
+class SetGripperAction(Action, MovesGripper):
     """
     Set the gripper state of the robot.
     """
@@ -83,15 +89,12 @@ class SetGripperAction(ActionDescription):
     The motion that should be set on the gripper.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(
-            MoveGripperMotion(gripper=self.gripper, motion=self.motion)
-        )
+    def create_action_body(self) -> StatechartNode:
+        return self.gripper_goal(self.motion, self.gripper)
 
 
-@dataclass
-class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
+@dataclass(eq=False, repr=False)
+class ParkArmsAction(Action, HasMaxJointVelocity):
     """
     Park the arms of the robot.
     """
@@ -101,33 +104,37 @@ class ParkArmsAction(ActionDescription, HasMaxJointVelocity):
     The arms that should be parked.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        joint_names, joint_poses = self.get_joint_poses()
-
-        return execute_single(
-            MoveJointsMotion(
-                names=joint_names,
-                positions=joint_poses,
-                max_joint_velocity=self.max_joint_velocity,
-            )
+    def create_action_body(self) -> StatechartNode:
+        park_state = self.park_joint_state()
+        joint_goal = JointPositionList(goal_state=park_state)
+        if self.max_joint_velocity is None:
+            return joint_goal
+        return Parallel(
+            [
+                joint_goal,
+                JointVelocityLimit(
+                    connections=list(park_state.connections),
+                    max_velocity=self.max_joint_velocity,
+                ),
+            ]
         )
 
-    def get_joint_poses(self) -> Tuple[List[str], List[float]]:
+    def park_joint_state(self) -> JointState:
         """
-        :return: The joint positions that should be set for the arm to be in the park position.
+        :return: The joint state that puts every arm this action parks into its park
+            position.
         """
-        names = []
-        values = []
+        connections = []
+        target_values = []
         for arm in self.arms:
             joint_state = arm.get_joint_state_by_type(StaticJointState.PARK)
-            names.extend([c.name.name for c in joint_state.connections])
-            values.extend(joint_state.target_values)
-        return names, values
+            connections.extend(joint_state.connections)
+            target_values.extend(joint_state.target_values)
+        return JointState(connections=connections, target_values=target_values)
 
 
-@dataclass
-class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
+@dataclass(eq=False, repr=False)
+class FollowToolCenterPointPathAction(Action, MovesToolCenterPoint):
     """
     Represents an action to move a robotic arm's TCP (Tool Center Point) along a path of
     poses.
@@ -143,19 +150,32 @@ class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
     The arm to use.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        target_locations = list(self.target_locations.poses)
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
-        motion = MoveTCPWaypointsMotion(
-            target_locations,
-            self.arm,
-            allow_gripper_collision=True,
-            position_threshold=self.position_threshold,
-            orientation_threshold=self.orientation_threshold,
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            [self._waypoint_goal(pose) for pose in self.target_locations.poses]
         )
 
-        return execute_single(motion)
+    def _waypoint_goal(self, target: Pose) -> CartesianPose:
+        """
+        :param target: The waypoint the tool center point passes through.
+        :return: The task reaching that waypoint, leaving each threshold to giskard's
+            own default unless this action was given one.
+        """
+        thresholds = {}
+        if self.position_threshold is not None:
+            thresholds["translation_threshold"] = self.position_threshold
+        if self.orientation_threshold is not None:
+            thresholds["orientation_threshold"] = self.orientation_threshold
+        return CartesianPose(
+            root_link=self.controlled_root,
+            tip_link=self.arm.end_effector.tool_frame,
+            goal_pose=target,
+            **thresholds,
+        )
 
     def validate(
         self,
@@ -165,8 +185,8 @@ class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
         pass
 
 
-@dataclass
-class MoveManipulatorAction(ActionDescription, HasTcpGoalThresholds):
+@dataclass(eq=False, repr=False)
+class MoveManipulatorAction(Action, MovesToolCenterPoint):
     """
     Move the end_effector to a specific pose.
     """
@@ -186,21 +206,33 @@ class MoveManipulatorAction(ActionDescription, HasTcpGoalThresholds):
     If the gripper can collide with something.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(
-            MoveManipulatorMotion(
-                self.target_pose,
-                self.end_effector,
-                self.allow_gripper_collision,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
-            )
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
+
+    def create_action_body(self) -> StatechartNode:
+        goal = CartesianPose(
+            root_link=self.controlled_root,
+            tip_link=self.end_effector.tool_frame,
+            goal_pose=self.target_pose,
+            translation_threshold=self.resolved_position_threshold(),
+            orientation_threshold=self.resolved_orientation_threshold(),
+            binding_policy=GoalBindingPolicy.Bind_on_start,
+        )
+        if not self.allow_gripper_collision:
+            return goal
+        return Parallel(
+            [
+                goal,
+                UpdateTemporaryCollisionRules.for_end_effector(self.end_effector),
+            ]
         )
 
     @staticmethod
     def post_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
+        variables: Dict[str, Variable],
+        context: StatechartContext,
+        kwargs: Dict[str, Any],
     ) -> SymbolicExpression:
         end_effector = variables["end_effector"]
         target_pose = variables["target_pose"]

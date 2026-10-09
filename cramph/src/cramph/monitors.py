@@ -1,0 +1,259 @@
+import logging
+import time
+from abc import ABC, abstractmethod
+from dataclasses import field, dataclass
+from typing import Optional, Callable
+
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
+from cramph.data_types import LifeCycleValues, ObservationStateValues
+from cramph.node import StatechartNode, NodeArtifacts
+from cramph.threaded_nodes import ThreadedNode
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(eq=False, repr=False)
+class CheckTickCount(EndedByOwner, StatechartNode):
+    """
+    Sets observation to True if the tick count is above threshold.
+    """
+
+    threshold: int = field(kw_only=True)
+    """
+    After this many ticks, the node will turn True.
+    """
+
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
+        artifacts = NodeArtifacts()
+        artifacts.observation = context.tick_variable > self.threshold
+        return artifacts
+
+
+@dataclass(eq=False, repr=False)
+class Print(EndedByOwner, StatechartNode):
+    """
+    Prints a message to the console every tick.
+    """
+
+    message: str = ""
+
+    def on_tick(self, context: StatechartContext) -> ObservationStateValues:
+        print(self.message)
+        return ObservationStateValues.TRUE
+
+
+@dataclass(eq=False, repr=False)
+class CountSeconds(EndedByOwner, StatechartNode):
+    """
+    This node counts X seconds and then turns True.
+
+    Only counts while in state RUNNING, and it is up to whoever runs it to stop it once
+    it has counted far enough.
+    """
+
+    seconds: float = field(kw_only=True)
+    _now: Callable[[], float] = field(default=time.monotonic, kw_only=True, repr=False)
+    _start_time: float = field(init=False)
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        difference = self._now() - self._start_time
+        if difference >= self.seconds - 1e-5:
+            return ObservationStateValues.TRUE
+        return None
+
+    def on_start(self, context: StatechartContext):
+        self._start_time = self._now()
+
+
+@dataclass(eq=False, repr=False)
+class TickCounter(EndedByOwner, StatechartNode, ABC):
+    """
+    Base for nodes that count ticks while RUNNING and turn True once a target is
+    reached.
+
+    Only counts while in state RUNNING, and it is up to whoever runs it to stop it once
+    it reaches its target.
+    """
+
+    _counter: int = field(init=False, default=0)
+    """
+    Number of ticks counted since the last start/reset.
+    """
+
+    def on_start(self, context: StatechartContext):
+        self._counter = 0
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        self._counter += 1
+        if self._reached_target(context):
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE
+
+    @abstractmethod
+    def _reached_target(self, context: StatechartContext) -> bool:
+        """
+        Whether the counted target has been reached on the current tick.
+        """
+
+
+@dataclass(eq=False, repr=False)
+class CountSimulationTimeSeconds(TickCounter):
+    """
+    This node counts X seconds of simulation time (ticks * tick duration) and then turns
+    True.
+
+    Only counts while in state RUNNING.
+    """
+
+    seconds: float = field(kw_only=True)
+    """
+    How many seconds of simulation time to count.
+    """
+
+    def _reached_target(self, context: StatechartContext) -> bool:
+        return context.require_tick_duration() * self._counter >= self.seconds
+
+
+@dataclass(eq=False, repr=False)
+class CountTicks(TickCounter):
+    """
+    This node counts :attr:`ticks`-many ticks and then turns True.
+
+    Only counts while in state RUNNING.
+    """
+
+    ticks: int = field(kw_only=True)
+    """
+    Turns True after this many ticks.
+    """
+
+    def _reached_target(self, context: StatechartContext) -> bool:
+        return self._counter >= self.ticks
+
+
+@dataclass(eq=False, repr=False)
+class ThreadedPredicateMonitor(EndedByOwner, ThreadedNode):
+    """
+    Evaluates an arbitrary boolean predicate in a background thread and exposes the
+    result as the node's observation state.
+
+    The observation is ``UNKNOWN`` until the predicate returned, then ``TRUE`` or
+    ``FALSE`` by what it returned. If the predicate raises, the error is raised out of
+    the tick.
+
+    The predicate is a plain ``Callable[[], bool]`` so this class has no dependency on
+    whatever produces it (e.g. an EQL condition is wrapped in a lambda by the caller).
+    """
+
+    predicate: Optional[Callable[[], bool]] = field(kw_only=True)
+    """
+    The predicate to evaluate, passed as a constructor argument.
+    """
+
+    def run(self) -> bool:
+        return bool(self.predicate())
+
+    def on_start(self, context: StatechartContext) -> None:
+        """
+        Start evaluating the predicate, unless there is none.
+        """
+        if self.predicate is None:
+            logger.error(
+                "%s has no predicate; pass one via the `predicate` argument.",
+                self.unique_name,
+            )
+            return
+        super().on_start(context)
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        """
+        :raises BaseException: What the predicate raised, if it raised.
+        """
+        if not self.has_finished:
+            return ObservationStateValues.UNKNOWN
+        if self._error is not None:
+            logger.warning(
+                "%s predicate raised %s.",
+                self.unique_name,
+                self._error,
+            )
+            raise self._error
+        return (
+            ObservationStateValues.TRUE
+            if self._result
+            else ObservationStateValues.FALSE
+        )
+
+
+@dataclass(eq=False, repr=False)
+class Pulse(EndedByOwner, StatechartNode):
+    """
+    Will stay True for a single tick, then turn False.
+    """
+
+    _counter: int = field(default=0, init=False)
+    """
+    Keeps track of how many ticks have passed since first True.
+    """
+
+    length: int = field(default=1, kw_only=True)
+    """
+    Number of ticks to stay True.
+    """
+
+    def on_start(self, context: StatechartContext):
+        self._counter = 0
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        if self._counter < self.length:
+            self._triggered = True
+            self._counter += 1
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE
+
+
+@dataclass(eq=False, repr=False)
+class CountNodeResets(EndedByOwner, StatechartNode):
+    """
+    Turns True once :attr:`node` has been reset :attr:`target` times.
+
+    Counts attempts rather than ticks, by watching the node re-enter NOT_STARTED. Its
+    count is never cleared, unlike the counters that reset themselves when they start,
+    so it survives the resets it is counting.
+    """
+
+    node: StatechartNode = field(kw_only=True)
+    """
+    The node whose resets are counted.
+    """
+
+    target: int = field(kw_only=True)
+    """
+    Number of resets after which this turns True.
+    """
+
+    resets: int = field(default=0, init=False)
+    """
+    Resets of :attr:`node` seen so far.
+    """
+
+    _previous_life_cycle: Optional[LifeCycleValues] = field(
+        default=None, init=False, repr=False
+    )
+    """
+    Life cycle state of :attr:`node` on the previous tick.
+    """
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        current_life_cycle = self.node.life_cycle_state
+        if (
+            self._previous_life_cycle is not None
+            and current_life_cycle == LifeCycleValues.NOT_STARTED
+            and self._previous_life_cycle != LifeCycleValues.NOT_STARTED
+        ):
+            self.resets += 1
+        self._previous_life_cycle = current_life_cycle
+        if self.resets >= self.target:
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE

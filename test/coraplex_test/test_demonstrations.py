@@ -12,18 +12,18 @@ from dataclasses import dataclass, field
 
 import pytest
 import rclpy
-from typing_extensions import Iterator
+from typing_extensions import Iterator, List
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
-from coraplex.plans.executables import GiskardExecutable
-from coraplex.plans.factories import code
-from coraplex.plans.plan_node import PlanNode
 from coraplex.demonstrations import RobotDemonstration, RobotDemonstrationRosSession
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.world import World
+from cramph.threaded_nodes import FunctionCall
 
-from ..conftest import SAMPLING_SEED
+from ..plan_running import robot_extensions
+from cramph.context import ContextExtension, StatechartContext
+from coraplex.plans.context_extensions import ExecutionMode
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
 
 
 class PlanDeliberatelyFailed(Exception):
@@ -63,9 +63,9 @@ class RecordingDemonstration(RobotDemonstration):
     How often the ROS session was released.
     """
 
-    observed_execution_type: ExecutionType | None = field(default=None)
+    observed_simulated: bool | None = field(default=None)
     """
-    Execution type in force while the plan ran.
+    Whether the robot was simulated while the plan ran.
     """
 
     observed_collision_avoidance: bool | None = field(default=None)
@@ -73,9 +73,9 @@ class RecordingDemonstration(RobotDemonstration):
     Collision avoidance setting in force while the plan ran.
     """
 
-    built_context: Context | None = field(default=None)
+    observed_log_level: int | None = field(default=None)
     """
-    The context this demonstration built for its plan.
+    The level coraplex logged at while the plan ran.
     """
 
     segmenting_events: bool = False
@@ -97,18 +97,13 @@ class RecordingDemonstration(RobotDemonstration):
     def populate_scene(self, world: World) -> None:
         self.populate_scene_calls += 1
 
-    def build_context(self, world: World) -> Context:
-        self.built_context = Context(
-            world,
-            world.get_semantic_annotations_by_type(MinimalRobot)[0],
-            ros_node=self.ros_node,
-            sampling_seed=SAMPLING_SEED,
-            _debug=self.debug,
-        )
-        return self.built_context
+    def build_context_extensions(self, world: World) -> List[ContextExtension]:
+        return robot_extensions(world.get_semantic_annotations_by_type(MinimalRobot)[0])
 
-    def build_plan(self, context: Context) -> PlanNode:
-        return code(self.run_plan_body, context)
+    def build_statechart(self, context: StatechartContext) -> Statechart:
+        statechart = Statechart(context=context)
+        statechart.add_node(FunctionCall(function=lambda: self.run_plan_body(context)))
+        return statechart
 
     @contextmanager
     def segment_events(self, world: World) -> Iterator[None]:
@@ -116,15 +111,19 @@ class RecordingDemonstration(RobotDemonstration):
         yield
         self.segmenting_events = False
 
-    def run_plan_body(self) -> None:
+    def run_plan_body(self, context: StatechartContext) -> None:
         """
-        Record the execution environment, or fail if this demonstration is meant to.
+        Record how the plan is executed, or fail if this demonstration is meant to.
+
+        :param context: The context the plan runs in.
         """
         if self.fail_the_plan:
             raise PlanDeliberatelyFailed()
-        self.observed_execution_type = GiskardExecutable.execution_type
-        self.observed_collision_avoidance = GiskardExecutable.collision_avoidance
+        execution_mode = context.require_extension(ExecutionMode)
+        self.observed_simulated = execution_mode.simulated
+        self.observed_collision_avoidance = execution_mode.collision_avoidance
         self.observed_segmenting_events = self.segmenting_events
+        self.observed_log_level = logging.getLogger("coraplex").level
 
     def tear_down(self) -> None:
         self.tear_down_calls += 1
@@ -186,23 +185,20 @@ def test_scene_is_not_spawned_again_into_a_world_that_has_it(cylinder_bot_world)
 
 def test_plan_runs_in_the_demonstrations_execution_environment(cylinder_bot_world):
     """
-    The plan is what the execution type and collision avoidance settings exist for, so
-    they have to be in force while it runs and restored once it is done.
+    The plan is what the executor and collision avoidance settings exist for, so they
+    have to be in force while it runs.
     """
-    previous_execution_type = GiskardExecutable.execution_type
     demonstration = RecordingDemonstration(
         world=cylinder_bot_world,
         used_robot=MinimalRobot,
-        execution_type=ExecutionType.SIMULATED,
+        executor_type=SimulatedPlanExecutor,
         collision_avoidance=True,
     )
 
     demonstration.run()
 
-    assert demonstration.observed_execution_type is ExecutionType.SIMULATED
+    assert demonstration.observed_simulated is SimulatedPlanExecutor.simulated
     assert demonstration.observed_collision_avoidance is True
-    assert GiskardExecutable.execution_type is previous_execution_type
-    assert GiskardExecutable.collision_avoidance is False
 
 
 def test_run_returns_the_world_it_acted_on(cylinder_bot_world):
@@ -255,7 +251,7 @@ def test_a_demonstration_runs_without_debugging_by_default(cylinder_bot_world):
 
     try:
         demonstration.run()
-        assert not demonstration.built_context.debug
+        assert demonstration.observed_log_level == logging.INFO
     finally:
         coraplex_logger.setLevel(previous_level)
 
@@ -269,7 +265,7 @@ def test_a_demonstration_debugs_its_plan_when_asked_to(cylinder_bot_world):
 
     try:
         demonstration.run()
-        assert demonstration.built_context.debug
+        assert demonstration.observed_log_level == logging.DEBUG
     finally:
         coraplex_logger.setLevel(previous_level)
 

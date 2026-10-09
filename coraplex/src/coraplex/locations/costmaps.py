@@ -32,8 +32,6 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose, Point3, Vect
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
-from coraplex.datastructures.dataclasses import Context
-
 logger = logging.getLogger("coraplex")
 
 
@@ -478,7 +476,7 @@ class OccupancyCostmap(Costmap):
     @classmethod
     def default_map(
         cls,
-        context: Context,
+        robot: AbstractRobot,
         target: Pose,
         *,
         resolution: float = 0.02,
@@ -488,7 +486,7 @@ class OccupancyCostmap(Costmap):
         Creates an occupancy costmap around a target, keeping the robot base's radius
         clear of obstacles.
 
-        :param context: The context to create the occupancy cost map.
+        :param robot: The robot whose base is kept clear of obstacles.
         :param target: The target pose for the occupancy cost map.
         :param resolution: Edge length of a cell, in meters.
         :param cells: Number of cells along each side of the map.
@@ -501,9 +499,9 @@ class OccupancyCostmap(Costmap):
             resolution=resolution,
             width=cells,
             height=cells,
-            world=context.world,
-            distance_to_obstacle=context.robot.mobile_base.base_radius,
-            robot_view=context.robot,
+            world=robot._world,
+            distance_to_obstacle=robot.mobile_base.base_radius,
+            robot_view=robot,
             origin=ground_pose,
         )
 
@@ -810,7 +808,6 @@ class RingCostmap(Costmap):
     @classmethod
     def from_arm_reach_distance(
         cls,
-        context: Context,
         arm: Arm,
         origin: Pose,
         reach_fraction: float,
@@ -822,7 +819,6 @@ class RingCostmap(Costmap):
         """
         Creates a ring costmap around a target the robot is to reach with one arm.
 
-        :param context: The context holding the robot and world.
         :param arm: The arm that will do the reaching.
         :param origin: The target the ring is drawn around.
         :param reach_fraction: The fraction of the arm's length the ring stands off
@@ -839,7 +835,7 @@ class RingCostmap(Costmap):
             height=cells,
             standard_deviation=standard_deviation,
             distance=arm.approximate_length() * reach_fraction,
-            world=context.world,
+            world=arm._world,
             origin=origin,
         )
 

@@ -236,8 +236,9 @@ class ContinuousLayerWithFiniteSupport(ContinuousLayerWithDensity, ABC):
         self, interval: SimpleInterval
     ) -> LayerWithLogProbabilities:
         """
-        Truncate every node to a simple interval. A node keeps its shape on the
-        intersection of its support and the interval.
+        Truncate every node to a simple interval.
+
+        A node keeps its shape on the intersection of its support and the interval.
 
         :param interval: The simple interval, which is not a singleton.
         :return: The layer over the intersections and the log-probability of the

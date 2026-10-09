@@ -9,7 +9,7 @@ from giskardpy.motion_statechart.goals.cartesian_goals import (
     CartesianPoseStraight,
 )
 from giskardpy.motion_statechart.goals.open_close import Close
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from cramph.composites import Sequence, Parallel
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (

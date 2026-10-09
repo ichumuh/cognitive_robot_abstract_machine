@@ -91,7 +91,8 @@ def _supported_by_default(field_name: str) -> float:
 
 RESTING_CONTACT_TOLERANCE = _supported_by_default("contact_tolerance")
 """
-How far above a surface a body may stand and still rest on it, as the predicate defaults it.
+How far above a surface a body may stand and still rest on it, as the predicate defaults
+it.
 """
 
 CONTAINER_WALL_HEIGHT = 0.5
@@ -850,9 +851,10 @@ def test_a_body_hovering_beyond_the_contact_tolerance_is_not_supported(two_block
 
 def test_a_body_inside_another_s_bounding_box_but_not_touching_it_is_not_supported():
     """
-    A body rests on what it touches. A large or hollow shape, such as a wall, has a
-    bounding box enclosing a great deal of empty space, and a body standing in that
-    space is held up by nothing.
+    A body rests on what it touches.
+
+    A large or hollow shape, such as a wall, has a bounding box enclosing a great deal
+    of empty space, and a body standing in that space is held up by nothing.
     """
     world = World()
     ball = Body(name=PrefixedName("ball"))
@@ -1090,7 +1092,8 @@ def test_a_body_on_a_slope_steeper_than_the_steepest_allowed_is_not_supported():
 
 def test_a_body_standing_upside_down_is_supported_by_what_it_stands_on():
     """
-    Up is the world's up: a body turned over rests on what is underneath it all the same.
+    Up is the world's up: a body turned over rests on what is underneath it all the
+    same.
     """
     world = World()
     table = _box_body("table", Scale(2.0, 2.0, 0.1))
@@ -1116,8 +1119,8 @@ def test_a_body_rests_on_a_surface_whichever_of_the_two_is_checked_first(
     crate_identifier: UUID, table_identifier: UUID
 ):
     """
-    A collision check lists the two bodies in an order of its own, which does not
-    change what rests on what.
+    A collision check lists the two bodies in an order of its own, which does not change
+    what rests on what.
     """
     world = World()
     table = _box_body("table", Scale(2.0, 2.0, 0.1), table_identifier)

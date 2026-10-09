@@ -105,6 +105,18 @@ class KinematicChainGroup(LabelledGroup):
     SENSOR = ("sensor", "Head / sensors")
 
 
+class PlanNodeKind(StrEnum):
+    """
+    The kinds of plan node a recording tells apart, by the names it stores them under.
+    """
+
+    ACTION = "ActionNode"
+    MOTION = "MotionNode"
+    CONDITION = "ConditionNode"
+    ATTACHMENT = "AttachNode"
+    DETACHMENT = "DetachNode"
+
+
 class PlanNodeGroup(LabelledGroup):
     """
     Colour group of a node in the executed plan tree.
@@ -128,11 +140,11 @@ class PlanNodeGroup(LabelledGroup):
         :param kind: The plan node's own class name, as recorded or observed live.
         """
         return {
-            "ActionNode": cls.ACTION,
-            "MotionNode": cls.MOTION,
-            "ConditionNode": cls.CONDITION,
-            "AttachNode": cls.ATTACHMENT,
-            "DetachNode": cls.ATTACHMENT,
+            PlanNodeKind.ACTION: cls.ACTION,
+            PlanNodeKind.MOTION: cls.MOTION,
+            PlanNodeKind.CONDITION: cls.CONDITION,
+            PlanNodeKind.ATTACHMENT: cls.ATTACHMENT,
+            PlanNodeKind.DETACHMENT: cls.ATTACHMENT,
         }.get(kind or "", cls.OTHER)
 
 

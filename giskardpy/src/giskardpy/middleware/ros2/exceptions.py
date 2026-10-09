@@ -377,6 +377,34 @@ class FollowJointTrajectory_GOAL_TOLERANCE_VIOLATED(FollowJointTrajectoryError):
     Raised when the action server reports a goal tolerance violation.
     """
 
+
+@dataclass
+class StatechartOutOfStepError(ExecutionException):
+    """
+    Raised when a client sends a child for a statechart that holds other nodes than the
+    client's copy of it.
+    """
+
+    node_count: int
+    """
+    How many nodes the running statechart holds.
+    """
+
+    first_sent_node_index: int
+    """
+    The index the client gave the first node it sent.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The client sent nodes from index {self.first_sent_node_index} on, but the "
+            f"running statechart holds {self.node_count}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Send children only for the goal the client's statechart was sent as."
+
+
 @dataclass
 class MotionServerThreadStillRunningError(GiskardException):
     """

@@ -1,6 +1,6 @@
 """
-Regression test for ``UnderspecifiedNode``'s ``ActionDescription``/``BaseMotion`` type
-hints resolving under ``krrood``'s class-diagram introspection.
+Regression test for ``UnderspecifiedNode``'s ``ActionDescription`` type hints resolving
+under ``krrood``'s class-diagram introspection.
 """
 
 from krrood.class_diagrams.class_diagram import ClassDiagram

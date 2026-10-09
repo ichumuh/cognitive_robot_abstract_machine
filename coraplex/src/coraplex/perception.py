@@ -6,7 +6,14 @@ from datetime import timedelta
 
 import numpy as np
 
+from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
+from cramph.data_types import ObservationStateValues
+from cramph.node import StatechartNode
+from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
@@ -27,16 +34,14 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 from typing_extensions import Any, Dict, Optional, Self, Type, List, TYPE_CHECKING
 
-from coraplex.datastructures.enums import ExecutionType
+from coraplex.datastructures.enums import PerceptionSource
 from coraplex.exceptions import (
     AmbiguousDetection,
     NothingDetected,
     PerceivedObjectNotInWorld,
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
-    UnknownExecutionType,
 )
-from coraplex.ros import create_action_client
 
 if TYPE_CHECKING:
     from robokudo_msgs.msg import ObjectDesignator
@@ -297,23 +302,19 @@ class PerceptionInterface(ABC):
         return detections[0]
 
     @staticmethod
-    def for_execution_type(
-        execution_type: Optional[ExecutionType], ros_node: Optional[Node] = None
+    def for_source(
+        source: PerceptionSource, ros_node: Optional[Node] = None
     ) -> PerceptionInterface:
         """
-        Pick the source that matches how the plan is being executed.
-
-        :param execution_type: Whether the plan drives the real robot or a simulated
-            one; None when nothing is executing the plan.
-        :param ros_node: Node a real source reaches its perception pipeline through.
+        :param source: The kind of source that answers the queries.
+        :param ros_node: Node a RoboKudo pipeline is reached through.
         :return: The source to answer queries with.
-        :raises UnknownExecutionType: If the execution type has no source.
         """
-        if execution_type in (ExecutionType.SIMULATED, ExecutionType.NO_EXECUTION):
-            return WorldPerception()
-        if execution_type == ExecutionType.REAL:
-            return RoboKudoPerception(ros_node=ros_node)
-        raise UnknownExecutionType(execution_type)
+        match source:
+            case PerceptionSource.WORLD_MODEL:
+                return WorldPerception()
+            case PerceptionSource.ROBOKUDO:
+                return RoboKudoPerception(ros_node=ros_node)
 
 
 @dataclass
@@ -378,7 +379,7 @@ class RoboKudoPerception(PerceptionInterface):
         from robokudo_msgs.action import Query
         from robokudo_msgs.msg import ObjectDesignator
 
-        client = create_action_client(self.action_name, Query, self.ros_node)
+        client = ActionClient(self.ros_node, Query, self.action_name)
         if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
             raise PerceptionSourceUnavailable(self.action_name)
 
@@ -449,3 +450,80 @@ class RoboKudoPerception(PerceptionInterface):
                 ),
             ),
         )
+
+
+# %% perceiving inside the motion chart
+
+
+@dataclass(eq=False, repr=False)
+class PerceptionTask(EndedByOwner, StatechartNode):
+    """
+    Statechart node that answers a perception query and writes what it saw into the
+    world.
+
+    The node moves nothing, so it adds no motion constraints and its owner decides when
+    it succeeded, like a task of a motion. The query is answered on the node's first tick,
+    so the whole detection takes one tick however long the source needs to reply, and the
+    node then observes ``TRUE`` so the surrounding sequence continues.
+
+    ..warning:: That tick blocks until the source replies, which on the real robot holds
+        up the control loop for as long as the pipeline takes to answer.
+    """
+
+    query: PerceptionQuery = field(kw_only=True)
+    """
+    What to look for and where.
+    """
+
+    answered_by: PerceptionSource = field(kw_only=True)
+    """
+    Which kind of source answers the query.
+
+    Carried by the node rather than read from the context, because on the real robot the
+    chart is answered in the controller's process, whose context does not say how the
+    plan is executed.
+    """
+
+    perception_source: Optional[PerceptionInterface] = field(init=False, default=None)
+    """
+    The source answering the query, resolved during :meth:`set_up`.
+    """
+
+    _detections_applied: bool = field(init=False, default=False, repr=False)
+    """
+    Whether the query has already been answered and written into the world.
+    """
+
+    accept_first_if_multiple: bool = False
+    """
+    Whether several candidates may be resolved by taking the first one.
+
+    When False, several candidates raise
+    :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
+    """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RosContextExtension,)
+
+    def set_up(self, context: StatechartContext) -> None:
+        super().set_up(context)
+        self.perception_source = PerceptionInterface.for_source(
+            self.answered_by,
+            context.require_extension(RosContextExtension).ros_node,
+        )
+
+    def on_start(self, context: StatechartContext) -> None:
+        self._detections_applied = False
+
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
+        if self._detections_applied:
+            return ObservationStateValues.TRUE
+        detection = self.perception_source.detect(
+            self.query, self.accept_first_if_multiple
+        )
+        detection.apply_to(
+            self.query.world, trust_orientation=self.query.trust_detected_orientation
+        )
+        self._detections_applied = True
+        return ObservationStateValues.TRUE

@@ -1,23 +1,30 @@
 from __future__ import annotations
 
+import logging
 from abc import abstractmethod, ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing_extensions import (
+    Any,
+    Dict,
     Generic,
     List,
+    Optional,
+    Set,
     Type,
     TypeVar,
 )
 
 from coraplex.datastructures.enums import InsertionPosition
 from coraplex.exceptions import CannotMatchOnType
-from coraplex.plans.designator import Designator
-from coraplex.plans.factories import make_node
-from coraplex.plans.plan_node import ActionLike, DesignatorNode, PlanNode
+from cramph.composites import CramLanguageNode
+from cramph.context import ContextExtension
+from cramph.node import StatechartNode
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 
-MatchedType = TypeVar("MatchedType", bound=PlanNode | Designator)
+logger = logging.getLogger(__name__)
+
+MatchedType = TypeVar("MatchedType", bound=StatechartNode)
 
 
 # %% transformations
@@ -26,12 +33,12 @@ MatchedType = TypeVar("MatchedType", bound=PlanNode | Designator)
 @dataclass
 class PlanTransformation(Generic[MatchedType], SubClassSafeGeneric, ABC):
     """
-    Rewrites the part of a plan that a node expanded into.
+    Rewrites the part of a plan around a node, before the statechart running the plan is
+    compiled.
 
-    The bound type says which nodes it rewrites: a node type selects the nodes of that
-    type, a designator type the nodes carrying such a designator. A transformation is
-    applied to every node it matches, right after that node has been expanded and before
-    the nodes below it are expanded in turn.
+    The bound type says which nodes it rewrites: the nodes of that type. Every node of
+    a plan is offered to a transformation once, after it has been expanded, see
+    :class:`PlanRewriting`.
     """
 
     @property
@@ -41,22 +48,18 @@ class PlanTransformation(Generic[MatchedType], SubClassSafeGeneric, ABC):
         """
         return type(self).get_type_of_generic_parameter(MatchedType)
 
-    def matches_node(self, plan_node: PlanNode) -> bool:
+    def matches_node(self, plan_node: StatechartNode) -> bool:
         """
         :param plan_node: The node that was just expanded
         :return: Whether the given node is one this rewrites.
-        :raises CannotMatchOnType: If the bound type is neither a node nor a designator
+        :raises CannotMatchOnType: If the bound type is not a statechart node type
         """
-        if issubclass(self.matched_type, PlanNode):
-            return isinstance(plan_node, self.matched_type)
-        if issubclass(self.matched_type, Designator):
-            return isinstance(plan_node, DesignatorNode) and isinstance(
-                plan_node.designator, self.matched_type
-            )
-        raise CannotMatchOnType(type(self), self.matched_type)
+        if not issubclass(self.matched_type, StatechartNode):
+            raise CannotMatchOnType(type(self), self.matched_type)
+        return isinstance(plan_node, self.matched_type)
 
     @abstractmethod
-    def is_applicable(self, plan_node: PlanNode) -> bool:
+    def is_applicable(self, plan_node: MatchedType) -> bool:
         """
         Reports whether the case the node describes needs this transformation.
 
@@ -68,7 +71,7 @@ class PlanTransformation(Generic[MatchedType], SubClassSafeGeneric, ABC):
         """
 
     @abstractmethod
-    def apply(self, plan_node: PlanNode) -> None:
+    def apply(self, plan_node: MatchedType) -> None:
         """
         Rewrites the plan around the given node.
 
@@ -86,8 +89,8 @@ class InsertionTransformation(
     """
     Rewrites a plan by inserting freshly built nodes next to an anchor node.
 
-    The nodes are built anew on every application, since a node belongs to the one plan
-    it was inserted into.
+    The nodes are built anew on every application, since a node belongs to the one
+    statechart it was inserted into.
     """
 
     @property
@@ -98,24 +101,119 @@ class InsertionTransformation(
         """
 
     @abstractmethod
-    def anchor(self, plan_node: PlanNode) -> PlanNode:
+    def anchor(self, plan_node: MatchedType) -> StatechartNode:
         """
         :param plan_node: The node this transformation is applied to
         :return: The node the new nodes are inserted next to.
         """
 
     @abstractmethod
-    def nodes_to_insert(self, plan_node: PlanNode) -> List[ActionLike]:
+    def nodes_to_insert(self, plan_node: MatchedType) -> List[StatechartNode]:
         """
         :param plan_node: The node this transformation is applied to
-        :return: The actions, motions or nodes to insert, in the order they take.
+        :return: The nodes to insert, in the order they take.
         """
 
-    def apply(self, plan_node: PlanNode) -> None:
+    def apply(self, plan_node: MatchedType) -> None:
         anchor = self.anchor(plan_node)
-        for action_like in self.nodes_to_insert(plan_node):
-            node = make_node(action_like)
-            self.position.insert(plan_node.plan, anchor, node)
+        for node in self.nodes_to_insert(plan_node):
+            self._insert(anchor, node)
             if self.position is InsertionPosition.AFTER:
                 # each further node goes behind the one before it, keeping their order
                 anchor = node
+
+    def _insert(self, anchor: StatechartNode, node: StatechartNode) -> None:
+        """
+        Inserts a node at :attr:`position` relative to the anchor node.
+
+        :param anchor: The node the given node is placed relative to; a neighbour goes
+            into the plan language node running it, and a last child below the anchor
+            itself.
+        :param node: The node to insert
+        """
+        match self.position:
+            case InsertionPosition.BEFORE:
+                CramLanguageNode.running(anchor).insert_before(anchor, node)
+            case InsertionPosition.AFTER:
+                CramLanguageNode.running(anchor).insert_after(anchor, node)
+            case InsertionPosition.LAST_CHILD:
+                anchor.add_node(node)
+
+
+# %% rewriting a plan
+
+
+@dataclass
+class PlanRewriting(ContextExtension):
+    """
+    Offers the nodes of a plan to the transformations that may rewrite it.
+
+    A node is offered once it and everything below it has been expanded, in the order
+    the plan runs its nodes, and the nodes a transformation inserts are offered in turn.
+    Carried in the context of the statechart running the plan, so that a part of the
+    plan that joins it later is rewritten too.
+    """
+
+    transformations: List[PlanTransformation] = field(default_factory=list)
+    """
+    The transformations the nodes are offered to.
+    """
+
+    _offered: Set[StatechartNode] = field(default_factory=set, init=False, repr=False)
+    """
+    The nodes offered already, so that rewriting a part of the plan again offers only
+    what is new.
+    """
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> PlanRewriting:
+        """
+        :return: A rewriting by the same transformations that has offered nothing yet,
+            since the nodes offered so far belong to the statechart this one rewrites.
+        """
+        return PlanRewriting(transformations=list(self.transformations))
+
+    def rewrite(self, root: StatechartNode) -> None:
+        """
+        Applies every transformation to every node below and including `root` that it
+        matches and applies to.
+
+        :param root: The part of the plan to rewrite.
+        """
+        if not self.transformations:
+            return
+        while (node := self._next_node_to_offer(root)) is not None:
+            self._offered.add(node)
+            self._apply_to(node)
+
+    def _next_node_to_offer(self, root: StatechartNode) -> Optional[StatechartNode]:
+        """
+        :param root: The part of the plan being rewritten.
+        :return: The first node of `root` in the order the plan runs its nodes that has
+            not been offered yet, or None if there is none.
+        """
+        for node in [root, *root.descendants]:
+            if node not in self._offered:
+                return node
+        return None
+
+    def _apply_to(self, node: StatechartNode) -> None:
+        """
+        Rewrites the plan with every transformation that applies to `node`.
+
+        Each of them rewrites what the ones before it left, so more than one of them on
+        the same node is reported.
+
+        :param node: The node offered to the transformations.
+        """
+        transformations = [
+            transformation
+            for transformation in self.transformations
+            if transformation.matches_node(node) and transformation.is_applicable(node)
+        ]
+        if len(transformations) > 1:
+            logger.warning(
+                f"{len(transformations)} plan transformations are applied to {node}: "
+                f"{transformations}"
+            )
+        for transformation in transformations:
+            transformation.apply(node)

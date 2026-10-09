@@ -2,21 +2,16 @@ from math import radians
 
 import numpy as np
 
-from giskardpy.executor import Executor
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.data_types import (
-    DefaultWeights,
-    LifeCycleValues,
-    ObservationStateValues,
-)
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from cramph.data_types import LifeCycleValues, ObservationStateValues
 from giskardpy.motion_statechart.goals.open_close import Open, Close
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from cramph.composites import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import (
     EndMotion,
 )
 from giskardpy.motion_statechart.monitors.joint_monitors import JointPositionReached
-from giskardpy.motion_statechart.motion_statechart import (
-    MotionStatechart,
+from cramph.statechart import (
+    Statechart,
 )
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
@@ -51,6 +46,10 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
+from giskardpy.motion_control import MotionControl
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
+from ..motion_control_context import create_context_with_motion_control
 
 
 def angle_between_vector(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -87,7 +86,11 @@ class TestFeatureFunctions:
         lower_limit = 0.3
         upper_limit = 0.5
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         height_goal = HeightGoal(
             root_link=root,
             tip_link=tip,
@@ -99,8 +102,7 @@ class TestFeatureFunctions:
         msc.add_node(height_goal)
         msc.add_node(EndMotion.when_true(height_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert height_goal.observation_state == ObservationStateValues.TRUE
@@ -135,7 +137,11 @@ class TestFeatureFunctions:
         lower_limit = -0.5
         upper_limit = -0.2
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         height_goal = HeightGoal(
             root_link=root,
             tip_link=tip,
@@ -147,8 +153,7 @@ class TestFeatureFunctions:
         msc.add_node(height_goal)
         msc.add_node(EndMotion.when_true(height_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert height_goal.observation_state == ObservationStateValues.TRUE
@@ -184,7 +189,11 @@ class TestFeatureFunctions:
         lower_limit = 0.5
         upper_limit = 0.7
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         distance_goal = DistanceGoal(
             root_link=root,
             tip_link=tip,
@@ -196,8 +205,7 @@ class TestFeatureFunctions:
         msc.add_node(distance_goal)
         msc.add_node(EndMotion.when_true(distance_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert distance_goal.observation_state == ObservationStateValues.TRUE
@@ -236,7 +244,11 @@ class TestFeatureFunctions:
         lower_limit = 0.0
         upper_limit = 0.1
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         distance_goal = DistanceGoal(
             root_link=root,
             tip_link=tip,
@@ -248,8 +260,7 @@ class TestFeatureFunctions:
         msc.add_node(distance_goal)
         msc.add_node(EndMotion.when_true(distance_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert distance_goal.observation_state == ObservationStateValues.TRUE
@@ -288,7 +299,11 @@ class TestFeatureFunctions:
         lower_limit = 0.45
         upper_limit = 0.55
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         distance_goal = DistanceGoal(
             root_link=root,
             tip_link=tip,
@@ -300,8 +315,7 @@ class TestFeatureFunctions:
         msc.add_node(distance_goal)
         msc.add_node(EndMotion.when_true(distance_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert distance_goal.observation_state == ObservationStateValues.TRUE
@@ -342,7 +356,11 @@ class TestFeatureFunctions:
         distance_lower = 0.4
         distance_upper = 0.6
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         combined_goal = Parallel(
             [
                 HeightGoal(
@@ -366,8 +384,7 @@ class TestFeatureFunctions:
         msc.add_node(combined_goal)
         msc.add_node(EndMotion.when_true(combined_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert combined_goal.observation_state == ObservationStateValues.TRUE
@@ -420,7 +437,11 @@ class TestFeatureFunctions:
 
         perpendicular_threshold = 0.01
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_state_reset),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         height_goal = HeightGoal(
             root_link=root,
             tip_link=tip,
@@ -449,8 +470,7 @@ class TestFeatureFunctions:
         msc.add_node(combined_goal)
         msc.add_node(EndMotion.when_true(combined_goal))
 
-        kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
 
         assert combined_goal.observation_state == ObservationStateValues.TRUE
@@ -507,7 +527,11 @@ def test_pointing(pr2_world_state_reset: World):
     )
     root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
 
     goal_point = Point3(2, 0, 0, reference_frame=root)
     pointing_axis = Vector3.X(reference_frame=tip)
@@ -521,14 +545,9 @@ def test_pointing(pr2_world_state_reset: World):
     msc.add_node(pointing)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = pointing.observation_variable
+    end.start_condition = pointing.observes_true
 
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=pr2_world_state_reset,
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
 
@@ -538,7 +557,11 @@ def test_pointing_cone(pr2_world_state_reset: World):
     )
     root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
 
     goal_point = Point3(-1, 0, 5, reference_frame=root)
     pointing_axis = Vector3.X(tip)
@@ -553,14 +576,9 @@ def test_pointing_cone(pr2_world_state_reset: World):
     msc.add_node(pointing_cone)
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = pointing_cone.observation_variable
+    end.start_condition = pointing_cone.observes_true
 
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=pr2_world_state_reset,
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     # Check if angle between pointing axis and tip->goal vector is within the cone
@@ -597,7 +615,11 @@ def test_align_planes(pr2_world_state_reset: World):
     )
     root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
 
     goal_normal = Vector3.X(reference_frame=root)
     tip_normal = Vector3.Y(reference_frame=tip)
@@ -609,14 +631,9 @@ def test_align_planes(pr2_world_state_reset: World):
 
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = align_planes.observation_variable
+    end.start_condition = align_planes.observes_true
 
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=pr2_world_state_reset,
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     # Check if the angle between normal vectors is below the threshold
@@ -648,7 +665,11 @@ def test_align_perpendicular(pr2_world_state_reset: World):
     )
     root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
 
     goal_normal = Vector3.X(reference_frame=root)
     tip_normal = Vector3.X(reference_frame=tip)
@@ -663,10 +684,9 @@ def test_align_perpendicular(pr2_world_state_reset: World):
 
     end = EndMotion()
     msc.add_node(end)
-    end.start_condition = align_perp.observation_variable
+    end.start_condition = align_perp.observes_true
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     # Check if the angle between normals is (approximately) 90 degrees
@@ -705,7 +725,11 @@ def test_angle_goal(pr2_world_state_reset: World):
     )
     root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_world_state_reset),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
 
     tip_vector = Vector3.Y(reference_frame=tip)
     reference_vector = Vector3.X(reference_frame=root)
@@ -725,8 +749,7 @@ def test_angle_goal(pr2_world_state_reset: World):
 
     msc.add_node(EndMotion.when_true(angle_goal))
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     kin_sim.tick_until_end()
 
     root_V_tip = pr2_world_state_reset.transform(
@@ -757,23 +780,24 @@ class TestOpenClose:
         self, prismatic_bot2: World
     ):
         """
-        Neither part is ended by the goal that runs them, so a part something else ends
-        keeps counting through the verdict it earned rather than through the observation
-        behind it, which is gone by then.
+        Both parts are created by the goal and end only when it ends, so it reads what
+        they observe now.
         """
-        motion_statechart = MotionStatechart()
+        executor = StatechartExecutor(
+            context=StatechartContext(world=prismatic_bot2),
+            extensions=[MotionControl()],
+        )
+        motion_statechart = Statechart(context=executor.context)
         motion_statechart.add_node(
             open_goal := Open(
                 environment_link=prismatic_bot2.get_body_by_name("robot"),
                 tip_link=prismatic_bot2.get_body_by_name("robot2"),
             )
         )
-        Executor(MotionStatechartContext(world=prismatic_bot2)).compile(
-            motion_statechart=motion_statechart
-        )
+        executor.compile(statechart=motion_statechart)
 
         assert set(open_goal._observation_expression.free_variables()) == {
-            part.goal_reached for part in open_goal.nodes
+            part.observation_variable for part in open_goal.nodes
         }
 
     def test_open(self, pr2_world_copy, tmp_path):
@@ -820,7 +844,11 @@ class TestOpenClose:
         open_goal = 1
         close_goal = -1
 
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_copy),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         msc.add_nodes(
             [
                 Sequence(
@@ -866,17 +894,13 @@ class TestOpenClose:
         )
         msc.add_node(EndMotion.when_true(msc.nodes[0]))
 
-        kin_sim = Executor(
-            MotionStatechartContext(
-                world=pr2_world_copy,
-            )
-        )
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
         msc.draw(str(tmp_path / "muh.pdf"))
 
-        assert opening.life_cycle_state == LifeCycleValues.SUCCEEDED
-        assert closing.life_cycle_state == LifeCycleValues.SUCCEEDED
+        # A step's outcome belongs to the attempt the sequence wrapped it in.
+        assert opening.parent_node.life_cycle_state == LifeCycleValues.SUCCEEDED
+        assert closing.parent_node.life_cycle_state == LifeCycleValues.SUCCEEDED
 
     def test_unscrew_and_tighten_bottle_cap(self, pr2_world_copy):
         screw_pitch = 0.03
@@ -919,7 +943,11 @@ class TestOpenClose:
             pr2_world_copy.root, cap_body
         )
 
-        unscrew_statechart = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_copy),
+            extensions=[MotionControl()],
+        )
+        unscrew_statechart = Statechart(context=kin_sim.context)
         unscrew_statechart.add_nodes(
             [
                 sequence := Sequence(
@@ -944,15 +972,11 @@ class TestOpenClose:
         )
         unscrew_statechart.add_node(EndMotion.when_true(sequence))
 
-        kin_sim = Executor(
-            MotionStatechartContext(
-                world=pr2_world_copy,
-            )
-        )
-        kin_sim.compile(motion_statechart=unscrew_statechart)
+        kin_sim.compile(statechart=unscrew_statechart)
         kin_sim.tick_until_end()
 
-        assert open.life_cycle_state == LifeCycleValues.SUCCEEDED
+        # A step's outcome belongs to the attempt the sequence wrapped it in.
+        assert open.parent_node.life_cycle_state == LifeCycleValues.SUCCEEDED
 
         # One full turn must have moved the cap one screw pitch along the screw axis,
         # away from the bottle (towards the robot, -x).
@@ -970,7 +994,11 @@ class TestOpenClose:
             - root_C_screw.rotation_angle_for_travel_distance(unscrew_travel_distance)
         )
 
-        tighten_statechart = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=pr2_world_copy),
+            extensions=[MotionControl()],
+        )
+        tighten_statechart = Statechart(context=kin_sim.context)
         tighten_statechart.add_nodes(
             [
                 close := Close(
@@ -982,12 +1010,7 @@ class TestOpenClose:
         )
         tighten_statechart.add_node(EndMotion.when_true(close))
 
-        kin_sim = Executor(
-            MotionStatechartContext(
-                world=pr2_world_copy,
-            )
-        )
-        kin_sim.compile(motion_statechart=tighten_statechart)
+        kin_sim.compile(statechart=tighten_statechart)
         kin_sim.tick_until_end()
 
         assert close.observation_state == ObservationStateValues.TRUE
@@ -1004,9 +1027,9 @@ class TestOpenClose:
         """
         Expands a goal on a statechart of its own and returns the children it built.
         """
-        statechart = MotionStatechart()
+        statechart = Statechart(context=create_context_with_motion_control(world))
         statechart.add_node(goal)
-        goal.expand(MotionStatechartContext(world=world))
+        goal.expand(statechart.context)
         return goal.nodes
 
     def test_open_yields_the_mechanism_but_not_the_grasp_by_default(

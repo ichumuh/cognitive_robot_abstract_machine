@@ -24,7 +24,6 @@ from cramera import paths
 
 from .test_live_bundle import shaped
 
-
 # %% native movable objects
 
 

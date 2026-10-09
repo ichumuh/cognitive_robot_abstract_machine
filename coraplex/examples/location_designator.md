@@ -29,18 +29,33 @@ above zero wherever the robot meets the criterion. Both also merge in an occupan
 position where the robot can stand without colliding with its surroundings. The costmaps are built from the world as it
 is when the candidates are sampled.
 
-We start with a world holding the PR2 in the apartment. The candidates are sampled at random, so the context is given a
-seed, which makes this example run the same way every time.
+We start with a world holding the PR2 in the apartment. The candidates are sampled at random, so every location is
+given a seed, which makes this example run the same way every time.
 
 ```python
 from coraplex.testing import setup_world
-from coraplex.datastructures.dataclasses import Context
 from semantic_digital_twin.robots.pr2 import PR2
 
 
 world = setup_world()
 pr2_view = PR2.from_world(world)
-context = Context(world, pr2_view, sampling_seed=0)
+from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
+
+extensions = [RobotAccess(pr2_view), StatementGrounding(sampling_seed=0)]
+context = SimulatedPlanExecutor(world, context_extensions=extensions).context
+
+def run(plan):
+    """
+    Run `plan` simulated in `world`, with the robot and settings in `extensions`.
+    """
+    executor = SimulatedPlanExecutor(world, context_extensions=extensions)
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(plan)
+    executor.compile(statechart)
+    executor.execute()
+    return executor
 
 origin_pose = pr2_view.root.global_pose
 ```
@@ -54,14 +69,12 @@ We use the milk as the target. The torso of the PR2 is raised first, since other
 the countertop.
 
 ```python
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import execute_single, sequential
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction, MoveTorsoAction
+from cramph.composites import Sequence
 from semantic_digital_twin.datastructures.definitions import TorsoState
 
-with simulated_robot:
-    sequential([ParkArmsAction(pr2_view.all_arms),
-                MoveTorsoAction(TorsoState.HIGH)], context=context).perform()
+run(Sequence([ParkArmsAction(pr2_view.all_arms),
+            MoveTorsoAction(TorsoState.HIGH)]))
 
 ```
 
@@ -73,13 +86,10 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose
 location = ReachabilityLocation(
     Pose(reference_frame=world.get_body_by_name("milk.stl")),
     pr2_view.left_arm,
-    context=context,
+    context=context, seed=0,
 )
 
-plan = execute_single(NavigateAction(location.ground()), context=context)
-
-with simulated_robot:
-    plan.perform()
+run(NavigateAction(location.ground()))
 
 pr2_view.root.parent_connection.origin = origin_pose.homogeneous_matrix
 ```
@@ -114,7 +124,7 @@ location = ReachabilityLocation(
     Pose(reference_frame=drawer.handle.root),
     pr2_view.left_arm,
     ReachFraction.ACCESSING,
-    context=context,
+    context=context, seed=0,
 )
 
 print(location.ground())
@@ -129,13 +139,10 @@ with its default camera. It only needs the target.
 from coraplex.locations.locations import VisibilityLocation
 
 location = VisibilityLocation(
-    Pose(reference_frame=world.get_body_by_name("milk.stl")), context=context
+    Pose(reference_frame=world.get_body_by_name("milk.stl")), context=context, seed=0
 )
 
-plan = execute_single(NavigateAction(location.ground()), context=context)
-
-with simulated_robot:
-    plan.perform()
+run(NavigateAction(location.ground()))
 
 pr2_view.root.parent_connection.origin = origin_pose.homogeneous_matrix
 ```
@@ -143,15 +150,16 @@ pr2_view.root.parent_connection.origin = origin_pose.homogeneous_matrix
 ## Iterating the Candidates
 
 A location is a generator of candidates, which is useful when the first candidate does not work for some reason. A
-location samples at most `number_of_samples` candidates. It draws them with its own `seed`, or with the context's
-`sampling_seed` if it has none; a seed of `None` draws different candidates each time.
+location samples at most `number_of_samples` candidates. It draws them with its `seed`; a seed of `None` draws
+different candidates each time. A location an action builds takes the plan's seed, the `sampling_seed` of its
+`StatementGrounding`.
 
 ```python
 from semantic_digital_twin.spatial_types.spatial_types import Point3
 
 location = VisibilityLocation(
     Pose(Point3.from_iterable([-1, 0, 1.2]), reference_frame=world.root),
-    context=context,
+    context=context, seed=0,
     number_of_samples=5,
 )
 
@@ -166,6 +174,7 @@ action open, and the plan tries the candidates in turn when it gets to that acti
 of them.
 
 ```python
+from coraplex.plans.underspecified import UnderspecifiedNode
 from krrood.entity_query_language.factories import a, variable
 
 navigate = a(NavigateAction)(
@@ -174,13 +183,12 @@ navigate = a(NavigateAction)(
         domain=ReachabilityLocation(
             Pose(reference_frame=world.get_body_by_name("milk.stl")),
             pr2_view.left_arm,
-            context=context,
+            context=context, seed=0,
         ),
     )
 )
 
-with simulated_robot:
-    sequential([navigate], context=context).perform()
+run(UnderspecifiedNode(statement=navigate))
 
 pr2_view.root.parent_connection.origin = origin_pose.homogeneous_matrix
 ```
@@ -195,7 +203,7 @@ how far, in cells, its candidates spread around the stand-off distance.
 location = ReachabilityLocation(
     Pose(reference_frame=world.get_body_by_name("milk.stl")),
     pr2_view.left_arm,
-    context=context,
+    context=context, seed=0,
     map_resolution=0.04,
     map_cells=100,
     ring_standard_deviation=8,

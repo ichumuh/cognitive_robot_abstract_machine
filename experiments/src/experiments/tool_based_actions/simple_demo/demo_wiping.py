@@ -13,9 +13,6 @@ from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Sponge
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.composite.tool_based import WipingAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import (
@@ -24,6 +21,10 @@ from coraplex.robot_plans.actions.core.robot_body import (
     SetGripperAction,
 )
 from coraplex.testing import setup_world, start_visualization
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
+from cramph.composites import Sequence
 
 
 def main() -> None:
@@ -34,7 +35,6 @@ def main() -> None:
     start_visualization(world)
 
     pr2 = PR2.from_world(world)
-    context = Context(world=world, robot=pr2, _debug=False, ros_node=None)
 
     sponge_body = attach_sponge(world, pr2.right_arm)
 
@@ -42,9 +42,7 @@ def main() -> None:
     with world.modify_world():
         world.add_semantic_annotations([sponge])
 
-    context.evaluate_conditions = False
-
-    plan = sequential(
+    plan = Sequence(
         [
             SetGripperAction(pr2.right_arm.end_effector, GripperState.CLOSE),
             ParkArmsAction(pr2.all_arms),
@@ -59,12 +57,14 @@ def main() -> None:
                     *TARGET_POSITION_XYZ, reference_frame=world.root
                 ),
             ),
-        ],
-        context=context,
-    ).plan
+        ]
+    )
 
-    with simulated_robot:
-        plan.perform()
+    executor = SimulatedPlanExecutor(world, context_extensions=[RobotAccess(pr2)])
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(plan)
+    executor.compile(statechart)
+    executor.execute()
 
 
 if __name__ == "__main__":

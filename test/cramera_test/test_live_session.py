@@ -13,7 +13,6 @@ from cramera.live import visualization
 from cramera.live.recording import RecordingState
 from cramera.live.visualization import LiveVisualization
 
-
 # %% session fixtures
 
 

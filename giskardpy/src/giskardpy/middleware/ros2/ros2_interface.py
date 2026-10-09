@@ -178,16 +178,18 @@ class MyActionClient:
         while not self._client.wait_for_server(timeout_sec=2):
             self.node_handle.get_logger().info(f"Waiting for {action_name} server...")
 
-    def send_goal_async(self, goal) -> Future:
+    def send_goal_async(self, goal, feedback_callback=None) -> Future:
         self._goal_counter += 1
         self._current_goal_id = self._goal_counter
-        future = self._client.send_goal_async(goal)
+        future = self._client.send_goal_async(goal, feedback_callback=feedback_callback)
         future.add_done_callback(self.__goal_accepted_cb)
         return future
 
-    def send_goal(self, goal):
+    def send_goal(self, goal, feedback_callback=None):
         async def muh():
-            rospy.wait_for_future_to_complete(self.send_goal_async(goal))
+            rospy.wait_for_future_to_complete(
+                self.send_goal_async(goal, feedback_callback=feedback_callback)
+            )
             result = await self.get_result()
             return result
 

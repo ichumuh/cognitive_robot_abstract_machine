@@ -16,14 +16,17 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Tool
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
+    Vector3,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import (
+    Body,
+    KinematicStructureEntity,
+)
 
 from coraplex.datastructures.enums import (
     CuttingTechnique,
     MixingPattern,
-    MovementType,
     PouringSide,
     SlicingPriority,
     ToolPathSegmentKind,
@@ -33,11 +36,22 @@ from coraplex.exceptions import (
     MissingWaypoints,
     WipingTargetMissing,
 )
-from coraplex.plans.failures import MotionMadeNoProgress
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.mixins import HasTcpGoalThresholds
+from coraplex.plans.context_extensions import MotionToleranceConfig
+from cramph.context import ContextExtension
+from cramph.node import StatechartNode
+from krrood.ormatic.utils import classproperty
+from coraplex.robot_plans.actions.base import Action
+from coraplex.robot_plans.mixins import MovesToolCenterPoint
+from cramph.composites import Parallel, Sequence, TryAll
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
+from giskardpy.motion_statechart.monitors.cartesian_monitors import PositionReached
+from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPositionTrajectory,
+)
 from coraplex.robot_plans.actions.composite.tool_paths import (
     ToolPath,
     ToolPathSegment,
@@ -47,59 +61,29 @@ from coraplex.robot_plans.actions.composite.tool_paths import (
     planar_spiral_xy,
     planar_sweep_x,
 )
-from coraplex.robot_plans.motions.gripper import (
-    MoveTCPWaypointsAlignedMotion,
-    MoveToolCenterPointMotion,
-)
 
 
-@dataclass(kw_only=True)
-class FullBodyControlledAction(ActionDescription, ABC):
+@dataclass(kw_only=True, eq=False, repr=False)
+class FullBodyControlledAction(Action, ABC):
     """
-    An action that executes its plan with the robot's full body controlled, so the base
-    can support the arm motion.
+    An action that controls the robot's full body, so the base can support the arm
+    motion.
     """
 
-    def execute(self) -> Any:
+    @property
+    def controlled_root(self) -> KinematicStructureEntity:
         """
-        Perform the action's plan with full body control enabled, restoring the previous
-        control state afterwards.
+        :return: The world root for a robot with a mobile base, since driving the base
+            while manipulating moves the robot relative to the world; the robot's own
+            root otherwise.
         """
-        previous_full_body_controlled = self._enable_full_body_control()
-        try:
-            self._perform_plan()
-        finally:
-            self._restore_full_body_control(previous_full_body_controlled)
-
-    def _perform_plan(self) -> None:
-        """
-        Add the action plan as a subplan and perform it.
-        """
-        self.add_subplan(self.action_plan).perform()
-
-    def _enable_full_body_control(self) -> Optional[bool]:
-        """
-        :return: The previous full-body-control state, or None if the robot has no
-            mobile base.
-        """
-        if not isinstance(self.robot, HasMobileBase):
-            return None
-        previous = self.robot.mobile_base.full_body_controlled
-        self.robot.mobile_base.full_body_controlled = True
-        return previous
-
-    def _restore_full_body_control(self, previous: Optional[bool]) -> None:
-        """
-        :param previous: The full-body-control state to restore, or None if the robot
-            has no mobile base.
-        """
-        if previous is None:
-            return
-        self.robot.mobile_base.full_body_controlled = previous
+        if isinstance(self.robot, HasMobileBase):
+            return self.world.root
+        return self.robot.root
 
 
-@dataclass(kw_only=True)
-class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
+@dataclass(kw_only=True, eq=False, repr=False)
+class ToolMotionAction(FullBodyControlledAction, ABC, MovesToolCenterPoint):
     """
     An action that moves a tool along a sampled tool path while keeping the tool aligned
     with its target.
@@ -119,6 +103,16 @@ class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
     """
     Keep every Nth sampled waypoint for execution.
     """
+
+    maximum_skip_ahead: int = 2
+    """
+    How many waypoints ahead the tool may already be heading for, so a path is followed
+    as a continuous stroke rather than stopping at every point.
+    """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
     @abstractmethod
     def _build_tool_path(self) -> ToolPath:
@@ -165,28 +159,54 @@ class ToolMotionAction(FullBodyControlledAction, ABC, HasTcpGoalThresholds):
             return []
         return self.tool.tool_alignment(target)
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_action_body(self) -> StatechartNode:
         """
-        :return: A plan moving the tool along the sampled waypoints while keeping it
+        :return: The goal moving the tool along the sampled waypoints while keeping it
             aligned with its target.
         """
-        return sequential(
+        return self._tool_path_goal()
+
+    def _tool_path_goal(self) -> Parallel:
+        """
+        :return: The goal following the sampled waypoints with the tool, holding every
+            alignment the tool asks for while it moves and letting the manipulator touch
+            what it works on.
+        """
+        root = self.controlled_root
+        tip = self.tool.get_tool_frame()
+        trajectory_arguments = dict(
+            root_link=root,
+            tip_link=tip,
+            goal_points=self._waypoints,
+            maximum_skip_ahead=self.maximum_skip_ahead,
+            weight=float(DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE),
+        )
+        if self.position_threshold is not None:
+            trajectory_arguments["threshold"] = self.position_threshold
+        alignments = [
+            AlignPlanes(
+                tip_link=tip,
+                root_link=root,
+                tip_normal=pair.tip_normal,
+                goal_normal=pair.goal_normal,
+                weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE.value,
+            )
+            for pair in self._alignment_pairs
+        ]
+        return Parallel(
             [
-                MoveTCPWaypointsAlignedMotion(
-                    waypoints=self._waypoints,
-                    arm=self.arm,
-                    allow_gripper_collision=True,
-                    alignment_pairs=self._alignment_pairs,
-                    tip=self.tool.get_tool_frame(),
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
-                )
+                UpdateTemporaryCollisionRules.for_end_effector(self.arm.end_effector),
+                Parallel(
+                    [
+                        CartesianPositionTrajectory(**trajectory_arguments),
+                        *alignments,
+                    ]
+                ),
             ]
         )
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False, repr=False)
 class MixingAction(ToolMotionAction):
     """
     Mix the contents of a container with a tool.
@@ -221,7 +241,7 @@ class MixingAction(ToolMotionAction):
         return self.container
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False, repr=False)
 class CuttingAction(ToolMotionAction):
     """
     Cut a food object with a tool.
@@ -274,7 +294,7 @@ class CuttingAction(ToolMotionAction):
         return self.object_to_cut
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False, repr=False)
 class WipingAction(ToolMotionAction):
     """
     Wipe a surface or a patch around a target pose with a tool.
@@ -319,6 +339,7 @@ class WipingAction(ToolMotionAction):
         """
         :raises WipingTargetMissing: If neither a surface nor a target pose is given.
         """
+        super().__post_init__()
         if self.surface is None and self.target_pose is None:
             raise WipingTargetMissing(self)
 
@@ -364,35 +385,28 @@ class WipingAction(ToolMotionAction):
             return self.surface
         return self.target_pose
 
-    def _perform_plan(self) -> None:
+    def create_action_body(self) -> StatechartNode:
         """
-        Perform the wiping plan, accepting a motion that gave up if the tool still
-        reached the final waypoint.
+        :return: The goal moving the tool along the sampled waypoints, which also
+            counts as done once the tool reached the final waypoint, since the last
+            stretch of a wipe often stalls against the surface.
         """
-        subplan = self.add_subplan(self.action_plan)
-        try:
-            subplan.perform()
-        except MotionMadeNoProgress:
-            if not self._tool_reached_final_waypoint():
-                raise
-
-    def _tool_reached_final_waypoint(self) -> bool:
-        """
-        :return: True if the tool's root ended up within the success tolerance of the
-            final waypoint.
-        """
-        tool_point = self.world.transform(
-            self.tool.root.global_pose.position, self.world.root
+        return TryAll(
+            [
+                self._tool_path_goal(),
+                PositionReached(
+                    name=f"{self.name}/final waypoint reached",
+                    root_link=self.world.root,
+                    tip_link=self.tool.root,
+                    goal_point=self._waypoints[-1],
+                    threshold=self.final_waypoint_success_tolerance,
+                ),
+            ]
         )
-        tool_xyz = np.asarray(tool_point.to_np(), dtype=float).reshape(-1)[:3]
-        goal_point = self.world.transform(self._waypoints[-1], self.world.root)
-        goal_xyz = np.asarray(goal_point.to_np(), dtype=float).reshape(-1)[:3]
-        distance = float(np.linalg.norm(tool_xyz - goal_xyz))
-        return distance <= float(self.final_waypoint_success_tolerance)
 
 
-@dataclass(kw_only=True)
-class PouringAction(FullBodyControlledAction, HasTcpGoalThresholds):
+@dataclass(kw_only=True, eq=False, repr=False)
+class PouringAction(FullBodyControlledAction, MovesToolCenterPoint):
     """
     Pour from a held source container into a target container by tilting the source next
     to the target's rim.
@@ -440,6 +454,10 @@ class PouringAction(FullBodyControlledAction, HasTcpGoalThresholds):
     """
     TCP height in meters above the target container for the pre-pour pose.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
     def _effective_pour_side(self) -> PouringSide:
         """
@@ -576,30 +594,23 @@ class PouringAction(FullBodyControlledAction, HasTcpGoalThresholds):
             reference_frame=self.world.root,
         )
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_action_body(self) -> StatechartNode:
         """
-        :return: A plan moving the source container to the pre-pour pose and then
+        :return: The goals moving the source container to the pre-pour pose and then
             tilting it into the pouring pose.
         """
         pre_pour_pose, pour_pose = self._pour_poses()
-        return sequential(
+        return Sequence(
             [
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     pre_pour_pose,
                     self.arm,
                     allow_gripper_collision=True,
-                    movement_type=MovementType.CARTESIAN,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     pour_pose,
                     self.arm,
                     allow_gripper_collision=True,
-                    movement_type=MovementType.CARTESIAN,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
             ]
         )

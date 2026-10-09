@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.graph_node import NodeArtifacts
+from cramph.context import StatechartContext
+from giskardpy.motion_statechart.graph_node import MotionNodeArtifacts
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianTask
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import (
@@ -41,7 +41,7 @@ class Pointing(CartesianTask):
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_point.reference_frame
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints that swing the pointing axis onto the goal point.
 
@@ -49,7 +49,7 @@ class Pointing(CartesianTask):
         :return: The artifacts of this task, whose error is the angle between the
             pointing axis and the goal direction.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         goal_reference_frame_P_goal_point = self.goal_point
 
         tip_V_pointing_axis = context.world.transform(
@@ -120,7 +120,7 @@ class PointingCone(CartesianTask):
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_point.reference_frame
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints that swing the pointing axis into the goal cone.
 
@@ -128,7 +128,7 @@ class PointingCone(CartesianTask):
         :return: The artifacts of this task, whose error is the angle between the
             pointing axis and the nearest direction inside the cone.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         tip_V_pointing_axis = context.world.transform(
             target_frame=self.tip_link, spatial_object=self.pointing_axis
         )

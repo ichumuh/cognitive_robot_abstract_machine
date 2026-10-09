@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import field, dataclass
 
 import krrood.symbolic_math.symbolic_math as sm
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode, NodeArtifacts
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from cramph.node import NodeArtifacts
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import Body
 
 
 @dataclass(eq=False, repr=False)
-class FeatureFunctionMonitor(MotionStatechartNode):
+class FeatureFunctionMonitor(EndedByOwner, MotionStatechartNode):
     """
     Base for monitors that compare a controlled feature (attached to ``tip_link``) with a
     reference feature (attached to ``root_link``) expressed in the root link frame.
@@ -25,7 +27,7 @@ class FeatureFunctionMonitor(MotionStatechartNode):
     controlled_feature: Point3 | Vector3 = field(init=False)
     """Controlled feature, typically moved towards `reference_feature`."""
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         """
         Transform the controlled and reference features into the root link frame and store them on
         the node for use by subclasses.
@@ -69,7 +71,7 @@ class HeightMonitor(FeatureFunctionMonitor):
     upper_limit: float = field(kw_only=True)
     """Upper bound for the height difference in meters."""
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         self.reference_feature = self.reference_point
         self.controlled_feature = self.tip_point
         artifacts = super().build_artifacts(context)
@@ -98,7 +100,7 @@ class PerpendicularMonitor(FeatureFunctionMonitor):
     threshold: float = field(default=0.01, kw_only=True)
     """Threshold on the dot product of the two normals."""
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         self.reference_feature = self.reference_normal
         self.controlled_feature = self.tip_normal
         artifacts = super().build_artifacts(context)
@@ -124,7 +126,7 @@ class DistanceMonitor(FeatureFunctionMonitor):
     upper_limit: float = field(kw_only=True)
     """Upper bound for the distance in meters."""
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         self.reference_feature = self.reference_point
         self.controlled_feature = self.tip_point
         artifacts = super().build_artifacts(context)
@@ -155,7 +157,7 @@ class AngleMonitor(FeatureFunctionMonitor):
     upper_angle: float = field(kw_only=True)
     """Upper bound for the angle in radians."""
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         self.reference_feature = self.reference_vector
         self.controlled_feature = self.tip_vector
         artifacts = super().build_artifacts(context)

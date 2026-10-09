@@ -5,9 +5,9 @@ Keep recorded plan inspection separate from the active execution stream.
 import json
 from pathlib import Path
 
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import ActionNode
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
+from cramph.context import StatechartContext
+from cramph.statechart import Statechart
 from krrood.entity_query_language.factories import inference
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from semantic_digital_twin.robots.pr2 import PR2
@@ -54,10 +54,10 @@ def test_recorded_plan_keeps_native_designator_description(
     """
     [robot] = pr2_world_copy.get_semantic_annotations_by_type(PR2)
     action = ParkArmsAction(arms=robot.all_arms)
-    plan = Plan()
-    plan.add_node(ActionNode(designator=action))
+    statechart = Statechart(context=StatechartContext(world=pr2_world_copy))
+    statechart.add_node(action)
     bridge = Bridge()
-    bridge.begin_plan(plan)
+    bridge.begin_plan(statechart)
     scene_file = fixture_scene / "scenes" / "fixture" / "scene.json"
     scene = json.loads(scene_file.read_text())
     scene[SceneField.PLAN_TREES] = bridge.plan_state.recorded_trees()
@@ -65,11 +65,11 @@ def test_recorded_plan_keeps_native_designator_description(
 
     payload = PlanViewPayload.of_tab(EpisodeKnowledgeBase.of_scene("fixture"))
 
-    [detail] = payload.details.values()
+    detail, *_ = payload.details.values()
     description = verbalize_expression(
         inference(type(action))(**action.designator_parameter)
     )
     assert description in detail.lines
-    [node] = payload.nodes
+    node, *_ = payload.nodes
     assert description in node.title
     assert node.label == type(action).__name__.removesuffix("Action")

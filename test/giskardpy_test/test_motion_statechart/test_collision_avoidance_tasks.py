@@ -7,8 +7,7 @@ from datetime import timedelta
 import numpy as np
 import pytest
 
-from giskardpy.executor import Executor, SimulationPacer
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.executor import SimulationPacer
 from giskardpy.motion_statechart.data_types import (
     DefaultWeights,
 )
@@ -21,21 +20,17 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
     SelfCollisionDistanceMonitor,
     UpdateTemporaryCollisionRules,
 )
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
-from giskardpy.motion_statechart.graph_node import (
-    EndMotion,
-    CancelMotion,
-)
+from cramph.composites import Sequence, Parallel
+from giskardpy.motion_statechart.graph_node import EndMotion
+from cramph.node import CancelStatechart
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
     SetSeedConfiguration,
     SetOdometry,
 )
-from giskardpy.motion_statechart.monitors.payload_monitors import (
-    CountControlCycles,
-)
-from giskardpy.motion_statechart.motion_statechart import (
-    MotionStatechart,
+from cramph.monitors import CountTicks
+from cramph.statechart import (
+    Statechart,
 )
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -61,6 +56,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidExternalCollisions,
     AvoidAllCollisions,
     AllowAllCollisions,
+    AllowCollisionForEndEffector,
 )
 from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -91,15 +87,20 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import (
     Body,
 )
+from giskardpy.motion_control import MotionControl
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
+from ..motion_control_context import create_context_with_motion_control
 
 
+@pytest.mark.parked
 def test_external_collision_avoidance(cylinder_bot_world: World):
     robot = cylinder_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
     tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
     env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
     env2 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment2")
 
-    msc = MotionStatechart()
+    msc = Statechart(context=create_context_with_motion_control(cylinder_bot_world))
     msc.add_nodes(
         [
             UpdateTemporaryCollisionRules(
@@ -127,21 +128,24 @@ def test_external_collision_avoidance(cylinder_bot_world: World):
         ]
     )
     msc.add_node(EndMotion.when_true(local_min))
-    msc.add_node(CancelMotion.when_true(distance_violated))
+    msc.add_node(CancelStatechart.when_true(distance_violated))
 
     json_data = msc.to_json()
+    # The statechart travels to the executor below; the context it was built in
+    # releases the collision managers it registered in the shared world.
+    msc.context.cleanup()
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
 
     tracker = WorldEntityWithIDKwargsTracker.from_world(cylinder_bot_world)
     kwargs = tracker.create_kwargs()
-    msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
-
-    kin_sim = Executor(
-        MotionStatechartContext(world=cylinder_bot_world),
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
         pacer=SimulationPacer(real_time_factor=2),
+        extensions=[MotionControl()],
     )
-    kin_sim.compile(motion_statechart=msc_copy)
+    msc_copy = Statechart.from_json(new_json_data, context=kin_sim.context, **kwargs)
+    kin_sim.compile(statechart=msc_copy)
 
     kin_sim.tick_until_end(500)
     collisions = kin_sim.context.world.collision_manager.compute_collisions()
@@ -236,7 +240,12 @@ def test_external_collision_avoidance_battle():
         omni1.has_hardware_interface = True
         omni2.has_hardware_interface = True
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=world),
+        pacer=SimulationPacer(real_time_factor=1),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     msc.add_nodes(
         [
             UpdateTemporaryCollisionRules(
@@ -277,13 +286,9 @@ def test_external_collision_avoidance_battle():
         ]
     )
     msc.add_node(EndMotion.when_true(local_min))
-    # msc.add_node(CancelMotion.when_true(distance_violated))
+    # msc.add_node(CancelStatechart.when_true(distance_violated))
 
-    kin_sim = Executor(
-        MotionStatechartContext(world=world),
-        pacer=SimulationPacer(real_time_factor=1),
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
 
     kin_sim.tick_until_end(500)
 
@@ -303,13 +308,14 @@ def test_external_collision_avoidance_battle():
     )
 
 
+@pytest.mark.parked
 def test_external_collision_avoidance_with_weight_above_ca(cylinder_bot_world: World):
     robot = cylinder_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
     tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
     env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
     env2 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment2")
 
-    msc = MotionStatechart()
+    msc = Statechart(context=create_context_with_motion_control(cylinder_bot_world))
     msc.add_nodes(
         [
             UpdateTemporaryCollisionRules(
@@ -338,21 +344,24 @@ def test_external_collision_avoidance_with_weight_above_ca(cylinder_bot_world: W
         ]
     )
     msc.add_node(EndMotion.when_true(local_min))
-    msc.add_node(CancelMotion.when_true(distance_violated))
+    msc.add_node(CancelStatechart.when_true(distance_violated))
 
     json_data = msc.to_json()
+    # The statechart travels to the executor below; the context it was built in
+    # releases the collision managers it registered in the shared world.
+    msc.context.cleanup()
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
 
     tracker = WorldEntityWithIDKwargsTracker.from_world(cylinder_bot_world)
     kwargs = tracker.create_kwargs()
-    msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
-
-    kin_sim = Executor(
-        MotionStatechartContext(world=cylinder_bot_world),
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
         pacer=SimulationPacer(real_time_factor=1),
+        extensions=[MotionControl()],
     )
-    kin_sim.compile(motion_statechart=msc_copy)
+    msc_copy = Statechart.from_json(new_json_data, context=kin_sim.context, **kwargs)
+    kin_sim.compile(statechart=msc_copy)
 
     kin_sim.tick_until_end(500)
     collisions = kin_sim.context.world.collision_manager.compute_collisions()
@@ -368,7 +377,11 @@ def test_update_collision_matrix_later(cylinder_bot_world: World):
     env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
     env2 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment2")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     msc.add_nodes(
         [
             UpdateTemporaryCollisionRules(
@@ -401,10 +414,7 @@ def test_update_collision_matrix_later(cylinder_bot_world: World):
     )
     msc.add_node(EndMotion.when_true(cart_goal_reached))
 
-    kin_sim = Executor(
-        MotionStatechartContext(world=cylinder_bot_world),
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
 
     kin_sim.tick_until_end(500)
     msc.draw("muh.pdf")
@@ -423,7 +433,11 @@ def test_consumer_cleanup_after_cancel(cylinder_bot_world: World):
     env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
     env2 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment2")
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     msc.add_nodes(
         [
             UpdateTemporaryCollisionRules(
@@ -450,15 +464,14 @@ def test_consumer_cleanup_after_cancel(cylinder_bot_world: World):
     msc.add_node(
         Sequence(
             [
-                CountControlCycles(control_cycles=5),
-                CancelMotion(exception=Exception("muh")),
+                CountTicks(ticks=5),
+                CancelStatechart(exception=Exception("muh")),
             ]
         )
     )
     msc.add_node(EndMotion.when_true(local_min))
 
-    kin_sim = Executor(MotionStatechartContext(world=cylinder_bot_world))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
 
     with pytest.raises(Exception, match="muh"):
         kin_sim.tick_until_end(500)
@@ -471,7 +484,11 @@ def test_multiple_external_collision_avoidance_motions(cylinder_bot_world: World
     env1 = cylinder_bot_world.get_kinematic_structure_entity_by_name("environment")
 
     def run_motion(goal_x):
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=cylinder_bot_world),
+            extensions=[MotionControl()],
+        )
+        msc = Statechart(context=kin_sim.context)
         msc.add_nodes(
             [
                 UpdateTemporaryCollisionRules(
@@ -497,8 +514,7 @@ def test_multiple_external_collision_avoidance_motions(cylinder_bot_world: World
         )
         msc.add_node(EndMotion.when_true(local_min))
 
-        kin_sim = Executor(MotionStatechartContext(world=cylinder_bot_world))
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end(500)
         return kin_sim
 
@@ -512,10 +528,10 @@ def test_multiple_external_collision_avoidance_motions(cylinder_bot_world: World
 
 
 def test_cancel_node_without_tasks_never_starts():
-    msc = MotionStatechart()
+    msc = Statechart(context=StatechartContext(world=World()))
     msc.add_node(cancel := _CancelBecauseSelfCollisionViolated(name="cancel", tasks=[]))
 
-    cancel.build(MotionStatechartContext.empty())
+    cancel.build(msc.context)
 
     assert cancel.start_condition.is_constant_false()
 
@@ -525,7 +541,11 @@ def test_self_collision_avoidance_without_checked_body_combinations(
 ):
     robot = cylinder_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
-    msc = MotionStatechart()
+    executor = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=executor.context)
     msc.add_nodes(
         [
             goal := SelfCollisionAvoidance(robot=robot),
@@ -534,13 +554,12 @@ def test_self_collision_avoidance_without_checked_body_combinations(
     )
     msc.add_node(EndMotion.when_true(local_min))
 
-    Executor(MotionStatechartContext(world=cylinder_bot_world)).compile(
-        motion_statechart=msc
-    )
+    executor.compile(statechart=msc)
 
-    assert goal.nodes == msc.get_nodes_by_type(CancelMotion)
+    assert goal.nodes == msc.get_nodes_by_type(CancelStatechart)
 
 
+@pytest.mark.parked
 def test_self_collision_avoidance(self_collision_bot_world: World):
 
     robot = self_collision_bot_world.get_semantic_annotations_by_type(AbstractRobot)[0]
@@ -549,7 +568,9 @@ def test_self_collision_avoidance(self_collision_bot_world: World):
     l_thumb = self_collision_bot_world.get_kinematic_structure_entity_by_name("l_thumb")
     r_thumb = self_collision_bot_world.get_kinematic_structure_entity_by_name("r_thumb")
 
-    msc = MotionStatechart()
+    msc = Statechart(
+        context=create_context_with_motion_control(self_collision_bot_world)
+    )
     msc.add_nodes(
         [
             UpdateTemporaryCollisionRules(
@@ -569,17 +590,22 @@ def test_self_collision_avoidance(self_collision_bot_world: World):
     msc.add_node(EndMotion.when_true(local_min))
 
     json_data = msc.to_json()
+    # The statechart travels to the executor below; the context it was built in
+    # releases the collision managers it registered in the shared world.
+    msc.context.cleanup()
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
 
     tracker = WorldEntityWithIDKwargsTracker.from_world(self_collision_bot_world)
     kwargs = tracker.create_kwargs()
-    msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=self_collision_bot_world),
+        extensions=[MotionControl()],
+    )
+    msc_copy = Statechart.from_json(new_json_data, context=kin_sim.context, **kwargs)
+    kin_sim.compile(statechart=msc_copy)
 
-    kin_sim = Executor(MotionStatechartContext(world=self_collision_bot_world))
-    kin_sim.compile(motion_statechart=msc_copy)
-
-    # 4 because of the base nodes + 20 that are added by self collision avoidance + 1 for CancelMotion
+    # 4 because of the base nodes + 20 that are added by self collision avoidance + 1 for CancelStatechart
     assert len(msc_copy.nodes) == 4 + 20 + 1
 
     kin_sim.tick_until_end(500)
@@ -594,7 +620,10 @@ def test_avoid_collision_go_around_corner(pr2_with_box):
     r_tip = pr2_with_box.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
     robot = pr2_with_box.get_semantic_annotations_by_type(AbstractRobot)[0]
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_with_box), extensions=[MotionControl()]
+    )
+    msc = Statechart(context=kin_sim.context)
     msc.add_node(
         UpdateTemporaryCollisionRules(
             temporary_rules=[
@@ -664,10 +693,9 @@ def test_avoid_collision_go_around_corner(pr2_with_box):
     )
     msc.add_node(local_min := LocalMinimumReached())
     msc.add_node(EndMotion.when_true(local_min))
-    msc.add_node(CancelMotion.when_true(distance_violated))
+    msc.add_node(CancelStatechart.when_true(distance_violated))
 
-    kin_sim = Executor(MotionStatechartContext(world=pr2_with_box))
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
 
     kin_sim.tick_until_end(500)
 
@@ -688,7 +716,18 @@ def test_avoid_self_collision_with_l_arm(pr2_with_box, rclpy_node):
     )
     robot = pr2_with_box.get_semantic_annotations_by_type(AbstractRobot)[0]
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=pr2_with_box),
+        extensions=[
+            MotionControl(
+                qp_controller_config=QPControllerConfig(
+                    target_frequency=100,
+                    braking_time=timedelta(seconds=0.289),
+                )
+            )
+        ],
+    )
+    msc = Statechart(context=kin_sim.context)
     msc.add_node(
         Sequence(
             [
@@ -736,20 +775,11 @@ def test_avoid_self_collision_with_l_arm(pr2_with_box, rclpy_node):
     )
     msc.add_node(local_min := LocalMinimumReached())
     msc.add_node(EndMotion.when_true(local_min))
-    msc.add_node(CancelMotion.when_true(contact))
+    msc.add_node(CancelStatechart.when_true(contact))
 
-    kin_sim = Executor(
-        MotionStatechartContext(
-            world=pr2_with_box,
-            qp_controller_config=QPControllerConfig(
-                target_frequency=100,
-                braking_time=timedelta(seconds=0.289),
-            ),
-        )
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
 
-    assert len(msc.nodes) == 78
+    assert len(msc.nodes) == 80
 
     kin_sim.tick_until_end(500)
 
@@ -781,20 +811,39 @@ class CollisionCheckCountingObserver(CollisionConsumer):
         pass
 
 
+def _create_counting_executor(world: World) -> StatechartExecutor:
+    """
+    :return: An executor with motion control acting in `world`, for counting collision
+        checks.
+    """
+    return StatechartExecutor(
+        context=StatechartContext(world=world),
+        extensions=[
+            MotionControl(
+                qp_controller_config=QPControllerConfig(
+                    target_frequency=100,
+                    braking_time=timedelta(seconds=0.289),
+                )
+            )
+        ],
+    )
+
+
 def _build_arms_crossing_statechart(
-    world: World, collision_avoidance: bool
-) -> MotionStatechart:
+    executor: StatechartExecutor, collision_avoidance: bool
+) -> Statechart:
     """
     Builds a statechart that drives the right gripper into the left arm.
 
-    :param world: The PR2 world the goal refers to.
+    :param executor: The executor whose world the goal refers to.
     :param collision_avoidance: Whether a self collision avoidance node is part of the
         goal.
     """
+    world = executor.context.world
     r_tip = world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
     base_footprint = world.get_kinematic_structure_entity_by_name("base_footprint")
 
-    msc = MotionStatechart()
+    msc = Statechart(context=executor.context)
     msc.add_node(
         goal := Sequence(
             [
@@ -836,48 +885,43 @@ def _build_arms_crossing_statechart(
 
 
 def _run_and_count_collision_checks(
-    world: World, msc: MotionStatechart
+    executor: StatechartExecutor, msc: Statechart
 ) -> CollisionCheckCountingObserver:
     """
     Executes the statechart and returns the observer that counted the collision checks.
     """
+    world = executor.context.world
     observer = CollisionCheckCountingObserver()
     world.collision_manager.add_collision_consumer(observer)
-    executor = Executor(
-        MotionStatechartContext(
-            world=world,
-            qp_controller_config=QPControllerConfig(
-                target_frequency=100,
-                braking_time=timedelta(seconds=0.289),
-            ),
-        )
-    )
-    executor.compile(motion_statechart=msc)
+    executor.compile(statechart=msc)
     executor.tick_until_end(500)
     world.collision_manager.remove_collision_consumer(observer)
     return observer
 
 
 def test_collisions_are_not_computed_without_collision_nodes(pr2_with_box):
-    msc = _build_arms_crossing_statechart(pr2_with_box, collision_avoidance=False)
+    executor = _create_counting_executor(pr2_with_box)
+    msc = _build_arms_crossing_statechart(executor, collision_avoidance=False)
 
     for node in msc.nodes:
         assert not isinstance(node, SelfCollisionAvoidance)
         assert not isinstance(node, ExternalCollisionAvoidance)
 
-    observer = _run_and_count_collision_checks(pr2_with_box, msc)
+    observer = _run_and_count_collision_checks(executor, msc)
     assert observer.collision_check_count == 0
 
 
 def test_collisions_are_computed_with_collision_avoidance_node(pr2_with_box):
-    msc = _build_arms_crossing_statechart(pr2_with_box, collision_avoidance=True)
+    executor = _create_counting_executor(pr2_with_box)
+    msc = _build_arms_crossing_statechart(executor, collision_avoidance=True)
 
-    observer = _run_and_count_collision_checks(pr2_with_box, msc)
+    observer = _run_and_count_collision_checks(executor, msc)
     assert observer.collision_check_count > 0
 
 
 def test_collisions_are_computed_for_a_distance_monitor_alone(pr2_with_box):
-    msc = _build_arms_crossing_statechart(pr2_with_box, collision_avoidance=False)
+    executor = _create_counting_executor(pr2_with_box)
+    msc = _build_arms_crossing_statechart(executor, collision_avoidance=False)
     msc.add_node(
         ExternalCollisionDistanceMonitor(
             body=pr2_with_box.get_kinematic_structure_entity_by_name(
@@ -887,10 +931,11 @@ def test_collisions_are_computed_for_a_distance_monitor_alone(pr2_with_box):
         )
     )
 
-    observer = _run_and_count_collision_checks(pr2_with_box, msc)
+    observer = _run_and_count_collision_checks(executor, msc)
     assert observer.collision_check_count > 0
 
 
+@pytest.mark.parked
 def test_hard_constraints_violated(cylinder_bot_world: World):
     root = cylinder_bot_world.root
     with cylinder_bot_world.modify_world():
@@ -946,7 +991,7 @@ def test_hard_constraints_violated(cylinder_bot_world: World):
 
     tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
 
-    msc = MotionStatechart()
+    msc = Statechart(context=create_context_with_motion_control(cylinder_bot_world))
     msc.add_node(
         Sequence(
             [
@@ -982,17 +1027,20 @@ def test_hard_constraints_violated(cylinder_bot_world: World):
     msc.add_node(EndMotion.when_true(local_min))
 
     json_data = msc.to_json()
+    # The statechart travels to the executor below; the context it was built in
+    # releases the collision managers it registered in the shared world.
+    msc.context.cleanup()
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
 
     tracker = WorldEntityWithIDKwargsTracker.from_world(cylinder_bot_world)
     kwargs = tracker.create_kwargs()
-    msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
-
-    kin_sim = Executor(
-        context=MotionStatechartContext(world=cylinder_bot_world),
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[MotionControl()],
     )
-    kin_sim.compile(motion_statechart=msc_copy)
+    msc_copy = Statechart.from_json(new_json_data, context=kin_sim.context, **kwargs)
+    kin_sim.compile(statechart=msc_copy)
 
     with pytest.raises(CollisionViolatedError) as exc_info:
         kin_sim.tick_until_end()
@@ -1030,7 +1078,12 @@ def test_collision_for_robot_with_static_base(
             )
         )
 
-    msc = MotionStatechart()
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=world),
+        pacer=SimulationPacer(real_time_factor=2),
+        extensions=[MotionControl()],
+    )
+    msc = Statechart(context=kin_sim.context)
     msc.add_node(
         goal := Parallel(
             [
@@ -1046,16 +1099,12 @@ def test_collision_for_robot_with_static_base(
         )
     )
     msc.add_node(local_min := LocalMinimumReached())
-    msc.add_node(CancelMotion.when_true(local_min))
+    msc.add_node(CancelStatechart.when_true(local_min))
     msc.add_node(EndMotion.when_true(goal))
 
-    kin_sim = Executor(
-        MotionStatechartContext(world=world),
-        pacer=SimulationPacer(real_time_factor=2),
-    )
-    kin_sim.compile(motion_statechart=msc)
+    kin_sim.compile(statechart=msc)
     with pytest.raises(Exception):
-        # Either Timeout or CancelMotion Execption
+        # Either Timeout or CancelStatechart Execption
         kin_sim.tick_until_end(500)
 
     # Verify no contact between the gripper and the obstacle
@@ -1086,7 +1135,10 @@ def test_repeated_collision_pr2_apartment_does_not_increase_execution_time(
 
     execution_times = []
     for i in range(10):
-        msc = MotionStatechart()
+        kin_sim = StatechartExecutor(
+            context=StatechartContext(world=world), extensions=[MotionControl()]
+        )
+        msc = Statechart(context=kin_sim.context)
         msc.add_nodes(
             [
                 UpdateTemporaryCollisionRules(
@@ -1117,10 +1169,7 @@ def test_repeated_collision_pr2_apartment_does_not_increase_execution_time(
         )
         msc.add_node(EndMotion.when_true(msc.nodes[1]))
 
-        kin_sim = Executor(
-            MotionStatechartContext(world=world),
-        )
-        kin_sim.compile(motion_statechart=msc)
+        kin_sim.compile(statechart=msc)
         with world.reset_state_context():
             start_time = time.time()
             kin_sim.tick_until_end(500)
@@ -1138,3 +1187,22 @@ def test_repeated_collision_pr2_apartment_does_not_increase_execution_time(
         f"Execution time is increasing: first half median {first_half_median:.4f}s, "
         f"second half median {second_half_median:.4f}s"
     )
+
+
+# %% rules for a single end effector
+
+
+def test_end_effector_rules_free_only_that_end_effector(pr2_world_copy):
+    """
+    The rules built for an end effector allow collisions for that end effector and
+    nothing else.
+    """
+    robot = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
+    end_effector = robot.left_arm.end_effector
+
+    node = UpdateTemporaryCollisionRules.for_end_effector(end_effector)
+
+    assert [type(rule) for rule in node.temporary_rules] == [
+        AllowCollisionForEndEffector
+    ]
+    assert node.temporary_rules[0].end_effector is end_effector

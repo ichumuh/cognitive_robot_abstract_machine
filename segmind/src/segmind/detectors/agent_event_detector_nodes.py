@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
 from typing_extensions import List, Set, Tuple, Type
 
 from segmind.datastructures.events import (
@@ -62,7 +62,7 @@ class GraspDetector(AbstractDetector):
 
     def tool_frames_holding(
         self,
-        context: MotionStatechartContext,
+        context: StatechartContext,
         segmind_context: SegmindContext,
         tracked_objects: List[Body],
     ) -> IndexedBodyPairs:
@@ -72,7 +72,7 @@ class GraspDetector(AbstractDetector):
         A tool frame is a place rather than a thing and has no geometry to touch, so
         what is asked is whether the hand around it holds the body.
 
-        :param context: The current motion statechart context.
+        :param context: The current statechart context.
         :param segmind_context: The shared SegmindContext holding what each body
             touches.
         :param tracked_objects: The bodies to check.
@@ -92,14 +92,14 @@ class GraspDetector(AbstractDetector):
 
     def update_context_and_events(
         self,
-        context: MotionStatechartContext,
+        context: StatechartContext,
         segmind_context: SegmindContext,
         tracked_objects: List[Body],
     ) -> List[DetectionEvent]:
         """
         Detects bodies newly taken hold of and bodies that are no longer held.
 
-        :param context: The current motion statechart context.
+        :param context: The current statechart context.
         :param segmind_context: The shared SegmindContext holding what is already known.
         :param tracked_objects: The bodies to check.
         :return: One event per body newly held and one per body let go of, per tool

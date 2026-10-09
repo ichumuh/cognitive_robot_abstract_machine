@@ -200,7 +200,10 @@ def test_ground_three_parts_is_valid(markov_chain_template):
 
 
 def test_ground_three_parts_matches_forward_algorithm(
-    markov_chain_template, starting_probabilities, transition_probabilities, type_by_state
+    markov_chain_template,
+    starting_probabilities,
+    transition_probabilities,
+    type_by_state,
 ):
     """
     With dirac emissions, the observed "type" sequence reveals the hidden state sequence
@@ -238,7 +241,10 @@ def test_ground_three_parts_matches_forward_algorithm(
 
 
 def test_ground_position_probability_matches_forward_marginal(
-    markov_chain_template, starting_probabilities, transition_probabilities, type_by_state
+    markov_chain_template,
+    starting_probabilities,
+    transition_probabilities,
+    type_by_state,
 ):
     """
     Each position's "type" probability, with the other positions left.

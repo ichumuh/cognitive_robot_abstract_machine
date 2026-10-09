@@ -7,15 +7,15 @@ import numpy as np
 from typing_extensions import Optional, Tuple
 
 import krrood.symbolic_math.symbolic_math as symbolic_math
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.data_types import (
-    DefaultWeights,
-    ObservationStateValues,
-)
+from giskardpy.motion_statechart.context import MotionControlContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
+from giskardpy.motion_statechart.data_types import DefaultWeights
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import (
     ConvergingTask,
     DebugExpression,
-    NodeArtifacts,
+    MotionNodeArtifacts,
 )
 from semantic_digital_twin.spatial_types import (
     AxisAngle,
@@ -165,7 +165,35 @@ class WiggleInsert(ConvergingTask):
     Auxiliary variable holding the current angular noise.
     """
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
+
+    def set_up(self, context: StatechartContext) -> None:
+        """
+        Register the noise variables and start the wiggle at rest.
+        """
+        super().set_up(context)
+        control_time_step = context.require_extension(
+            MotionControlContext
+        ).qp_controller_config.control_time_step
+        self._control_frequency = 1 / control_time_step.total_seconds()
+
+        self._current_angle = 0.0
+        self._angular_momentum = 0.0
+        self._current_vector = np.zeros(3)
+        self._vector_momentum = np.zeros(3)
+
+        self._random_translation = Vector3.create_with_variables(
+            f"{self.name}_rand_translation"
+        )
+        self._random_translation.reference_frame = self.root_link
+        context.float_variable_data.register_expression(self._random_translation)
+
+        self._random_angle = symbolic_math.FloatVariable(f"{self.name}_rand_angle")
+        context.float_variable_data.register_expression(self._random_angle)
+
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints that press the tip into the hole while wiggling.
 
@@ -173,7 +201,7 @@ class WiggleInsert(ConvergingTask):
         :return: The artifacts of this task, whose error is the distance between the tip
             and the hole.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         # The previous default was a zero vector, which has no well-defined perpendicular plane;
         # the root z-axis is used instead so the default is usable.
         hole_normal = context.world.transform(
@@ -185,13 +213,6 @@ class WiggleInsert(ConvergingTask):
             ),
         )
 
-        control_time_step = context.qp_controller_config.control_time_step
-        self._control_frequency = 1 / control_time_step.total_seconds()
-
-        self._current_angle = 0.0
-        self._angular_momentum = 0.0
-        self._current_vector = np.zeros(3)
-        self._vector_momentum = np.zeros(3)
         self._perpendicular_basis_first, self._perpendicular_basis_second = (
             self._calculate_perpendicular_basis(hole_normal.to_np()[:3])
         )
@@ -203,12 +224,6 @@ class WiggleInsert(ConvergingTask):
             target_frame=self.root_link, spatial_object=self.hole_point
         )
 
-        self._random_translation = Vector3.create_with_variables(
-            f"{self.name}_rand_translation"
-        )
-        self._random_translation.reference_frame = self.root_link
-        context.float_variable_data.register_expression(self._random_translation)
-
         root_P_hole_wiggled = root_P_hole + self._random_translation
         artifacts.geometry.add_point_goal_constraints(
             frame_P_current=root_P_current,
@@ -217,9 +232,6 @@ class WiggleInsert(ConvergingTask):
             quadratic_weight=self.weight,
             name=f"{self.name}_point_goal",
         )
-
-        self._random_angle = symbolic_math.FloatVariable(f"{self.name}_rand_angle")
-        context.float_variable_data.register_expression(self._random_angle)
 
         tip_V_hole_normal = context.world.transform(
             target_frame=self.tip_link, spatial_object=hole_normal
@@ -249,9 +261,7 @@ class WiggleInsert(ConvergingTask):
         artifacts.error = root_P_current.euclidean_distance(root_P_hole)
         return artifacts
 
-    def on_tick(
-        self, context: MotionStatechartContext
-    ) -> Optional[ObservationStateValues]:
+    def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
         if self.random_walk:
             translation = self._random_walk_translation()
             angle = self._random_walk_angle()

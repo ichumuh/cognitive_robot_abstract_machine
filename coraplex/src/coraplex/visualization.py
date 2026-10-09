@@ -21,14 +21,12 @@ from coraplex.exceptions import (
     UnknownVisualizationOption,
     VisualizationBackendUnavailable,
 )
-from coraplex.plans.plan_node import PlanNode
 from semantic_digital_twin.adapters.rerun import RerunAdapter, RerunMode
 
 if TYPE_CHECKING:
     from rclpy.node import Node
 
-    from coraplex.plans.plan import Plan
-    from coraplex.plans.plan_callbacks import PlanCallback
+    from cramph.executor import ExecutorExtension, StatechartExecutor
     from semantic_digital_twin.world import World
 
 try:
@@ -72,12 +70,11 @@ class PlanVisualization(ABC):
         """
 
     @abstractmethod
-    def plan_callback(self, plan: Plan) -> PlanCallback:
+    def executor_extension(self) -> ExecutorExtension:
         """
-        Create an execution observer for a plan.
+        Create an observer of the statecharts one executor runs.
 
-        :param plan: The plan to observe.
-        :return: A callback registered by the visualization owner.
+        :return: An extension the visualization owner adds to the executor.
         """
 
 
@@ -243,8 +240,12 @@ class WorldVisualization(ABC):
         """
         self._cleanup.close()
 
-    def attach_plan(self, plan: Plan | PlanNode) -> None:
-        pass
+    def attach_plan(self, executor: StatechartExecutor) -> None:
+        """
+        Observe the statecharts `executor` runs, if this renderer shows plans.
+
+        :param executor: The executor whose statecharts are observed.
+        """
 
     def finish_execution(self) -> None:
         self.stop()
@@ -428,6 +429,31 @@ class RerunVisualization(WorldVisualization):
 
 # %% installed plan visualization
 @dataclass
+class ExecutorExtensionAttachment:
+    """
+    An executor extension added to the executor whose statecharts it observes.
+    """
+
+    executor: StatechartExecutor
+    """
+    The executor the extension is added to.
+    """
+
+    extension: ExecutorExtension
+    """
+    The added extension.
+    """
+
+    def detach(self) -> None:
+        """
+        Remove the extension from the executor.
+        """
+        self.executor.extensions[:] = [
+            added for added in self.executor.extensions if added is not self.extension
+        ]
+
+
+@dataclass
 class PluginVisualization(WorldVisualization):
     backend: ClassVar[VisualizationBackend] = VisualizationBackend.CRAMERA
     """
@@ -439,9 +465,11 @@ class PluginVisualization(WorldVisualization):
     The optional installed browser visualization provider.
     """
 
-    _callbacks: list[PlanCallback] = field(default_factory=list, init=False)
+    _attachments: list[ExecutorExtensionAttachment] = field(
+        default_factory=list, init=False
+    )
     """
-    Plan callbacks registered by this owner.
+    Executor extensions added by this owner, with the executors they observe.
     """
 
     @property
@@ -461,32 +489,29 @@ class PluginVisualization(WorldVisualization):
             raise VisualizationBackendUnavailable(self.backend)
         self.provider = provider_type(world=self.world)
         cleanup.callback(self._stop_provider, self.provider)
-        cleanup.callback(self._remove_callbacks)
+        cleanup.callback(self._remove_extensions)
         self.provider.start()
 
-    def attach_plan(self, plan: Plan | PlanNode) -> None:
+    def attach_plan(self, executor: StatechartExecutor) -> None:
         """
-        Observe a plan through the running optional provider.
+        Observe the statecharts of an executor through the running optional provider.
 
-        :param plan: A plan or its root node.
+        :param executor: The executor whose statecharts are observed.
         """
         if self.provider is None:
             return
-        observed_plan = plan.plan if isinstance(plan, PlanNode) else plan
-        if any(callback.plan is observed_plan for callback in self._callbacks):
+        if any(attachment.executor is executor for attachment in self._attachments):
             return
-        callback = self.provider.plan_callback(observed_plan)
-        observed_plan.node_callbacks.append(callback)
-        self._callbacks.append(callback)
+        extension = self.provider.executor_extension()
+        executor.extensions.append(extension)
+        self._attachments.append(
+            ExecutorExtensionAttachment(executor=executor, extension=extension)
+        )
 
-    def _remove_callbacks(self) -> None:
-        for callback in self._callbacks:
-            callback.plan.node_callbacks[:] = [
-                registered
-                for registered in callback.plan.node_callbacks
-                if registered is not callback
-            ]
-        self._callbacks.clear()
+    def _remove_extensions(self) -> None:
+        for attachment in self._attachments:
+            attachment.detach()
+        self._attachments.clear()
 
     def _stop_provider(self, provider: PlanVisualization) -> None:
         try:

@@ -6,14 +6,21 @@ import traceback
 from dataclasses import dataclass, field
 from typing import List
 
+import json
+
 import rclpy
 from json_msgs.action import JsonAction
+from std_msgs.msg import String
 from sqlalchemy.orm import sessionmaker
 
 from giskardpy.data_types.exceptions import NoControlledJointsError
-from giskardpy.executor import Executor
 from giskardpy.middleware.ros2 import rospy
 from giskardpy.middleware.ros2.action_server import ActionServerHandler
+from giskardpy.middleware.ros2.child_choices import (
+    ChildChoiceMessage,
+    ChildSentByClient,
+    child_choices_topic,
+)
 from giskardpy.middleware.ros2.client_presence import ClientWatchdog, HeartbeatPresence
 from giskardpy.middleware.ros2.control_loop import ControlLoop
 from giskardpy.middleware.ros2.feedback_publisher import ActionFeedbackPublisher
@@ -31,9 +38,7 @@ from giskardpy.middleware.ros2.robot_interface_config import RobotInterfaceConfi
 from giskardpy.middleware.ros2.server_config import GiskardServerConfig
 from giskardpy.middleware.ros2.world_updates import IncomingWorldUpdates
 from giskardpy.model.world_config import WorldConfig
-from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.qp.qp_controller_config import QPControllerConfig
-from giskardpy.ros_executor import Ros2Executor
 from krrood.ormatic.utils import create_engine
 from krrood.patterns.caching import clear_memoization_cache
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
@@ -50,6 +55,11 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import (
 )
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.world_description.connections import ActiveConnection
+from giskardpy.motion_control import MotionControl
+from giskardpy.motion_statechart.ros_context import RosNodeAccess
+from cramph.composites import ChildChooserAccess
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +90,7 @@ class Giskard:
     server_config: GiskardServerConfig
     robot_interface_config: RobotInterfaceConfig
     qp_controller_config: QPControllerConfig = field(default_factory=QPControllerConfig)
-    executor: Executor = field(init=False)
+    executor: StatechartExecutor = field(init=False)
     motion_server: MotionServer = field(init=False)
     world_synchronizer: WorldSynchronizer = field(init=False)
     tf_publisher: TFPublisher = field(init=False)
@@ -100,13 +110,13 @@ class Giskard:
         with self.world_config.world.modify_world():
             self.world_config.setup_world()
             clear_memoization_cache(self.world_config.world)
-            self.executor = Ros2Executor(
-                ros_node=rospy.get_node(),
-                context=MotionStatechartContext(
-                    world=self.world_config.world,
-                    qp_controller_config=self.qp_controller_config,
-                ),
+            self.executor = StatechartExecutor(
+                context=StatechartContext(world=self.world_config.world),
                 pacer=self.server_config.create_pacer(),
+                extensions=[
+                    RosNodeAccess(rospy.get_node()),
+                    MotionControl(qp_controller_config=self.qp_controller_config),
+                ],
             )
 
         self.setup_world_model_ros_interface()
@@ -134,6 +144,7 @@ class Giskard:
             world_synchronizer=self.world_synchronizer,
             model_reload_synchronizer=self.model_reload_synchronizer,
         )
+        self.receive_child_choices(world_updates, action_server)
         control_loop = ControlLoop(
             executor=self.executor,
             action_server=action_server,
@@ -155,6 +166,27 @@ class Giskard:
             cycle_counter=cycle_counter,
             idle_frequency=self.server_config.idle_frequency,
             post_goal_plotters=self.create_post_goal_plotters(),
+        )
+
+    def receive_child_choices(
+        self, world_updates: IncomingWorldUpdates, action_server: ActionServerHandler
+    ) -> None:
+        """
+        Let the nodes of a goal that choose their child run the children the client
+        sends for them.
+        """
+        chooser = ChildSentByClient(
+            world_updates=world_updates, action_server=action_server
+        )
+        self.executor.context.add_extension(ChildChooserAccess(chooser=chooser))
+        node = rospy.get_node()
+        node.create_subscription(
+            String,
+            child_choices_topic(node.get_name()),
+            lambda message: chooser.receive(
+                ChildChoiceMessage.from_json(json.loads(message.data))
+            ),
+            10,
         )
 
     def create_post_goal_plotters(self) -> List[PostGoalPlotter]:

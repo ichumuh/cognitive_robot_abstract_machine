@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.graph_node import NodeArtifacts, ConvergingTask
+from giskardpy.motion_statechart.graph_node import MotionNodeArtifacts, ConvergingTask
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -70,7 +70,7 @@ class GraspBar(ConvergingTask):
     Priority weight relative to other tasks.
     """
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         """
         Build motion constraints that pull the tip onto the bar.
 
@@ -78,7 +78,7 @@ class GraspBar(ConvergingTask):
         :return: The artifacts of this task, whose error is the distance between the tip
             and the bar segment.
         """
-        artifacts = NodeArtifacts()
+        artifacts = MotionNodeArtifacts()
         root_P_bar_center = context.world.transform(
             target_frame=self.root_link, spatial_object=self.bar_center
         )

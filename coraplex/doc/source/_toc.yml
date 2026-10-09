@@ -16,7 +16,7 @@ parts:
     - file: designators.md
     - file: orm_concept.md
     - file: abstract_robot.md
-    - file: process_modules.md
+    - file: motion_execution.md
     - file: locations.rst
     - file: conditions.md
     - file: notebooks.md
@@ -48,7 +48,6 @@ parts:
       - file: datastructures.rst
         sections:
         - file: notebooks/pose
-      - file: ros_utils.rst
 
   - caption: API
     chapters:

@@ -21,10 +21,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
-from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import CuttingTechnique
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import sequential
 from coraplex.robot_plans.actions.composite.tool_based import CuttingAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import (
@@ -33,6 +30,10 @@ from coraplex.robot_plans.actions.core.robot_body import (
     SetGripperAction,
 )
 from coraplex.testing import attach_tool, setup_world, start_visualization
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import SimulatedPlanExecutor
+from cramph.statechart import Statechart
+from cramph.composites import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,6 @@ def main() -> None:
     start_visualization(world)
     logger.debug("World root: %s", world.root)
     pr2 = PR2.from_world(world)
-    context = Context(world=world, robot=pr2, _debug=False, ros_node=None)
 
     knife_body = attach_tool(
         world, pr2.right_arm, parse_object("big-knife.stl"), CUT_MOUNT
@@ -65,9 +65,7 @@ def main() -> None:
     with world.modify_world():
         world.add_semantic_annotations([Bread(root=bread_body), knife])
 
-    context.evaluate_conditions = False
-
-    plan = sequential(
+    plan = Sequence(
         [
             SetGripperAction(pr2.right_arm.end_effector, GripperState.CLOSE),
             ParkArmsAction(pr2.all_arms),
@@ -83,12 +81,14 @@ def main() -> None:
                 number_of_cuts_on_local_x_axis=3,
                 slice_thickness=0.03,
             ),
-        ],
-        context=context,
-    ).plan
+        ]
+    )
 
-    with simulated_robot:
-        plan.perform()
+    executor = SimulatedPlanExecutor(world, context_extensions=[RobotAccess(pr2)])
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(plan)
+    executor.compile(statechart)
+    executor.execute()
 
 
 if __name__ == "__main__":

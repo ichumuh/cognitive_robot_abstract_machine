@@ -19,12 +19,11 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from typing_extensions import List, Type
 
-from coraplex.alternative_motion_mapping import AlternativeMotion
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType, VisualizationBackend
-from coraplex.execution_environment import ExecutionEnvironment
+from coraplex.datastructures.enums import VisualizationBackend
+from coraplex.plans.executors import PlanExecutor, SimulatedPlanExecutor
 from coraplex.visualization import VisualizationSession, WorldVisualization
-from coraplex.plans.plan_node import PlanNode
+from cramph.context import ContextExtension, StatechartContext
+from cramph.statechart import Statechart
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -151,9 +150,10 @@ class RobotDemonstration(ABC):
     Name of the node a real run registers.
     """
 
-    execution_type: ExecutionType = ExecutionType.SIMULATED
+    executor_type: Type[PlanExecutor] = SimulatedPlanExecutor
     """
-    Whether the plan drives the real robot or a simulated one.
+    The executor running the plan, which decides whether it drives the real robot or a
+    simulated one.
     """
 
     collision_avoidance: bool = False
@@ -213,16 +213,18 @@ class RobotDemonstration(ABC):
         """
 
     @abstractmethod
-    def build_context(self, world: World) -> Context:
+    def build_context_extensions(self, world: World) -> List[ContextExtension]:
         """
-        Build the plan context, resolving the robot in ``world``, in debug mode when
-        :attr:`debug` is set.
+        Build what the plan's nodes read from their context, at least the
+        :class:`~coraplex.plans.context_extensions.RobotAccess` of the robot resolved in
+        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting`
+        if the plan is to be rewritten.
         """
 
     @abstractmethod
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
-        Build the plan this demonstration performs.
+        Build the statechart this demonstration performs, in `context`.
         """
 
     def segment_events(self, world: World) -> AbstractContextManager:
@@ -245,16 +247,6 @@ class RobotDemonstration(ABC):
             return None
         return self.ros_session.node
 
-    @property
-    def alternative_motion_mappings(self) -> List[Type[AlternativeMotion]]:
-        """
-        Every alternative motion mapping known to coraplex, for every robot.
-
-        Resolution filters by ``used_robot`` and execution type, so handing over the
-        full set is always safe and needs no per-robot selection here.
-        """
-        return AlternativeMotion.discover_all()
-
     def acquire_world(self) -> World:
         """
         Obtain the world to act on: from the running controller for a real run, and from
@@ -263,7 +255,7 @@ class RobotDemonstration(ABC):
         self.ros_session = RobotDemonstrationRosSession.start(self.ros_node_name)
         VisualizationSession.register(self.stop_visualization)
 
-        if self.execution_type is not ExecutionType.REAL:
+        if self.executor_type.simulated:
             world = self.build_simulated_world()
             self.visualization = WorldVisualization.from_environment(
                 world,
@@ -287,20 +279,24 @@ class RobotDemonstration(ABC):
             if not self.is_scene_populated(world):
                 self.populate_scene(world)
             for _ in range(self.repetitions):
-                context = self.build_context(world)
-                plan = self.build_plan(context)
+                executor = self.executor_type(
+                    world,
+                    context_extensions=self.build_context_extensions(world),
+                    ros_node=self.ros_node,
+                    collision_avoidance=self.collision_avoidance,
+                    debug=self.debug,
+                )
+                statechart = self.build_statechart(executor.context)
                 if self.visualization is not None:
-                    self.visualization.attach_plan(plan)
+                    self.visualization.attach_plan(executor)
                 event_segmentation = (
                     self.segment_events(world)
                     if self.event_segmentation
                     else nullcontext()
                 )
-                with ExecutionEnvironment(
-                    execution_type=self.execution_type,
-                    collision_avoidance=self.collision_avoidance,
-                ), event_segmentation:
-                    plan.perform()
+                with event_segmentation:
+                    executor.compile(statechart)
+                    executor.execute()
         finally:
             self.tear_down()
         return world

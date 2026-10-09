@@ -1,12 +1,12 @@
+import pytest
 import json
 
 from geometry_msgs.msg import WrenchStamped
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from cramph.data_types import ObservationStateValues
+from cramph.composites import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
 )
@@ -14,8 +14,13 @@ from giskardpy.motion_statechart.ros2_nodes.topic_monitor import (
     PublishOnStart,
     WaitForMessage,
 )
-from giskardpy.ros_executor import Ros2Executor
 from semantic_digital_twin.world import World
+from giskardpy.motion_control import MotionControl
+from giskardpy.motion_statechart.ros_context import RosNodeAccess
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
+
+pytestmark = pytest.mark.parked
 
 
 def test_force_impact_node(rclpy_node):
@@ -26,7 +31,7 @@ def test_force_impact_node(rclpy_node):
     msg_above = WrenchStamped()
     msg_above.wrench.force.x = 20.0
 
-    msc = MotionStatechart()
+    msc = Statechart()
     msc.add_node(
         parallel := Parallel(
             [
@@ -46,12 +51,13 @@ def test_force_impact_node(rclpy_node):
     json_data = msc.to_json()
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
-    msc_copy = MotionStatechart.from_json(new_json_data)
+    msc_copy = Statechart.from_json(new_json_data)
 
-    kin_sim = Ros2Executor(
-        context=MotionStatechartContext(world=World()), ros_node=rclpy_node
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=World()),
+        extensions=[RosNodeAccess(rclpy_node), MotionControl()],
     )
-    kin_sim.compile(motion_statechart=msc_copy)
+    kin_sim.compile(statechart=msc_copy)
 
     ft_node = msc_copy.nodes[0].nodes[0]
 

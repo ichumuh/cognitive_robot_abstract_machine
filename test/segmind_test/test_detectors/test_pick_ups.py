@@ -25,7 +25,9 @@ from segmind.detectors.coarse_event_detector_nodes import (
     PickUpDetector,
 )
 from segmind.detectors.agent_event_detector_nodes import GraspDetector
-from segmind.statecharts.segmind_statechart import SegmindStatechart
+from cramph.context import StatechartContext
+from segmind.statecharts.segmind_statechart import DetectorStatechartBuilder
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
 LIFTS_APART = timedelta(minutes=5)
@@ -136,7 +138,9 @@ def _pick_ups_concluded_beside_a_grasp_detector(
     the same statechart.
     """
     pick_up = PickUpDetector()
-    SegmindStatechart().build_statechart([GraspDetector(), pick_up])
+    DetectorStatechartBuilder([GraspDetector(), pick_up]).build(
+        StatechartContext(world=World())
+    )
     return [
         event
         for event in pick_up.update_context_and_events(None, segmind_context, [])
@@ -189,8 +193,8 @@ def test_a_grasp_and_a_lift_are_a_pick_up_where_grasps_are_watched_for(
 @dataclass
 class DetectorOfAPlacingFollowingALossOfSupport(AbstractInteractionDetector):
     """
-    Concludes a placing from a loss of support detected close to a support, stating only which events
-    it is concluded from and what it concludes.
+    Concludes a placing from a loss of support detected close to a support, stating only
+    which events it is concluded from and what it concludes.
     """
 
     @property

@@ -20,17 +20,17 @@ from probabilistic_model.probabilistic_circuit.rx.helper import (
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProductUnit,
 )
-from coraplex.datastructures.dataclasses import Context
-from coraplex.execution_environment import simulated_robot
-from coraplex.plans.factories import execute_single
 from coraplex.plans.failures import (
     PlanFailure,
     EmptyUnderspecified,
 )
-from coraplex.plans.plan import Plan
+from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from coraplex.plans.executors import SimulatedPlanExecutor
 from coraplex.plans.underspecified import UnderspecifiedNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.actions.core.misc import MoveToReach
+from cramph.node import StatechartNode
+from cramph.statechart import Statechart
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
@@ -53,19 +53,42 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 @dataclass
+class TrainingEpisode:
+    """
+    The underspecified action one episode of training executes, and the executor
+    executing it.
+    """
+
+    action: UnderspecifiedNode
+    """
+    The underspecified action whose grounded variants the episode tries.
+    """
+
+    executor: SimulatedPlanExecutor
+    """
+    The executor running the action in the world built for the episode.
+    """
+
+
+@dataclass
 class TrainingEnvironment(ABC):
     """
     A training environment for generating data for the parameterization of actions.
     """
 
-    action_type: ClassVar[type[ActionDescription]]
+    action_type: ClassVar[type[Action]]
     """
     The type of action that is trained.
     """
 
-    executed_plans: list[Plan] = field(default_factory=list)
+    executed_plans: list[StatechartNode] = field(default_factory=list)
     """
     The executed plans during training.
+    """
+
+    tried_actions: list[Action] = field(default_factory=list)
+    """
+    Every action the executed plans tried, whether it succeeded or not.
     """
 
     visualize: bool = False
@@ -80,14 +103,13 @@ class TrainingEnvironment(ABC):
         """
 
     @abstractmethod
-    def setup_plan(self, limit: int = 10, **kwargs) -> Plan:
+    def setup_episode(self, limit: int = 10, **kwargs) -> TrainingEpisode:
         """
-        Create a plan with an underspecified node as a root.
-
-        This plan is used to generate variants of the actions.
+        Create an underspecified action, in a world of its own, whose grounded variants
+        the episode tries.
 
         :param limit: The maximum number of actions that should be executed.
-        :return: The plan
+        :return: The action and the executor executing it.
         """
 
     def generate_episodes(self, number_of_actions: int = 10):
@@ -110,25 +132,29 @@ class TrainingEnvironment(ABC):
         :param limit: The maximum number of actions that should be executed.
         :return: The number of actions executed in the episode.
         """
-        plan = self.setup_plan(limit)
+        episode = self.setup_episode(limit)
 
         if self.visualize:
             import rclpy
 
             pub = VizMarkerPublisher(
-                _world=plan.context.world,
+                _world=episode.executor.world,
                 node=rclpy.create_node("test_node"),
             )
 
-        with simulated_robot:
-            try:
-                plan.perform()
-            except EmptyUnderspecified:
-                # No working solution found in this episode
-                pass
-            self.executed_plans.append(plan)
+        executor = episode.executor
+        statechart = Statechart(context=executor.context)
+        statechart.add_node(episode.action)
+        try:
+            executor.compile(statechart)
+            executor.execute()
+        except EmptyUnderspecified:
+            # No working solution found in this episode
+            pass
+        self.executed_plans.append(episode.action)
 
-        number_of_executed_variants = len(plan.root.children)
+        self.tried_actions.extend(episode.action.chosen_actions)
+        number_of_executed_variants = len(episode.action.chosen_actions)
 
         if self.visualize:
             pub.stop()
@@ -179,7 +205,7 @@ class MoveToReachTrainingEnvironment(TrainingEnvironment):
 
         return world_with_urdf
 
-    def setup_plan(self, limit: int = 10, **kwargs) -> UnderspecifiedNode:
+    def setup_episode(self, limit: int = 10, **kwargs) -> TrainingEpisode:
 
         world = self.setup_world()
         [robot] = world.get_semantic_annotations_by_type(AbstractRobot)
@@ -207,9 +233,17 @@ class MoveToReachTrainingEnvironment(TrainingEnvironment):
         else:
             query_backend = self.setup_backend(move_to_reach)
 
-        context = Context(world=world, robot=robot, query_backend=query_backend)
+        executor = SimulatedPlanExecutor(
+            world,
+            context_extensions=[
+                RobotAccess(robot),
+                StatementGrounding(query_backend=query_backend),
+            ],
+        )
 
-        return execute_single(move_to_reach, context=context).plan
+        return TrainingEpisode(
+            action=UnderspecifiedNode(statement=move_to_reach), executor=executor
+        )
 
     def setup_backend(self, underspecified_action: Match) -> ProbabilisticBackend:
         """

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Set, Any
 import numpy as np
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
 from segmind.datastructures.events import (
     DetectionEvent,
     ContactEvent,
@@ -45,7 +45,7 @@ class ContactDetector(AbstractDetector):
 
     def update_context_and_events(
         self,
-        context: MotionStatechartContext,
+        context: StatechartContext,
         segmind_context: SegmindContext,
         tracked_objects: List[Body],
     ) -> List[DetectionEvent]:
@@ -53,7 +53,7 @@ class ContactDetector(AbstractDetector):
         Detects newly formed and newly lost contacts and updates the stored contact
         state.
 
-        :param context: The current motion statechart context.
+        :param context: The current statechart context.
         :param segmind_context: The shared SegmindContext containing the information
             required to track events.
         :param tracked_objects: List of bodies to check for contacts.
@@ -119,14 +119,14 @@ class MotionDetector(AbstractDetector):
 
     def update_context_and_events(
         self,
-        context: MotionStatechartContext,
+        context: StatechartContext,
         segmind_context: SegmindContext,
         tracked_objects: List[Body],
     ) -> List[DetectionEvent]:
         """
         Updates the pose history for each tracked object and checks for motion events.
 
-        :param context: The current motion statechart context.
+        :param context: The current statechart context.
         :param segmind_context: The shared SegmindContext containing the information
             required to track events.
         :param tracked_objects: List of bodies to update and check.

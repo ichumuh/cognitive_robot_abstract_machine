@@ -5,12 +5,14 @@ from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection1DOF,
 )
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode, NodeArtifacts
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from cramph.node import NodeArtifacts
 
 
 @dataclass(eq=False, repr=False)
-class JointPositionReached(MotionStatechartNode):
+class JointPositionReached(EndedByOwner, MotionStatechartNode):
     """
     Monitors if a joint position is reached within a certain threshold.
     """
@@ -30,7 +32,7 @@ class JointPositionReached(MotionStatechartNode):
     Threshold for position error.
     """
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         current = self.connection.dof.variables.position
         if (
             isinstance(self.connection, RevoluteConnection)

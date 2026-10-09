@@ -9,15 +9,16 @@ from semantic_digital_twin.world_description.connections import ActiveConnection
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts
+from cramph.node import CompositeNode, NodeArtifacts
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 
 
 @dataclass(eq=False, repr=False)
-class Open(Goal):
+class Open(EndedByOwner, CompositeNode):
     """
     Open a 1-dof mechanism in an environment by driving its degree of freedom towards
     its upper limit while keeping the end effector fixed relative to the grasped part.
@@ -65,13 +66,13 @@ class Open(Goal):
     letting the end effector drift off the grasped part, and the two move independently.
     """
 
-    def expand(self, context: MotionStatechartContext) -> None:
+    def expand(self, context: StatechartContext) -> None:
         self.connection = self.environment_link.get_first_parent_connection_of_type(
             ActiveConnection1DOF
         )
         self.goal_joint_state = self._reachable_goal_joint_state()
 
-        self._add_children_to_motion_statechart(
+        self._add_children_to_statechart(
             [
                 JointPositionList(
                     name="hinge goal",
@@ -99,17 +100,19 @@ class Open(Goal):
             return limit
         return min(limit, self.goal_joint_state)
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         """
         Build an observation that is True once both the degree of freedom and the grip
         on the grasped part reached their goals.
 
-        This goal ends neither of them, so a part that keeps running is judged by what
-        it observes now and stops counting once it drifts away from its goal again. A
-        part something *else* ended keeps counting, because its verdict outlasts it.
+        Both parts are created here and end only when this goal ends, so each is judged
+        by what it observes now and stops counting once it drifts away from its goal
+        again.
         """
         return NodeArtifacts(
-            observation=trinary_logic_and(*[node.goal_reached for node in self.nodes])
+            observation=trinary_logic_and(
+                *[node.observation_variable for node in self.nodes]
+            )
         )
 
 

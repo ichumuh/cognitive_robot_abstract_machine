@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from giskardpy.executor import NoPacing, Pacer, RealTimePacer
+from cramph.executor import NoPacing, Pacer, RealTimePacer
 from giskardpy.middleware.ros2.utils.utils import is_in_github_workflow
 
 

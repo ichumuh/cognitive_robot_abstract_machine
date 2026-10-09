@@ -1,0 +1,189 @@
+import logging
+from dataclasses import dataclass
+
+import pytest
+
+from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from coraplex.plans.executors import SimulatedPlanExecutor
+from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
+
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
+from semantic_digital_twin.datastructures.definitions import TorsoState
+
+from ...plan_running import simulated_executor, statechart_of, with_grounding
+from ...sampling import SAMPLING_SEED
+
+# %% debug validation
+
+
+def test_debug_requires_a_ros_node(pr2_apartment_context):
+    """
+    Debug output is visualized over ROS, so an executor created in debug mode without a
+    node is rejected at creation rather than failing later during execution.
+    """
+    world, _, extensions = pr2_apartment_context
+
+    with pytest.raises(ValueError):
+        SimulatedPlanExecutor(world, context_extensions=extensions, debug=True)
+
+
+def test_debug_raises_the_coraplex_log_level(pr2_apartment_context, rclpy_node):
+    """
+    Creating an executor in debug mode lowers the package's log level, so debug messages
+    are emitted without the caller touching logging.
+    """
+    world, _, extensions = pr2_apartment_context
+    coraplex_logger = logging.getLogger("coraplex")
+    previous_level = coraplex_logger.level
+
+    try:
+        SimulatedPlanExecutor(
+            world, context_extensions=extensions, ros_node=rclpy_node, debug=True
+        )
+        assert coraplex_logger.level == logging.DEBUG
+    finally:
+        coraplex_logger.setLevel(previous_level)
+
+
+def test_default_executor_logs_at_info(pr2_apartment_context):
+    """
+    Without debug mode the package logs at info level.
+    """
+    world, _, extensions = pr2_apartment_context
+    coraplex_logger = logging.getLogger("coraplex")
+    previous_level = coraplex_logger.level
+
+    try:
+        executor = SimulatedPlanExecutor(world, context_extensions=extensions)
+        assert not executor.debug
+        assert coraplex_logger.level == logging.INFO
+    finally:
+        coraplex_logger.setLevel(previous_level)
+
+
+# %% the root Cartesian goals are expressed in
+
+
+def test_controlled_root_is_the_robot_when_the_base_stands_still(pr2_apartment_context):
+    """
+    A robot that keeps its base still can only move what hangs below its own root, so
+    that is what a Cartesian goal is expressed relative to.
+    """
+    world, robot, _ = pr2_apartment_context
+    robot.mobile_base.full_body_controlled = False
+
+    assert RobotAccess(robot).controlled_root is robot.root
+
+
+def test_controlled_root_is_the_world_when_the_base_may_drive(pr2_apartment_context):
+    """
+    A robot that drives its base while it manipulates moves relative to the world, so
+    the world root is what a Cartesian goal is expressed relative to.
+    """
+    world, robot, _ = pr2_apartment_context
+    previous = robot.mobile_base.full_body_controlled
+    robot.mobile_base.full_body_controlled = True
+
+    try:
+        assert RobotAccess(robot).controlled_root is world.root
+    finally:
+        robot.mobile_base.full_body_controlled = previous
+
+
+# %% carrying the extensions over to a copy of the world
+
+
+def test_the_robot_of_a_copied_world_is_its_own_copy(pr2_apartment_context):
+    """
+    A trial runs a candidate in a copy of the world, where the robot is the copy's.
+    """
+    world, robot, _ = pr2_apartment_context
+    copy = world.__deepcopy__({})
+
+    copied_access = copy.rebind_world_entities(RobotAccess(robot))
+
+    assert copied_access.robot is copy.get_semantic_annotation_by_id(robot.id)
+
+
+@dataclass
+class TransformationCountingItsApplications(PlanTransformation[MoveTorsoAction]):
+    """
+    Rewrites nothing, and counts how often it was applied.
+    """
+
+    applications: int = 0
+    """
+    How often it was applied.
+    """
+
+    def is_applicable(self, plan_node: MoveTorsoAction) -> bool:
+        return True
+
+    def apply(self, plan_node: MoveTorsoAction) -> None:
+        self.applications += 1
+
+
+def test_a_copied_plan_rewriting_offers_the_nodes_offered_already_again(
+    pr2_apartment_context,
+):
+    """
+    A trial rewrites its candidate in a statechart of its own, so what the plan's
+    rewriting offered already must not keep the copy from offering it again.
+    """
+    world, _, extensions = pr2_apartment_context
+    counting = TransformationCountingItsApplications()
+    rewriting = PlanRewriting(transformations=[counting])
+    torso = MoveTorsoAction(TorsoState.HIGH)
+    statechart_of(simulated_executor(extensions), torso)
+    rewriting.rewrite(torso)
+
+    world.rebind_world_entities(rewriting).rewrite(torso)
+
+    assert counting.applications == 2
+
+
+# %% the seed an action samples its locations with
+
+
+def test_an_action_samples_with_the_seed_of_its_plan(pr2_apartment_context):
+    """
+    The locations an action samples, for instance those a plan transformation adds, take
+    the plan's seed, so a run repeats.
+    """
+    _, _, extensions = pr2_apartment_context
+    action = MoveTorsoAction(TorsoState.HIGH)
+
+    statechart_of(
+        simulated_executor(with_grounding(extensions, sampling_seed=5)), action
+    )
+
+    assert action.sampling_seed == 5
+
+
+# %% repeatable location samples
+
+WORLD_FIXTURES_WITH_EXTENSIONS = [
+    "pr2_apartment_context",
+    "simple_pr2_context",
+    "stretch_apartment_context",
+    "apartment_world_pr2_copy_with_context",
+]
+"""
+The shared fixtures that hand a test the context extensions to run its actions with.
+"""
+
+
+@pytest.mark.parametrize("world_fixture", WORLD_FIXTURES_WITH_EXTENSIONS)
+def test_a_shared_fixture_fixes_the_samples_its_plans_make(world_fixture, request):
+    """
+    A location samples its candidates from a costmap rather than ranking it, so a test
+    handed an unseeded plan would stand somewhere else every run.
+    """
+    _, _, extensions = request.getfixturevalue(world_fixture)
+
+    [grounding] = [
+        extension
+        for extension in extensions
+        if isinstance(extension, StatementGrounding)
+    ]
+    assert grounding.sampling_seed == SAMPLING_SEED

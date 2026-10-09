@@ -21,8 +21,11 @@ from typing_extensions import (
     Optional,
     TYPE_CHECKING,
 )
-from coraplex.plans.plan_node import DesignatorNode
-from giskardpy.motion_statechart.data_types import LifeCycleValues
+from coraplex.plans.designator import DesignatorParameters
+from cramph.data_types import LifeCycleValues
+from cramph.node import StatechartNode
+from cramph.world_modification_nodes import MoveBranch
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from krrood.entity_query_language.evaluable import Evaluable
 from krrood.entity_query_language.factories import inference
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
@@ -41,7 +44,7 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.geometry import Mesh
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import WorldEntity
-from cramera.knowledge.enums import PlanNodeGroup, SceneEntityPrefix
+from cramera.knowledge.enums import PlanNodeGroup, PlanNodeKind, SceneEntityPrefix
 from cramera.live.chart_observer import ChartObserver
 from cramera.live.chart_structure import (
     ChartSnapshot,
@@ -68,10 +71,7 @@ from cramera.recording_fields import SceneField
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from coraplex.plans.designator import Designator
-    from coraplex.plans.plan import Plan
-    from coraplex.plans.plan_node import MotionNode, PlanNode
-    from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+    from cramph.statechart import Statechart
     from semantic_digital_twin.world_description.world_entity import Body, Connection
 
     from cramera.live.recording import Recording
@@ -510,9 +510,9 @@ class Bridge:
     Native mesh sources allowed through the ``/mesh`` endpoint, keyed by filename.
     """
 
-    _plan: Optional[Plan] = None
+    _statechart: Optional[Statechart] = None
     """
-    The plan observed through its native execution callbacks.
+    The statechart running the observed plan, whose top-level nodes root its trees.
     """
 
     _chart_observer: ChartObserver = field(default_factory=ChartObserver)
@@ -611,23 +611,22 @@ class Bridge:
         if self._query_attachment == attachment:
             self._query_attachment = None
 
-    def observe_motion_started(self, node: MotionNode) -> None:
+    def observe_action_started(self, action: DesignatorParameters) -> None:
         """
-        Name the executing chart from its motion's parent action.
+        Record that an action of the plan started running, which names the statechart
+        shown while it runs.
 
-        :param node: The node whose motion started.
+        :param action: The action that started.
         """
-        action_node = node.parent_action_node
-        if action_node is not None:
-            self._chart_title = type(action_node.action).__name__
+        self._chart_title = type(action).__name__
 
-    def begin_plan(self, plan: Plan) -> None:
+    def begin_plan(self, statechart: Statechart) -> None:
         """
-        Record the plan that started performing and publish its tree.
+        Record the statechart whose plan started performing and publish its trees.
 
-        :param plan: The plan that started performing.
+        :param statechart: The statechart running the plan.
         """
-        self._plan = plan
+        self._statechart = statechart
         self.snapshot_plan()
 
     def observe_model_change(self) -> None:
@@ -1337,23 +1336,32 @@ class Bridge:
         """
         Publish the current native lifecycle state of every plan node.
         """
-        plan = self._plan
-        if plan is None:
-            return
-        try:
-            root = plan.root
-        except Exception:
-            # the plan is mid-mutation and not a tree right now — next tick
+        if self._statechart is None:
             return
         nodes: List[PlanNodeEntry] = []
         order: List[str] = []
-        self._serialize_plan_node(root, None, nodes, order)
+        for plan_node in self._statechart.top_level_nodes:
+            self._serialize_plan_node(plan_node, None, nodes, order)
         with self._lock:
             self.plan_state = PlanSnapshot(signature="|".join(order), nodes=nodes)
 
+    @staticmethod
+    def _plan_node_kind(node: StatechartNode) -> str:
+        """
+        :param node: A node of the plan.
+        :return: The kind of plan node `node` is, in the vocabulary recordings use.
+        """
+        if isinstance(node, DesignatorParameters):
+            return PlanNodeKind.ACTION
+        if isinstance(node, MotionStatechartNode):
+            return PlanNodeKind.MOTION
+        if isinstance(node, MoveBranch):
+            return PlanNodeKind.ATTACHMENT
+        return type(node).__name__
+
     def _serialize_plan_node(
         self,
-        node: PlanNode,
+        node: StatechartNode,
         parent_id: Optional[str],
         nodes: List[PlanNodeEntry],
         order: List[str],
@@ -1368,18 +1376,15 @@ class Bridge:
             traversal order, to build the tree's signature.
         """
         node_id = "plan_node_%d" % id(node)
-        designator = node.designator if isinstance(node, DesignatorNode) else None
+        designator = node if isinstance(node, DesignatorParameters) else None
+        kind = self._plan_node_kind(node)
         entry = PlanNodeEntry(
             id=node_id,
             parent=parent_id,
-            kind=type(node).__name__,
-            group=PlanNodeGroup.of_plan_node_kind(type(node).__name__),
-            label=(
-                type(designator).__name__
-                if designator is not None
-                else type(node).__name__
-            ),
-            status=node.status,
+            kind=kind,
+            group=PlanNodeGroup.of_plan_node_kind(kind),
+            label=type(node).__name__,
+            status=node.life_cycle_state,
             derived=False,
         )
         self._add_designator_metadata(entry, designator)
@@ -1390,7 +1395,7 @@ class Bridge:
             self._serialize_plan_node(child, node_id, nodes, order)
 
     def _add_designator_metadata(
-        self, entry: PlanNodeEntry, designator: Designator | None
+        self, entry: PlanNodeEntry, designator: DesignatorParameters | None
     ) -> None:
         """
         Describe the designator's parameters and retain its published target identity.
@@ -1407,7 +1412,7 @@ class Bridge:
         if target:
             entry.target = target
 
-    def _designator_target(self, designator: Designator) -> Optional[str]:
+    def _designator_target(self, designator: DesignatorParameters) -> Optional[str]:
         """
         Published key of the object a designator refers to, if any.
 
@@ -1450,13 +1455,13 @@ class Bridge:
             return self.plan_state.to_payload()
 
     # %% motion statechart
-    def observe_chart(self, chart: Optional[MotionStatechart]) -> None:
+    def observe_chart(self, chart: Optional[Statechart]) -> None:
         """
         Publish the executing statechart's structure and node states.
 
         Publish a fresh snapshot only when the chart changes.
 
-        :param chart: The motion statechart the executor is currently ticking, if any.
+        :param chart: The statechart the executor is currently ticking, if any.
         """
         self._chart_observer.title = self._chart_title
         snapshot = self._chart_observer.change(chart)
