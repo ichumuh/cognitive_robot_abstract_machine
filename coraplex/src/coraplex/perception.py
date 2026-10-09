@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import numpy as np
 
+from krrood.ormatic.utils import classproperty
 from cramph.context import StatechartContext
 from cramph.data_types import ObservationStateValues, SuccessDecider
 from cramph.node import StatechartNode
@@ -501,6 +502,10 @@ class PerceptionTask(StatechartNode):
     When False, several candidates raise
     :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RosContextExtension,)
 
     def set_up(self, context: StatechartContext) -> None:
         super().set_up(context)

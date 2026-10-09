@@ -7,6 +7,7 @@ from typing import List
 
 from typing_extensions import Optional
 
+from krrood.ormatic.utils import classproperty
 from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import (
     LifeCyclePredicate,
@@ -223,7 +224,7 @@ class CompositeNodeOverSelfDecidingNodes(CompositeNode, ABC):
 
 
 @dataclass(repr=False, eq=False)
-class CramLanguageNode(CompositeNode, ABC):
+class CramLanguageNode(CompositeNode, ABC):  # ControlStructureNode?
     """
     A construct of the plan language, which runs the list of nodes it is handed.
 
@@ -1067,6 +1068,10 @@ class CompositeNodeChoosingItsChild(CompositeNode):
     """
     Whether the chooser said that no child is left.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (ChildChooserAccess,)
 
     @property
     def ran_out_of_children(self) -> bool:

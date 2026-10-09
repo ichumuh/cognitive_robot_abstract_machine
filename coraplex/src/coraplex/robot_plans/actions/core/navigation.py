@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from typing_extensions import Optional, Any, Dict
 
 from coraplex.plans.context_extensions import ExecutionMode, RobotAccess
-from cramph.context import StatechartContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from coraplex.exceptions import NoFloorBelowRobot, NotOnASingleLevelException
 from cramph.node import StatechartNode
 from cramph.world_modification_nodes import MoveBranch
@@ -49,6 +50,10 @@ class DrivesBase(Action, ABC):
     """
     Base class for the actions that move the robot's base to a pose.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (ExecutionMode,)
 
     def _drive_to(self, target: Pose) -> MotionStatechartNode:
         """

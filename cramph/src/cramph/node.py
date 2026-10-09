@@ -21,7 +21,7 @@ from typing_extensions import (
 )
 
 import krrood.symbolic_math.symbolic_math as sm
-from cramph.context import StatechartContext
+from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import (
     LifeCycleValues,
     LifeCyclePredicate,
@@ -57,6 +57,7 @@ from krrood.adapters.json_serializer import (
     SubclassJSONSerializer,
 )
 from krrood.exceptions import DataclassException
+from krrood.ormatic.utils import classproperty
 from krrood.patterns.field_metadata import JSONMetadata, ParameterMetadata
 from krrood.symbolic_math.symbolic_math import (
     FloatVariable,
@@ -1364,6 +1365,14 @@ class StatechartNode(SubclassJSONSerializer):
         :raises NotInStatechartError: If this node belongs to no statechart yet.
         """
         return self.context.world
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        """
+        :return: The types of the context extensions a node of this class reads; a
+            statechart compiles such a node only in a context that holds them all.
+        """
+        return ()
 
     def create_structure_copy(self) -> StatechartNode:
         """

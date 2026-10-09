@@ -7,7 +7,8 @@ from itertools import combinations
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.context import MotionControlContext
-from cramph.context import StatechartContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import SuccessDecider, ObservationStateValues
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.exceptions import (
@@ -52,6 +53,10 @@ class _CollisionAvoidanceTask(Task):
     Superclass with helper methods for collision avoidance tasks.
     """
 
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
+
 
 @dataclass(eq=False, repr=False)
 class _CancelBecauseCollisionViolated(CancelStatechart):
@@ -68,6 +73,10 @@ class _CancelBecauseCollisionViolated(CancelStatechart):
     """
     Set to init=False, because this class creates its own exception.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
 
     def build(self, context: StatechartContext) -> NodeArtifacts:
         self.start_condition = self.create_violation_condition()
@@ -433,6 +442,10 @@ class ExternalCollisionAvoidance(CompositeNode):
     If True, the motion will be canceled if a collision is violated.
     """
 
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
+
     def expand(self, context: StatechartContext) -> None:
         """
         Add one monitor and task pair per collision group of :attr:`robot` and closest
@@ -522,6 +535,10 @@ class ExternalCollisionDistanceMonitor(MotionStatechartNode):
 
     collision_index: int = field(default=0, kw_only=True)
     """Index of the closest collision (0 = closest, 1 = second closest, etc.)."""
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
 
     def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         # 1. Access the shared external collision manager
@@ -800,6 +817,10 @@ class SelfCollisionAvoidance(CompositeNode):
     If True, the motion will be canceled if a collision is violated.
     """
 
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
+
     def create_self_collision_matrix(
         self, context: StatechartContext
     ) -> CollisionMatrix:
@@ -916,6 +937,10 @@ class SelfCollisionDistanceMonitor(MotionStatechartNode):
     """
     Distance threshold in meters.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
 
     def build_artifacts(self, context: StatechartContext) -> MotionNodeArtifacts:
         manager = context.require_extension(MotionControlContext).self_collision_manager

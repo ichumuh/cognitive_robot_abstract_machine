@@ -27,13 +27,14 @@ from cramph.composites import (
     CompositeNodeChoosingItsChild,
     Sequence,
 )
-from cramph.context import StatechartContext
+from cramph.context import ContextExtension, StatechartContext
 from cramph.exceptions import ExecutionFailure
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.monitors.progress_monitors import Stalled
 from krrood.adapters.json_serializer import JSONField
 from krrood.entity_query_language.query.match import Match
+from krrood.ormatic.utils import classproperty
 from krrood.patterns.field_metadata import JSONMetadata
 from krrood.utils import get_full_class_name
 
@@ -80,6 +81,10 @@ class UnderspecifiedNode(CompositeNodeChoosingItsChild):
     """
     How many actions the current run through the statement has grounded.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (StatementGrounding,)
 
     @property
     def grounding(self) -> StatementGrounding:

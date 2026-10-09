@@ -6,13 +6,17 @@ import pytest
 
 from cramph.context import StatechartContext
 from cramph.data_types import LifeCycleValues
-from cramph.exceptions import ConflictingTickDurationError
+from cramph.exceptions import (
+    ConflictingTickDurationError,
+    NodesMissingContextExtensionsError,
+)
 from cramph.executor import ExecutorExtension, StatechartExecutor
 from cramph.nodes_for_testing import ConstTrueNode
 from cramph.statechart import Statechart
 from giskardpy.motion_control import MotionControl
 from giskardpy.motion_statechart.context import MotionControlContext
 from giskardpy.motion_statechart.graph_node import EndMotion
+from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.world import World
@@ -54,6 +58,16 @@ def test_motion_control_rejects_a_context_ticking_at_another_rate():
 
     with pytest.raises(ConflictingTickDurationError):
         motion_control.extend_context(context)
+
+
+def test_a_node_reading_the_controller_configuration_needs_motion_control():
+    statechart = Statechart(context=StatechartContext(world=World()))
+    statechart.add_node(node := LocalMinimumReached())
+
+    with pytest.raises(NodesMissingContextExtensionsError) as raised:
+        statechart.compile()
+
+    assert raised.value.nodes_by_missing_extension == {MotionControlContext: [node]}
 
 
 # %% sharing a statechart with other modules

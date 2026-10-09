@@ -5,8 +5,12 @@ it watches, so one body's relations are never reported lost by the detector of a
 
 from __future__ import annotations
 
+import pytest
+
 from cramph.context import StatechartContext
+from cramph.exceptions import NodesMissingContextExtensionsError
 from cramph.executor import StatechartExecutor
+from cramph.statechart import Statechart
 from typing_extensions import List, Type
 
 from segmind.datastructures.events import (
@@ -122,3 +126,29 @@ def test_a_containment_that_lasts_is_not_reported_lost_by_another_bodys_detector
 
     assert len(_events_of(segmind_context, ContainmentEvent, milk)) == 1
     assert _events_of(segmind_context, LossOfContainmentEvent, milk) == []
+
+
+# %% the context detectors report to
+
+
+def test_a_detector_needs_the_segmind_context(milk_in_the_apartment):
+    world, milk, box = milk_in_the_apartment
+    statechart = Statechart(context=StatechartContext(world=world))
+    statechart.add_node(detector := ContactDetector(tracked_object=milk))
+
+    with pytest.raises(NodesMissingContextExtensionsError) as raised:
+        statechart.compile()
+
+    assert raised.value.nodes_by_missing_extension == {SegmindContext: [detector]}
+
+
+def test_episode_segmentation_keeps_the_segmind_context_already_there(
+    milk_in_the_apartment,
+):
+    world, milk, box = milk_in_the_apartment
+    context = StatechartContext(world=world)
+    context.add_extension(segmind_context := SegmindContext())
+
+    EpisodeSegmentation().extend_context(context)
+
+    assert context.require_extension(SegmindContext) is segmind_context

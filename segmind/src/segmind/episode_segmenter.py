@@ -39,7 +39,7 @@ class EpisodeSegmentation(ExecutorExtension):
     """
 
     def extend_context(self, context: StatechartContext) -> None:
-        context.add_extension(SegmindContext())
+        context.ensure_extension(SegmindContext())
 
     def after_compile(self, executor: StatechartExecutor) -> None:
         self.detect_holes(executor.context)

@@ -12,7 +12,8 @@ from typing_extensions import (
 
 from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
 from coraplex.plans.designator import DesignatorParameters
-from cramph.context import StatechartContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from cramph.composites import Attempt
 from cramph.data_types import SuccessDecider
 from cramph.node import CompositeNode, NodeArtifacts, StatechartNode
@@ -47,6 +48,10 @@ class Action(CompositeNode, DesignatorParameters, ABC):
 
     success_decided_by = SuccessDecider.ITSELF
     fails_when_observing_false = True
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RobotAccess,)
 
     @abstractmethod
     def create_action_body(self) -> StatechartNode:

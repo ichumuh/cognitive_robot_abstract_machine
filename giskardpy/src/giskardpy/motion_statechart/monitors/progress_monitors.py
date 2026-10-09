@@ -14,7 +14,8 @@ from krrood.symbolic_math.symbolic_math import (
     VariableParameters,
 )
 from giskardpy.motion_statechart.context import MotionControlContext
-from cramph.context import StatechartContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import SuccessDecider, LifeCycleValues, ObservationStateValues
 from giskardpy.motion_statechart.exceptions import NoProgressError
 from cramph.node import CancelStatechart, CompositeNode, NodeArtifacts
@@ -96,6 +97,10 @@ class NotApproachingGoal(MotionStatechartNode):
     The monitored task's error on the previous control cycle, which the observation of
     that cycle judged, or None before there was one.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
 
     @property
     def prerequisite_nodes(self) -> List[MotionStatechartNode]:

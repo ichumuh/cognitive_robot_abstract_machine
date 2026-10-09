@@ -144,8 +144,7 @@ class PlanExecutor(Executor, ABC):
             MotionToleranceConfig(),
             PlanRewriting(),
         ):
-            if self.context.get_extension(type(default_extension)) is None:
-                self.context.add_extension(default_extension)
+            self.context.ensure_extension(default_extension)
         self.context.add_extension(
             ExecutionMode(
                 simulated=self.simulated,

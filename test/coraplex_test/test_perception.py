@@ -49,6 +49,7 @@ from .conftest import motion_nodes_of
 from giskardpy.motion_control import MotionControl
 from cramph.context import StatechartContext
 from cramph.data_types import ObservationStateValues
+from cramph.exceptions import NodesMissingContextExtensionsError
 from giskardpy.motion_statechart.graph_node import EndMotion, MotionStatechartNode
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.ros_context import RosContextExtension
@@ -776,6 +777,20 @@ def test_perception_task_is_a_plain_statechart_node(
     task = PerceptionTask(query=query, answered_by=PerceptionSource.WORLD_MODEL)
 
     assert not isinstance(task, MotionStatechartNode)
+
+
+def test_perception_task_needs_ros_access(pr2_apartment_context, whole_scene_region):
+    world, view, extensions = pr2_apartment_context
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    statechart = Statechart(context=StatechartContext(world=world))
+    statechart.add_node(
+        task := PerceptionTask(query=query, answered_by=PerceptionSource.WORLD_MODEL)
+    )
+
+    with pytest.raises(NodesMissingContextExtensionsError) as raised:
+        statechart.compile()
+
+    assert raised.value.nodes_by_missing_extension == {RosContextExtension: [task]}
 
 
 def test_perception_task_moves_the_detected_body(

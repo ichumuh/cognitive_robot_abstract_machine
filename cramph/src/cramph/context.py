@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing_extensions import Dict, Optional, Type, TypeVar
+from typing_extensions import TypeVar
 
 from krrood.symbolic_math.float_variable_data import FloatVariableData
 from krrood.symbolic_math.symbolic_math import FloatVariable
 from cramph.exceptions import (
+    AmbiguousContextExtensionError,
     MissingContextExtensionError,
     DuplicateContextExtensionError,
     TickDurationUnknownError,
@@ -19,12 +20,14 @@ from semantic_digital_twin.world import World
 @dataclass
 class ContextExtension:
     """
-    Context extension for build context.
+    Data or a service that the nodes of a statechart read from their
+    :class:`StatechartContext`, on top of what every statechart has.
 
-    Used together with require_extension to augment BuildContext with custom data.
+    A node names the extensions it reads in
+    :attr:`~cramph.node.StatechartNode.required_context_extensions`.
     """
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """
         Releases what the extension acquired while the statechart was running.
         """
@@ -44,7 +47,7 @@ class StatechartContext:
     The world in which the statechart is executed.
     """
 
-    tick_duration: Optional[float] = None
+    tick_duration: float | None = None
     """
     How many seconds one tick stands for, None if ticks do not stand for a fixed time.
     """
@@ -60,17 +63,17 @@ class StatechartContext:
     Data structure used to store auxiliary variables.
     """
 
-    extensions: Dict[Type[ContextExtension], ContextExtension] = field(
+    extensions: dict[type[ContextExtension], ContextExtension] = field(
         default_factory=dict, repr=False, init=False
     )
     """
-    Dictionary of extensions used to augment the build context.
+    The extensions of this context, each under its own type.
 
     Executor extensions add the context extensions they need when an executor is
     created, see :meth:`~cramph.executor.ExecutorExtension.extend_context`.
     """
 
-    def set_tick_duration(self, tick_duration: float):
+    def set_tick_duration(self, tick_duration: float) -> None:
         """
         Sets how many seconds one tick stands for.
 
@@ -103,35 +106,62 @@ class StatechartContext:
         return int(self.float_variable_data.get_value(self.tick_variable))
 
     def require_extension(
-        self, extension_type: Type[GenericContextExtension]
+        self, extension_type: type[GenericContextExtension]
     ) -> GenericContextExtension:
         """
-        Return an extension instance or raise ``MissingContextExtensionError``.
+        :param extension_type: The type of the requested extension.
+        :return: The extension :meth:`get_extension` finds for `extension_type`.
+        :raises MissingContextExtensionError: If there is none.
         """
-        extension = self.extensions.get(extension_type)
+        extension = self.get_extension(extension_type)
         if extension is None:
             raise MissingContextExtensionError(expected_extension=extension_type)
         return extension
 
     def get_extension(
-        self, extension_type: Type[GenericContextExtension]
-    ) -> Optional[GenericContextExtension]:
+        self, extension_type: type[GenericContextExtension]
+    ) -> GenericContextExtension | None:
         """
-        :param extension_type: The exact type of the requested extension.
-        :return: The extension of `extension_type`, or None if none is registered.
+        :param extension_type: The type of the requested extension.
+        :return: The extension that is an instance of `extension_type`, or None if
+            there is none.
+        :raises AmbiguousContextExtensionError: If several extensions are instances of
+            `extension_type`.
         """
-        return self.extensions.get(extension_type)
+        matching_extensions = [
+            extension
+            for extension in self.extensions.values()
+            if isinstance(extension, extension_type)
+        ]
+        if len(matching_extensions) > 1:
+            raise AmbiguousContextExtensionError(
+                requested_type=extension_type, matching_extensions=matching_extensions
+            )
+        return matching_extensions[0] if matching_extensions else None
 
-    def add_extension(self, extension: GenericContextExtension):
+    def add_extension(self, extension: ContextExtension) -> None:
         """
-        Extend the build context with a custom extension.
+        :param extension: The extension to add under its own type.
+        :raises DuplicateContextExtensionError: If this context already holds an
+            extension of that very type.
         """
         extension_type = type(extension)
         if extension_type in self.extensions:
             raise DuplicateContextExtensionError(extension_type=extension_type)
         self.extensions[extension_type] = extension
 
-    def cleanup(self):
+    def ensure_extension(
+        self, extension: GenericContextExtension
+    ) -> GenericContextExtension:
+        """
+        Adds `extension` unless this context already holds one of its very type.
+
+        :param extension: The extension to add if none of its type is there.
+        :return: The extension of that type this context holds afterwards.
+        """
+        return self.extensions.setdefault(type(extension), extension)
+
+    def cleanup(self) -> None:
         """
         Releases what the context and its extensions acquired while the statechart was
         running.

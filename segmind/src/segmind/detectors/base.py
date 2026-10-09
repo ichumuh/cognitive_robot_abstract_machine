@@ -6,6 +6,7 @@ from typing import Optional, Dict, Set, List, Any, Sequence, Tuple, Type
 
 from typing_extensions import TypeVar
 
+from krrood.ormatic.utils import classproperty
 from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import ObservationStateValues, SuccessDecider
 from cramph.node import StatechartNode
@@ -124,6 +125,10 @@ class AbstractDetector(StatechartNode, ABC):
     A run reads what happens in the scene, and a robot carrying an object touches it
     throughout; what the robot does with it is read from the grasp instead.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (SegmindContext,)
 
     def on_tick(self, context: StatechartContext) -> Optional[ObservationStateValues]:
         """

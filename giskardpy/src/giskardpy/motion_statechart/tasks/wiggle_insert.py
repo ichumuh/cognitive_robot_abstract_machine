@@ -8,7 +8,8 @@ from typing_extensions import Optional, Tuple
 
 import krrood.symbolic_math.symbolic_math as symbolic_math
 from giskardpy.motion_statechart.context import MotionControlContext
-from cramph.context import StatechartContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import (
@@ -163,6 +164,10 @@ class WiggleInsert(ConvergingTask):
     """
     Auxiliary variable holding the current angular noise.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
 
     def set_up(self, context: StatechartContext) -> None:
         """

@@ -10,6 +10,7 @@ from rclpy.subscription import Subscription
 from typing_extensions import Generic, Type
 
 import krrood.symbolic_math.symbolic_math as sm
+from krrood.ormatic.utils import classproperty
 from cramph.context import StatechartContext
 from cramph.data_types import ObservationStateValues, SuccessDecider
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
@@ -43,6 +44,10 @@ class TopicNode(MotionStatechartNode, Generic[MsgType]):
     """
 
     ros2_node: Node = field(init=False)
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RosContextExtension,)
 
     def set_up(self, context: StatechartContext) -> None:
         super().set_up(context)

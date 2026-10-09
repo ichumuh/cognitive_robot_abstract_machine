@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 from typing_extensions import List, Optional, Type
 
+from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PlanExecutor
 from coraplex.robot_plans.actions.base import Action
 from coraplex.datastructures.trajectory import PoseTrajectory
@@ -18,7 +19,10 @@ from coraplex.robot_plans.actions.core.robot_body import (
 )
 from cramph.composites import Attempt, Parallel, Sequence
 from cramph.data_types import LifeCycleValues, ObservationStateValues
-from cramph.exceptions import CompositeNodeWithoutChildrenError
+from cramph.exceptions import (
+    CompositeNodeWithoutChildrenError,
+    NodesMissingContextExtensionsError,
+)
 from cramph.executor import StatechartExecutor
 from cramph.node import EndStatechart, StatechartNode
 from cramph.nodes_for_testing import (
@@ -42,7 +46,7 @@ from giskardpy.motion_statechart.tasks.joint_tasks import (
 from semantic_digital_twin.datastructures.definitions import GripperState, TorsoState
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from ...plan_running import robot_executor, simulated_executor, statechart_of
-from cramph.context import ContextExtension
+from cramph.context import ContextExtension, StatechartContext
 
 # %% a body handed in, so expansion is exercised without a robot
 
@@ -152,6 +156,17 @@ class ActionRunningOneNode(Action):
 
 def test_an_action_has_no_body_before_it_is_expanded():
     assert ActionRunningHandedInSteps(steps=[]).action_body is None
+
+
+def test_an_action_needs_the_robot_performing_it(simple_pr2_context):
+    world, _, _ = simple_pr2_context
+    statechart = Statechart(context=StatechartContext(world=world))
+    action = ActionRunningHandedInSteps(steps=[_succeeding("only")])
+
+    with pytest.raises(NodesMissingContextExtensionsError) as raised:
+        statechart.add_node(action)
+
+    assert raised.value.nodes_by_missing_extension == {RobotAccess: [action]}
 
 
 def test_an_action_runs_the_body_it_created(simple_pr2_context):

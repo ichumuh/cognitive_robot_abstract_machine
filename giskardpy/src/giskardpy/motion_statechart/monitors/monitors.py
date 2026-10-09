@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import field
 from typing_extensions import List, Optional
 
-from cramph.context import StatechartContext
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import SuccessDecider
+from giskardpy.motion_statechart.context import MotionControlContext
 from giskardpy.motion_statechart.exceptions import EmptyDegreesOfFreedomError
 from giskardpy.motion_statechart.graph_node import (
     MotionStatechartNode,
@@ -78,6 +80,10 @@ class LocalMinimumReached(MotionStatechartNode):
     Control-cycle count at which this monitor actually started running, set in
     ``on_start`` when :attr:`measure_from_own_start` is True.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionControlContext,)
 
     def on_start(self, context: StatechartContext):
         if self.measure_from_own_start:

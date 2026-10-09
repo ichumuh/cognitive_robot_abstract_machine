@@ -75,4 +75,4 @@ class RosNodeAccess(ExecutorExtension):
     """
 
     def extend_context(self, context: StatechartContext) -> None:
-        context.add_extension(RosContextExtension(self.ros_node))
+        context.ensure_extension(RosContextExtension(self.ros_node))

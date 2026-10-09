@@ -4,7 +4,9 @@ from dataclasses import dataclass
 
 from typing_extensions import Optional, Type
 
-from coraplex.plans.context_extensions import ExecutionMode
+from coraplex.plans.context_extensions import ExecutionMode, MotionToleranceConfig
+from cramph.context import ContextExtension
+from krrood.ormatic.utils import classproperty
 from coraplex.datastructures.enums import (
     DetectionState,
     DetectionTechnique,
@@ -88,6 +90,10 @@ class DetectAction(Action):
     :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (ExecutionMode,)
+
     def create_action_body(self) -> StatechartNode:
         return Sequence(
             [
@@ -167,6 +173,10 @@ class MoveToReach(Action, HasApproachesGraspPoses, MovesToolCenterPoint):
     """
     The end effector that should reach it.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
     def create_action_body(self) -> StatechartNode:
         return Sequence(

@@ -36,7 +36,10 @@ from coraplex.exceptions import (
     MissingWaypoints,
     WipingTargetMissing,
 )
+from coraplex.plans.context_extensions import MotionToleranceConfig
+from cramph.context import ContextExtension
 from cramph.node import StatechartNode
+from krrood.ormatic.utils import classproperty
 from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.mixins import MovesToolCenterPoint
 from cramph.composites import Parallel, Sequence, TryAll
@@ -106,6 +109,10 @@ class ToolMotionAction(FullBodyControlledAction, ABC, MovesToolCenterPoint):
     How many waypoints ahead the tool may already be heading for, so a path is followed
     as a continuous stroke rather than stopping at every point.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
     @abstractmethod
     def _build_tool_path(self) -> ToolPath:
@@ -447,6 +454,10 @@ class PouringAction(FullBodyControlledAction, MovesToolCenterPoint):
     """
     TCP height in meters above the target container for the pre-pour pose.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
     def _effective_pour_side(self) -> PouringSide:
         """

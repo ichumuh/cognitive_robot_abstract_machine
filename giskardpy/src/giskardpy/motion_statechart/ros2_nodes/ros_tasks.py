@@ -20,6 +20,7 @@ from std_msgs.msg import Header
 from typing_extensions import Type, TypeVar, Generic
 
 import krrood.symbolic_math.symbolic_math as sm
+from krrood.ormatic.utils import classproperty
 from cramph.context import StatechartContext
 from cramph.data_types import ObservationStateValues, SuccessDecider
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
@@ -73,6 +74,10 @@ class ActionServerTask(
     """
     ROS action server result.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RosContextExtension,)
 
     @abstractmethod
     def build_msg(self, context: StatechartContext):

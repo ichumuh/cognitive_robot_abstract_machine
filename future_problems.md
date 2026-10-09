@@ -46,6 +46,13 @@ Open questions to settle when this is picked up again:
   `CompositeNodeChoosingItsChild` it is, so the receiving process asks the sender for
   each child instead of grounding the statement itself. Tests covering that, and a
   statement inside a sent statechart, are still to be written.
+- A coraplex `Action` is sent as itself and declares the context extensions it
+  requires (`RobotAccess` and, per action, `ExecutionMode` or `MotionToleranceConfig`).
+  It reads them only while expanding, which happens in the sending process, but a
+  statechart checks them whenever a node joins or compiles, so a receiving process
+  whose context lacks them rejects the action with
+  `NodesMissingContextExtensionsError`. Either the receiver's context gets them, or
+  requirements needed to expand are told apart from those needed to build and tick.
 - A giskardpy `MoveGripper` does not survive a JSON round trip: its fail condition
   references nodes outside its scope after deserialization
   (`UnserializableGoalError`/`ConditionScopeError`). This breaks the real-stretch

@@ -12,8 +12,9 @@ from semantic_digital_twin.reasoning.predicates import allclose
 from semantic_digital_twin.robots.robot_parts import Arm, EndEffector
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
-from coraplex.plans.context_extensions import RobotAccess
-from cramph.context import StatechartContext
+from coraplex.plans.context_extensions import MotionToleranceConfig, RobotAccess
+from krrood.ormatic.utils import classproperty
+from cramph.context import ContextExtension, StatechartContext
 from coraplex.datastructures.trajectory import PoseTrajectory
 from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.mixins import (
@@ -149,6 +150,10 @@ class FollowToolCenterPointPathAction(Action, MovesToolCenterPoint):
     The arm to use.
     """
 
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
+
     def create_action_body(self) -> StatechartNode:
         return Sequence(
             [self._waypoint_goal(pose) for pose in self.target_locations.poses]
@@ -200,6 +205,10 @@ class MoveManipulatorAction(Action, MovesToolCenterPoint):
     """
     If the gripper can collide with something.
     """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (MotionToleranceConfig,)
 
     def create_action_body(self) -> StatechartNode:
         goal = CartesianPose(

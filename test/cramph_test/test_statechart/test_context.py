@@ -5,7 +5,12 @@ from dataclasses import dataclass
 import pytest
 
 from cramph.context import ContextExtension, StatechartContext
-from cramph.exceptions import ConflictingTickDurationError
+from cramph.exceptions import (
+    AmbiguousContextExtensionError,
+    ConflictingTickDurationError,
+    DuplicateContextExtensionError,
+    MissingContextExtensionError,
+)
 
 # %% context extensions
 
@@ -23,6 +28,20 @@ class ExtensionRecordingItsCleanup(ContextExtension):
 
     def cleanup(self):
         self.cleaned_up = True
+
+
+@dataclass
+class SpecializedExtensionRecordingItsCleanup(ExtensionRecordingItsCleanup):
+    """
+    A context extension standing in for the extension it specializes.
+    """
+
+
+@dataclass
+class OtherSpecializedExtensionRecordingItsCleanup(ExtensionRecordingItsCleanup):
+    """
+    A second context extension standing in for the extension it specializes.
+    """
 
 
 def test_cleaning_up_a_context_cleans_up_its_extensions(
@@ -49,6 +68,82 @@ def test_get_extension_returns_the_registered_extension(
     statechart_context.add_extension(extension)
 
     assert statechart_context.get_extension(ExtensionRecordingItsCleanup) is extension
+
+
+def test_require_extension_raises_when_nothing_is_registered(
+    statechart_context: StatechartContext,
+):
+    with pytest.raises(MissingContextExtensionError):
+        statechart_context.require_extension(ExtensionRecordingItsCleanup)
+
+
+def test_adding_a_second_extension_of_the_same_type_raises(
+    statechart_context: StatechartContext,
+):
+    statechart_context.add_extension(ExtensionRecordingItsCleanup())
+
+    with pytest.raises(DuplicateContextExtensionError):
+        statechart_context.add_extension(ExtensionRecordingItsCleanup())
+
+
+# %% extensions standing in for the type they specialize
+
+
+def test_an_extension_is_found_by_the_type_it_specializes(
+    statechart_context: StatechartContext,
+):
+    extension = SpecializedExtensionRecordingItsCleanup()
+    statechart_context.add_extension(extension)
+
+    assert statechart_context.get_extension(ExtensionRecordingItsCleanup) is extension
+    assert (
+        statechart_context.require_extension(ExtensionRecordingItsCleanup) is extension
+    )
+
+
+def test_an_extension_is_not_found_by_a_type_specializing_it(
+    statechart_context: StatechartContext,
+):
+    statechart_context.add_extension(ExtensionRecordingItsCleanup())
+
+    assert (
+        statechart_context.get_extension(SpecializedExtensionRecordingItsCleanup)
+        is None
+    )
+
+
+def test_two_extensions_specializing_the_requested_type_are_ambiguous(
+    statechart_context: StatechartContext,
+):
+    statechart_context.add_extension(SpecializedExtensionRecordingItsCleanup())
+    statechart_context.add_extension(OtherSpecializedExtensionRecordingItsCleanup())
+
+    with pytest.raises(AmbiguousContextExtensionError):
+        statechart_context.get_extension(ExtensionRecordingItsCleanup)
+
+
+# %% ensuring an extension
+
+
+def test_ensuring_an_extension_adds_it_when_none_is_registered(
+    statechart_context: StatechartContext,
+):
+    extension = ExtensionRecordingItsCleanup()
+
+    assert statechart_context.ensure_extension(extension) is extension
+    assert statechart_context.get_extension(ExtensionRecordingItsCleanup) is extension
+
+
+def test_ensuring_an_extension_keeps_the_registered_one(
+    statechart_context: StatechartContext,
+):
+    registered = ExtensionRecordingItsCleanup()
+    statechart_context.add_extension(registered)
+
+    assert (
+        statechart_context.ensure_extension(ExtensionRecordingItsCleanup())
+        is registered
+    )
 
 
 # %% tick duration

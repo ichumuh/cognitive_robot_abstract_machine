@@ -10,6 +10,7 @@ from krrood.exceptions import DataclassException
 from krrood.symbolic_math.symbolic_math import FloatVariable, Scalar
 
 if TYPE_CHECKING:
+    from cramph.context import ContextExtension
     from cramph.data_types import TransitionKind
     from cramph.composites import Attempt
     from cramph.node import NodeStateVariable, StatechartNode, TransitionCondition
@@ -515,6 +516,63 @@ class DuplicateContextExtensionError(StatechartError):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class AmbiguousContextExtensionError(StatechartError):
+    """
+    Raised when a context extension is requested by a type that several extensions of
+    the context are instances of.
+    """
+
+    requested_type: type[ContextExtension]
+    """
+    The type of the requested extension.
+    """
+
+    matching_extensions: list[ContextExtension]
+    """
+    The extensions that are instances of :attr:`requested_type`.
+    """
+
+    def error_message(self) -> str:
+        matching_types = ", ".join(
+            type(extension).__name__ for extension in self.matching_extensions
+        )
+        return (
+            f'Several context extensions are a "{self.requested_type.__name__}": '
+            f"{matching_types}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Request one of them by its own type, or add only one of them."
+
+
+@dataclass
+class NodesMissingContextExtensionsError(StatechartError):
+    """
+    Raised when a statechart compiles nodes that require context extensions its context
+    does not hold.
+    """
+
+    nodes_by_missing_extension: dict[type[ContextExtension], list[StatechartNode]]
+    """
+    The nodes requiring each missing extension type.
+    """
+
+    def error_message(self) -> str:
+        lines = [
+            f'"{extension_type.__name__}", required by '
+            + ", ".join(f'"{node.unique_name}"' for node in nodes)
+            for extension_type, nodes in self.nodes_by_missing_extension.items()
+        ]
+        return "Missing context extensions: " + "; ".join(lines) + "."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Add the extensions to the context, or the executor extensions providing "
+            "them to the executor, before compiling."
+        )
 
 
 @dataclass

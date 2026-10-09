@@ -44,6 +44,7 @@ from cramph.exceptions import (
     TickDoesNotSettleError,
     CyclicNodeDependencyError,
     SuccessDeciderNotDeclaredError,
+    NodesMissingContextExtensionsError,
     PrerequisiteNotExpandedError,
     StatechartAlreadyCompiledError,
     NotInStatechartError,
@@ -1586,12 +1587,15 @@ class Statechart(SubclassJSONSerializer):
         expanding has joined this statechart.
 
         :param node: The composite node that just joined this statechart.
+        :raises NodesMissingContextExtensionsError: If :attr:`context` lacks an
+            extension `node` requires.
         """
         for prerequisite in node.prerequisite_nodes:
             if isinstance(prerequisite, CompositeNode) and (
                 prerequisite._statechart is not self
             ):
                 raise PrerequisiteNotExpandedError(node=node, prerequisite=prerequisite)
+        self._check_required_context_extensions([node])
         node.expand(self.context)
 
     def _register_node(self, node: StatechartNode) -> None:
@@ -1885,6 +1889,7 @@ class Statechart(SubclassJSONSerializer):
         self._wire_conditions_over_children(goals)
         self._check_children_of_goals(goals)
         self._check_every_node_declares_its_success_decider(nodes)
+        self._check_required_context_extensions(nodes)
         self._succeed_self_deciding_nodes_observing_true(nodes)
         self._fail_self_failing_nodes_observing_false(nodes)
         if self._world_structure_changed():
@@ -1992,6 +1997,24 @@ class Statechart(SubclassJSONSerializer):
         for node in nodes:
             if node.success_decided_by is None:
                 raise SuccessDeciderNotDeclaredError(node=node)
+
+    def _check_required_context_extensions(self, nodes: List[StatechartNode]) -> None:
+        """
+        :raises NodesMissingContextExtensionsError: If :attr:`context` lacks an
+            extension a node in `nodes` requires, see
+            :attr:`~cramph.node.StatechartNode.required_context_extensions`.
+        """
+        nodes_by_missing_extension = {}
+        for node in nodes:
+            for extension_type in node.required_context_extensions:
+                if self.context.get_extension(extension_type) is None:
+                    nodes_by_missing_extension.setdefault(extension_type, []).append(
+                        node
+                    )
+        if nodes_by_missing_extension:
+            raise NodesMissingContextExtensionsError(
+                nodes_by_missing_extension=nodes_by_missing_extension
+            )
 
     @staticmethod
     def _succeed_self_deciding_nodes_observing_true(nodes: List[StatechartNode]):
