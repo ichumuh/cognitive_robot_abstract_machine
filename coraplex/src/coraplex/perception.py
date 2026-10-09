@@ -11,6 +11,7 @@ from cramph.data_types import ObservationStateValues, SuccessDecider
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
@@ -39,7 +40,6 @@ from coraplex.exceptions import (
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
-from coraplex.ros import create_action_client
 
 if TYPE_CHECKING:
     from robokudo_msgs.msg import ObjectDesignator
@@ -377,7 +377,7 @@ class RoboKudoPerception(PerceptionInterface):
         from robokudo_msgs.action import Query
         from robokudo_msgs.msg import ObjectDesignator
 
-        client = create_action_client(self.action_name, Query, self.ros_node)
+        client = ActionClient(self.ros_node, Query, self.action_name)
         if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
             raise PerceptionSourceUnavailable(self.action_name)
 

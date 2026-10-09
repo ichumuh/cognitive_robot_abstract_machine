@@ -48,7 +48,6 @@ parts:
       - file: datastructures.rst
         sections:
         - file: notebooks/pose
-      - file: ros_utils.rst
 
   - caption: API
     chapters:
