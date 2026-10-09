@@ -12,9 +12,10 @@ from giskardpy.motion_statechart.binding_policy import (
     GoalBindingPolicy,
     ForwardKinematicsBinding,
 )
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.exceptions import GoalPointsReferenceFrameMismatchError
 from cramph.composites import Parallel
 from cramph.node import CompositeNode, NodeArtifacts
@@ -633,7 +634,7 @@ class CartesianOrientation(CartesianTask):
 
 
 @dataclass(eq=False, repr=False)
-class CartesianPose(CompositeNode):
+class CartesianPose(EndedByOwner, CompositeNode):
     """
     This goal will use the kinematic chain between root and tip link to move tip_link into the 6D goal_pose.
 
@@ -642,8 +643,6 @@ class CartesianPose(CompositeNode):
     :class:`~cramph.composites.Parallel`, and this goal observes what that parallel
     observes.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     root_link: KinematicStructureEntity | None = field(default=None, kw_only=True)
     """Base link of the kinematic chain. Defaults to the root of the world."""
@@ -704,12 +703,14 @@ class CartesianPose(CompositeNode):
             Parallel(name=f"{self.name}/parallel", nodes=self._create_tasks())
         )
 
-    def wire_conditions_over_children(self) -> None:
+    @property
+    def inherent_fail_condition(self) -> sm.Scalar:
         """
-        Fail once the parallel can no longer arrive.
+        Fails as well once the parallel can no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
         """
-        self.fail_condition = sm.logic_or(
-            self.fail_condition, self.parallel.is_failed_or_interrupted
+        return sm.logic_or(
+            super().inherent_fail_condition, self.parallel.is_failed_or_interrupted
         )
 
     def _create_tasks(self) -> List[MotionStatechartNode]:
@@ -867,7 +868,7 @@ class CartesianRotationVelocityLimit(Task):
 
 
 @dataclass(eq=False, repr=False)
-class CartesianVelocityLimit(CompositeNode):
+class CartesianVelocityLimit(EndedByOwner, CompositeNode):
     """
     Combines both linear and angular velocity limits for a kinematic chain.
 
@@ -881,8 +882,6 @@ class CartesianVelocityLimit(CompositeNode):
        solve time especially at high control frequencies. If computation time is critical,
        consider using larger limits or reducing the prediction horizon.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     root_link: KinematicStructureEntity = field(kw_only=True)
     """Root link of the kinematic chain. Defines the reference frame from which the tip's motion is measured."""
@@ -934,12 +933,14 @@ class CartesianVelocityLimit(CompositeNode):
             )
         )
 
-    def wire_conditions_over_children(self) -> None:
+    @property
+    def inherent_fail_condition(self) -> sm.Scalar:
         """
-        Fail once the parallel can no longer arrive.
+        Fails as well once the parallel can no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
         """
-        self.fail_condition = sm.logic_or(
-            self.fail_condition, self.parallel.is_failed_or_interrupted
+        return sm.logic_or(
+            super().inherent_fail_condition, self.parallel.is_failed_or_interrupted
         )
 
     def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:

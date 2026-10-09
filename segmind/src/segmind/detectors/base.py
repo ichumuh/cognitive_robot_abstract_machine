@@ -7,8 +7,9 @@ from typing import Optional, Dict, Set, List, Any, Sequence, Tuple, Type
 from typing_extensions import TypeVar
 
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
 from cramph.context import ContextExtension, StatechartContext
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from cramph.node import StatechartNode
 from krrood.entity_query_language.predicate import Triple
 from segmind.datastructures.events import MotionEvent, DetectionEvent, RotationEvent
@@ -104,12 +105,10 @@ class SegmindContext(ContextExtension):
 
 
 @dataclass(repr=False, eq=False)
-class AbstractDetector(StatechartNode, ABC):
+class AbstractDetector(EndedByOwner, StatechartNode, ABC):
     """
     Abstract base class for all detectors.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     tracked_object: Optional[Body] = field(kw_only=True, default=None)
     """

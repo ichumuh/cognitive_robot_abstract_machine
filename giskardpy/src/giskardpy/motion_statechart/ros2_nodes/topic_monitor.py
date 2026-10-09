@@ -11,20 +11,19 @@ from typing_extensions import Generic, Type
 
 import krrood.symbolic_math.symbolic_math as sm
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from cramph.node import NodeArtifacts
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 
 
 @dataclass(eq=False, repr=False)
-class TopicNode(MotionStatechartNode, Generic[MsgType]):
+class TopicNode(EndedByOwner, MotionStatechartNode, Generic[MsgType]):
     """
     Superclass for nodes that use ROS topics.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     topic_name: str = field(kw_only=True)
     """

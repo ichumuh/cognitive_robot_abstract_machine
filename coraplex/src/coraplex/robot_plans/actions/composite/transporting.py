@@ -44,7 +44,7 @@ class ActionOfSteps(Action, ABC):
     """
 
     @staticmethod
-    def _node_running(step: Action | Match) -> StatechartNode:
+    def _node_running(step: Action) -> StatechartNode:
         """
         :param step: A step of this action.
         :return: The step itself, or the node grounding its statement once it is

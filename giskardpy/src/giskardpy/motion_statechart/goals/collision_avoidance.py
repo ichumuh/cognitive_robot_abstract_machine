@@ -8,8 +8,9 @@ from itertools import combinations
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.context import MotionControlContext
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner, SucceedsOnObservingTrue
 from cramph.context import ContextExtension, StatechartContext
-from cramph.data_types import SuccessDecider, ObservationStateValues
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.exceptions import (
     UnexpectedWorldEntityCountError,
@@ -323,12 +324,10 @@ class _CancelBecauseExternalCollisionViolated(_CancelBecauseCollisionViolated):
 
 
 @dataclass(eq=False, repr=False)
-class UpdateTemporaryCollisionRules(MotionStatechartNode):
+class UpdateTemporaryCollisionRules(SucceedsOnObservingTrue, MotionStatechartNode):
     """
     Updates the temporary collision rules for the robot.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
 
     temporary_rules: list[CollisionRule] = field(kw_only=True)
     collision_matrix: CollisionMatrix = field(init=False)
@@ -371,12 +370,10 @@ class UpdateTemporaryCollisionRules(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class SetInitialTemporaryCollisionRules(MotionStatechartNode):
+class SetInitialTemporaryCollisionRules(SucceedsOnObservingTrue, MotionStatechartNode):
     """
     Updates the temporary collision rules for the robot.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
 
     temporary_rules: list[CollisionRule] = field(kw_only=True)
     collision_matrix: CollisionMatrix = field(init=False)
@@ -410,7 +407,7 @@ class SetInitialTemporaryCollisionRules(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class ExternalCollisionAvoidance(CompositeNode):
+class ExternalCollisionAvoidance(EndedByOwner, CompositeNode):
     """
     A goal combining an ExternalCollisionDistanceMonitor and an
     ExternalCollisionAvoidanceTask. One pair will be added for all collision groups of
@@ -420,8 +417,6 @@ class ExternalCollisionAvoidance(CompositeNode):
     ..note:: This goal expands into one node pair per collision group, so its children are
         left out of drawings. Set `plot_specifications.collapse_children` to False to draw them.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     plot_specifications: NodePlotSpec = plot_specification_field(
         NodePlotSpec.create_collapsed_composite_node_style
@@ -513,15 +508,13 @@ class ExternalCollisionAvoidance(CompositeNode):
 
 
 @dataclass(eq=False, repr=False)
-class ExternalCollisionDistanceMonitor(MotionStatechartNode):
+class ExternalCollisionDistanceMonitor(EndedByOwner, MotionStatechartNode):
     """
     Monitors the distance to the closest external object for a specific collision group
     of a body. Turns True if the distance falls below a given threshold.
 
     .. note:: the input bodies are only used to look up the collision groups.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     body: Body = field(kw_only=True)
     """
@@ -785,7 +778,7 @@ class _CancelBecauseSelfCollisionViolated(_CancelBecauseCollisionViolated):
 
 
 @dataclass(eq=False, repr=False)
-class SelfCollisionAvoidance(CompositeNode):
+class SelfCollisionAvoidance(EndedByOwner, CompositeNode):
     """
     A goal combining a SelfCollisionDistanceMonitor and a SelfCollisionAvoidanceTask.
     One pair will be added for all collision groups of the robot. The task will only be
@@ -795,8 +788,6 @@ class SelfCollisionAvoidance(CompositeNode):
         children are left out of drawings. Set `plot_specifications.collapse_children` to False to
         draw them.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     plot_specifications: NodePlotSpec = plot_specification_field(
         NodePlotSpec.create_collapsed_composite_node_style
@@ -913,15 +904,13 @@ class SelfCollisionAvoidance(CompositeNode):
 
 
 @dataclass(eq=False, repr=False)
-class SelfCollisionDistanceMonitor(MotionStatechartNode):
+class SelfCollisionDistanceMonitor(EndedByOwner, MotionStatechartNode):
     """
     Monitors the distance to the closest external object for the group of a body.
 
     Turns True if the distance falls below a given threshold.
     .. note:: the input bodies are only used to look up the collision groups.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     body_a: Body = field(kw_only=True)
     """

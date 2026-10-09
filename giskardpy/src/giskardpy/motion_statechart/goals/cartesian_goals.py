@@ -11,8 +11,8 @@ from semantic_digital_twin.world_description.connections import DifferentialDriv
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
+from cramph.node import EndedByOwner, SucceedsOnObservingTrue, FailsOnObservingFalse
 from cramph.composites import Sequence, Parallel
-from cramph.data_types import SuccessDecider
 from cramph.node import CompositeNode, NodeArtifacts
 from krrood.symbolic_math.symbolic_math import (
     Scalar,
@@ -31,7 +31,9 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 
 
 @dataclass(eq=False, repr=False)
-class DifferentialDriveBaseGoal(CompositeNode):
+class DifferentialDriveBaseGoal(
+    SucceedsOnObservingTrue, FailsOnObservingFalse, CompositeNode
+):
     """
     Moves the robot to a goal pose using a differential drive, running these steps in
     one :class:`~cramph.composites.Sequence`:
@@ -43,9 +45,6 @@ class DifferentialDriveBaseGoal(CompositeNode):
     The direction to the goal is an expression over the base's forward kinematics, so
     steps 1 and 2 follow the base as it drives.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
-    fails_when_observing_false = True
 
     diff_drive_connection: DifferentialDrive | None = field(kw_only=True, default=None)
     """
@@ -165,7 +164,7 @@ class DifferentialDriveBaseGoal(CompositeNode):
 
 
 @dataclass(eq=False, repr=False)
-class CartesianPoseStraight(CompositeNode):
+class CartesianPoseStraight(EndedByOwner, CompositeNode):
     """
     Like CartesianPose, but constrains the tip link to move in a straight line towards
     the goal.
@@ -173,8 +172,6 @@ class CartesianPoseStraight(CompositeNode):
     Both tasks run in one :class:`~cramph.composites.Parallel`, and this goal observes
     what that parallel observes.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     root_link: KinematicStructureEntity = field(kw_only=True)
     """
@@ -238,12 +235,14 @@ class CartesianPoseStraight(CompositeNode):
             Parallel(name=f"{self.name}/parallel", nodes=tasks)
         )
 
-    def wire_conditions_over_children(self) -> None:
+    @property
+    def inherent_fail_condition(self) -> Scalar:
         """
-        Fail once the parallel can no longer arrive.
+        Fails as well once the parallel can no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
         """
-        self.fail_condition = logic_or(
-            self.fail_condition, self.parallel.is_failed_or_interrupted
+        return logic_or(
+            super().inherent_fail_condition, self.parallel.is_failed_or_interrupted
         )
 
     def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:

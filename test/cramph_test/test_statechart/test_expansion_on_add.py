@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 import pytest
 from typing_extensions import List, Optional
 
+from cramph.node import EndedByOwner
 from cramph.composites import Parallel, Sequence
 from cramph.context import StatechartContext
-from cramph.data_types import LifeCycleValues, SuccessDecider
+from cramph.data_types import LifeCycleValues
 from cramph.exceptions import (
     PrerequisiteNotExpandedError,
 )
@@ -26,12 +27,10 @@ from cramph.statechart import Statechart
 
 
 @dataclass(eq=False, repr=False)
-class CompositeNodeCountingTheChildrenOfAnother(CompositeNode):
+class CompositeNodeCountingTheChildrenOfAnother(EndedByOwner, CompositeNode):
     """
     A composite node that reads the children of another composite node while it expands.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     watched: CompositeNode = field(kw_only=True)
     """

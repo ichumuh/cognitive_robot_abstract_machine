@@ -9,10 +9,10 @@ import pytest
 
 import cramph.node as node_module
 import krrood.symbolic_math.symbolic_math as sm
+from cramph.node import EndedByOwner
 from cramph.executor import StatechartExecutor
 from cramph.context import StatechartContext
 from cramph.data_types import (
-    SuccessDecider,
     LifeCycleValues,
     LifeCyclePredicate,
     ObservationPredicate,
@@ -21,7 +21,6 @@ from cramph.data_types import (
 )
 from cramph.exceptions import (
     ChildTransitionAlreadyWiredError,
-    SuccessDeciderNotDeclaredError,
     NotInStatechartError,
     EndInCompositeNodeError,
     CompositeNodeWithoutChildrenError,
@@ -67,7 +66,7 @@ from cramph.nodes_for_testing import (
     NodeObservingNothingYet,
     NodeFailingOnObservingFalse,
     NodeSucceedingOnObservingTrue,
-    NodeDeclaringNoSuccessDecider,
+    NodeDeclaringNoWayToSucceed,
     ConstTrueNode,
     CompositeNodeWithChainedChildren,
     CompositeNodeWithNestedCompositeChild,
@@ -421,12 +420,10 @@ class TestConditions:
 
 
 @dataclass(eq=False, repr=False)
-class _BuildCountingNode(StatechartNode):
+class _BuildCountingNode(EndedByOwner, StatechartNode):
     """
     Node that records how often :meth:`build` is invoked.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     build_count: int = field(default=0, init=False)
     """
@@ -439,13 +436,11 @@ class _BuildCountingNode(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class _BuildCountingCompositeNode(CompositeNode):
+class _BuildCountingCompositeNode(EndedByOwner, CompositeNode):
     """
     Composite statechart node that records its own build calls and owns a counting child
     node.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     build_count: int = field(default=0, init=False)
     """
@@ -555,13 +550,11 @@ def test_goal_populated_before_compile_matches_one_populated_by_expand():
 
 
 @dataclass(eq=False, repr=False)
-class _SetupThenArtifactsNode(StatechartNode):
+class _SetupThenArtifactsNode(EndedByOwner, StatechartNode):
     """
     Node that performs setup in :meth:`build` and describes itself in
     :meth:`build_artifacts`.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     hook_calls: list[str] = field(default_factory=list, init=False)
     """
@@ -590,16 +583,13 @@ def test_build_delegates_to_build_artifacts():
     assert node.observation_state == ObservationStateValues.TRUE
 
 
-def test_a_node_class_declaring_no_success_decider_is_rejected():
+def test_a_node_class_declaring_no_way_to_succeed_cannot_be_constructed():
     """
-    Every node class has to say who decides that it succeeded, so a statechart holding a
-    node whose class leaves it open cannot be compiled.
+    Every node class has to say how it succeeds, so a node whose class leaves it open
+    cannot be constructed.
     """
-    msc = Statechart(context=StatechartContext(world=World()))
-    msc.add_node(NodeDeclaringNoSuccessDecider())
-
-    with pytest.raises(SuccessDeciderNotDeclaredError):
-        _compile_msc(msc)
+    with pytest.raises(TypeError):
+        NodeDeclaringNoWayToSucceed()
 
 
 def test_state_iteration_yields_nodes():
@@ -3907,3 +3897,73 @@ class TestConditionScoping:
 
         kin_sim.compile(statechart=msc)
         kin_sim.tick_until_end()
+
+
+# %% written conditions survive compiling
+
+
+class TestWrittenConditionsSurviveCompiling:
+    """
+    What a node brings itself is combined with the conditions written on it, without
+    changing them.
+    """
+
+    def test_a_node_succeeding_on_observing_true_keeps_its_written_success_condition(
+        self,
+    ):
+        msc = Statechart(context=StatechartContext(world=World()))
+        msc.add_node(
+            node := NodeSucceedingOnObservingTrue(
+                observation=ObservationStateValues.TRUE
+            )
+        )
+        written = str(node.success_condition)
+
+        _compile_msc(msc)
+
+        assert str(node.success_condition) == written
+
+    def test_a_node_failing_on_observing_false_keeps_its_written_fail_condition(self):
+        msc = Statechart(context=StatechartContext(world=World()))
+        msc.add_node(
+            node := NodeFailingOnObservingFalse(
+                observation=ObservationStateValues.FALSE
+            )
+        )
+        written = str(node.fail_condition)
+
+        _compile_msc(msc)
+
+        assert str(node.fail_condition) == written
+
+    def test_a_parallel_keeps_its_written_fail_condition(self):
+        msc = Statechart(context=StatechartContext(world=World()))
+        msc.add_node(parallel := Parallel([ConstTrueNode()]))
+        written = str(parallel.fail_condition)
+
+        _compile_msc(msc)
+
+        assert str(parallel.fail_condition) == written
+
+    def test_a_parallel_given_a_fail_condition_still_fails_once_it_cannot_arrive(self):
+        msc = Statechart(context=StatechartContext(world=World()))
+        msc.add_nodes(
+            [
+                never_true := ConstFalseNode(),
+                parallel := Parallel(
+                    [
+                        NodeFailingOnObservingFalse(
+                            observation=ObservationStateValues.FALSE
+                        )
+                    ]
+                ),
+            ]
+        )
+        parallel.fail_condition = never_true.observes_true
+
+        executor = _compile_msc(msc)
+        executor.tick()
+        executor.tick()
+
+        assert str(parallel.fail_condition) == str(sm.Scalar(never_true.observes_true))
+        assert parallel.life_cycle_state == LifeCycleValues.FAILED

@@ -21,8 +21,9 @@ from typing_extensions import Type, TypeVar, Generic
 
 import krrood.symbolic_math.symbolic_math as sm
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from cramph.node import NodeArtifacts
 from giskardpy.motion_statechart.ros_context import RosContextExtension
@@ -40,6 +41,7 @@ ActionFeedback = TypeVar("ActionFeedback")
 
 @dataclass(eq=False, repr=False)
 class ActionServerTask(
+    EndedByOwner,
     MotionStatechartNode,
     ABC,
     Generic[Action, ActionGoal, ActionResult, ActionFeedback],
@@ -47,8 +49,6 @@ class ActionServerTask(
     """
     Abstract base class for tasks that call a ROS2 action server.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     action_topic: str
     """

@@ -9,16 +9,16 @@ from semantic_digital_twin.world_description.connections import ActiveConnection
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from cramph.data_types import SuccessDecider
 from cramph.node import CompositeNode, NodeArtifacts
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 
 
 @dataclass(eq=False, repr=False)
-class Open(CompositeNode):
+class Open(EndedByOwner, CompositeNode):
     """
     Open a 1-dof mechanism in an environment by driving its degree of freedom towards
     its upper limit while keeping the end effector fixed relative to the grasped part.
@@ -27,8 +27,6 @@ class Open(CompositeNode):
     grasped. Works with any mechanism whose grasped part hangs below an
     :class:`ActiveConnection1DOF`, e.g. drawers, doors, or screw caps.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     tip_link: KinematicStructureEntity = field(kw_only=True)
     """

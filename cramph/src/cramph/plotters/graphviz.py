@@ -234,7 +234,7 @@ class StatechartGraphviz:
                 is_active=condition.kind.can_trigger_from(life_cycle_state),
                 line_color=line_color,
             )
-            for condition in node.conditions
+            for condition in node.effective_conditions
             if condition.kind is TransitionKind.START
             or not isinstance(node, TerminalNode)
         )

@@ -28,6 +28,7 @@ from cramph.nodes_for_testing import (
     ConstFalseNode,
     ConstTrueNode,
     NodeFailingOnObservingFalse,
+    NodeObservingNothingYet,
 )
 from krrood.symbolic_math.symbolic_math import Scalar
 from semantic_digital_twin.world import World
@@ -54,8 +55,8 @@ def create_goal(
         observation variables.
     """
     return goal_type(
-        monitor=StatechartNode(name="monitor"),
-        monitored_node=StatechartNode(name="monitored"),
+        monitor=NodeObservingNothingYet(name="monitor"),
+        monitored_node=NodeObservingNothingYet(name="monitored"),
     )
 
 

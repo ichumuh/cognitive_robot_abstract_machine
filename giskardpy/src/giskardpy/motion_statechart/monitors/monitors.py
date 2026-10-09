@@ -4,8 +4,8 @@ from dataclasses import field
 from typing_extensions import List, Optional
 
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
 from cramph.context import ContextExtension, StatechartContext
-from cramph.data_types import SuccessDecider
 from giskardpy.motion_statechart.context import MotionControlContext
 from giskardpy.motion_statechart.exceptions import EmptyDegreesOfFreedomError
 from giskardpy.motion_statechart.graph_node import (
@@ -19,14 +19,12 @@ from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFr
 
 
 @dataclass(repr=False, eq=False)
-class LocalMinimumReached(MotionStatechartNode):
+class LocalMinimumReached(EndedByOwner, MotionStatechartNode):
     """
     Checks if the robot has reached a local minimum in the trajectory, by checking if
     all velocities are below a degree of freedoms' max velocity
     *`joint_convergence_threshold`.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     joint_convergence_threshold: float = 0.01
     """

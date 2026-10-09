@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 from typing_extensions import List
 
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.node import EndedByOwner
+from cramph.data_types import ObservationStateValues
 from giskardpy.motion_statechart.error_signals import (
     time_derivative_from_joint_motion,
 )
@@ -101,13 +102,11 @@ def tick_until_end_recording(
 
 
 @dataclass(eq=False, repr=False)
-class NodeWithDeclaredDependencies(MotionStatechartNode):
+class NodeWithDeclaredDependencies(EndedByOwner, MotionStatechartNode):
     """
     Node that declares whichever build dependencies a test needs, so dependency ordering
     and cycle detection can be exercised without a real task.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     dependencies: List[MotionStatechartNode] = field(default_factory=list, kw_only=True)
     """

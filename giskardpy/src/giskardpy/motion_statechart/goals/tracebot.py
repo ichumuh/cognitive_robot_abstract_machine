@@ -7,7 +7,7 @@ import numpy as np
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from cramph.data_types import SuccessDecider
+from cramph.node import EndedByOwner
 from cramph.node import CompositeNode
 from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.spatial_types import Point3, Vector3
@@ -15,8 +15,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 @dataclass
-class InsertCylinder(CompositeNode):
-    success_decided_by = SuccessDecider.OWNER
+class InsertCylinder(EndedByOwner, CompositeNode):
 
     cylinder_name: Body = field(kw_only=True)
     hole_point: Point3 = field(kw_only=True)

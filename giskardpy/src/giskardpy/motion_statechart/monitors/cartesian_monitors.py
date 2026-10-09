@@ -10,8 +10,8 @@ from giskardpy.motion_statechart.binding_policy import (
     ForwardKinematicsBinding,
     GoalBindingPolicy,
 )
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import SuccessDecider
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from cramph.node import NodeArtifacts
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -26,26 +26,35 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 @dataclass(eq=False, repr=False)
-class RootRelativeGoalMonitor(MotionStatechartNode, ABC):
+class RootRelativeGoalMonitor(EndedByOwner, MotionStatechartNode, ABC):
     """
-    Base for monitors whose goal is captured relative to the kinematic chain via a forward
-    kinematics binding. The :class:`GoalBindingPolicy` decides whether the goal is frozen once at
-    build time or recaptured every time the monitor starts.
-    """
+    Base for monitors whose goal is captured relative to the kinematic chain via a
+    forward kinematics binding.
 
-    success_decided_by = SuccessDecider.OWNER
+    The :class:`GoalBindingPolicy` decides whether the goal is frozen once at build time
+    or recaptured every time the monitor starts.
+    """
 
     root_link: Body = field(kw_only=True)
-    """Root link of the kinematic chain the goal is expressed in."""
+    """
+    Root link of the kinematic chain the goal is expressed in.
+    """
+
     binding_policy: GoalBindingPolicy = field(
         default=GoalBindingPolicy.Bind_on_start, kw_only=True
     )
-    """When the goal reference frame is captured. See :class:`GoalBindingPolicy`."""
+    """
+    When the goal reference frame is captured.
+
+    See :class:`GoalBindingPolicy`.
+    """
 
     _forward_kinematics_binding: Optional[ForwardKinematicsBinding] = field(
         default=None, init=False, repr=False
     )
-    """Binding used to freeze the forward kinematics of the goal reference frame."""
+    """
+    Binding used to freeze the forward kinematics of the goal reference frame.
+    """
 
     @property
     @abstractmethod
@@ -69,8 +78,8 @@ class RootRelativeGoalMonitor(MotionStatechartNode, ABC):
 
     def resolve_root_goal(self, context: StatechartContext) -> SpatialType:
         """
-        Express the goal in the root link frame, captured relative to the goal reference frame via
-        a forward kinematics binding.
+        Express the goal in the root link frame, captured relative to the goal reference
+        frame via a forward kinematics binding.
         """
         return self._forward_kinematics_binding.root_T_tip @ self.goal
 
@@ -82,18 +91,29 @@ class RootRelativeGoalMonitor(MotionStatechartNode, ABC):
 @dataclass(eq=False, repr=False)
 class PoseReached(RootRelativeGoalMonitor):
     """
-    Observes ``True`` once the tip link has reached the goal pose within the position and
-    orientation thresholds.
+    Observes ``True`` once the tip link has reached the goal pose within the position
+    and orientation thresholds.
     """
 
     tip_link: Body = field(kw_only=True)
-    """Link that should reach the goal pose."""
+    """
+    Link that should reach the goal pose.
+    """
+
     goal_pose: HomogeneousTransformationMatrix = field(kw_only=True)
-    """Target pose to reach."""
+    """
+    Target pose to reach.
+    """
+
     position_threshold: float = field(default=0.01, kw_only=True)
-    """Distance threshold for the position part of the goal in meters."""
+    """
+    Distance threshold for the position part of the goal in meters.
+    """
+
     orientation_threshold: float = field(default=0.01, kw_only=True)
-    """Rotation error threshold for the orientation part of the goal in radians."""
+    """
+    Rotation error threshold for the orientation part of the goal in radians.
+    """
 
     @property
     def goal(self) -> HomogeneousTransformationMatrix:
@@ -128,11 +148,19 @@ class PositionReached(RootRelativeGoalMonitor):
     """
 
     tip_link: Body = field(kw_only=True)
-    """Link that should reach the goal point."""
+    """
+    Link that should reach the goal point.
+    """
+
     goal_point: Point3 = field(kw_only=True)
-    """Target 3D point to reach."""
+    """
+    Target 3D point to reach.
+    """
+
     threshold: float = field(default=0.01, kw_only=True)
-    """Distance threshold for goal achievement in meters."""
+    """
+    Distance threshold for goal achievement in meters.
+    """
 
     @property
     def goal(self) -> Point3:
@@ -151,15 +179,24 @@ class PositionReached(RootRelativeGoalMonitor):
 @dataclass(eq=False, repr=False)
 class OrientationReached(RootRelativeGoalMonitor):
     """
-    Observes ``True`` once the tip link orientation is within ``threshold`` of the goal orientation.
+    Observes ``True`` once the tip link orientation is within ``threshold`` of the goal
+    orientation.
     """
 
     tip_link: Body = field(kw_only=True)
-    """Link that should reach the goal orientation."""
+    """
+    Link that should reach the goal orientation.
+    """
+
     goal_orientation: RotationMatrix = field(kw_only=True)
-    """Target orientation to reach."""
+    """
+    Target orientation to reach.
+    """
+
     threshold: float = field(default=0.01, kw_only=True)
-    """Rotation error threshold for goal achievement in radians."""
+    """
+    Rotation error threshold for goal achievement in radians.
+    """
 
     @property
     def goal(self) -> RotationMatrix:
@@ -176,24 +213,34 @@ class OrientationReached(RootRelativeGoalMonitor):
 
 
 @dataclass(eq=False, repr=False)
-class PointingAt(MotionStatechartNode):
+class PointingAt(EndedByOwner, MotionStatechartNode):
     """
-    Observes ``True`` once the pointing axis of the tip link is aimed at the goal point within
-    ``threshold``.
+    Observes ``True`` once the pointing axis of the tip link is aimed at the goal point
+    within ``threshold``.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     tip_link: Body = field(kw_only=True)
-    """Link whose pointing axis is checked."""
+    """
+    Link whose pointing axis is checked.
+    """
+
     goal_point: Point3 = field(kw_only=True)
-    """Point the tip link should point at."""
+    """
+    Point the tip link should point at.
+    """
     root_link: Body = field(kw_only=True)
-    """Reference link the goal point is expressed in."""
+    """
+    Reference link the goal point is expressed in.
+    """
     pointing_axis: Vector3 = field(kw_only=True)
-    """Axis of the tip link that should point at the goal point."""
+    """
+    Axis of the tip link that should point at the goal point.
+    """
+
     threshold: float = field(default=0.01, kw_only=True)
-    """Distance threshold between the goal point and the pointing line in meters."""
+    """
+    Distance threshold between the goal point and the pointing line in meters.
+    """
 
     def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         root_P_goal_point = context.world.transform(
@@ -217,23 +264,36 @@ class PointingAt(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class VectorsAligned(MotionStatechartNode):
+class VectorsAligned(EndedByOwner, MotionStatechartNode):
     """
-    Observes ``True`` once the tip normal is aligned with the goal normal within ``threshold``.
+    Observes ``True`` once the tip normal is aligned with the goal normal within
+    ``threshold``.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     root_link: Body = field(kw_only=True)
-    """Reference link the goal normal is expressed in."""
+    """
+    Reference link the goal normal is expressed in.
+    """
+
     tip_link: Body = field(kw_only=True)
-    """Link the tip normal is expressed in."""
+    """
+    Link the tip normal is expressed in.
+    """
+
     goal_normal: Vector3 = field(kw_only=True)
-    """Reference normal the tip normal should align with."""
+    """
+    Reference normal the tip normal should align with.
+    """
+
     tip_normal: Vector3 = field(kw_only=True)
-    """Normal of the tip link that should align with the goal normal."""
+    """
+    Normal of the tip link that should align with the goal normal.
+    """
+
     threshold: float = field(default=0.01, kw_only=True)
-    """Angle threshold between the two normals in radians."""
+    """
+    Angle threshold between the two normals in radians.
+    """
 
     def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         tip_V_tip_normal = context.world.transform(
@@ -255,26 +315,41 @@ class VectorsAligned(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class DistanceToLine(MotionStatechartNode):
+class DistanceToLine(EndedByOwner, MotionStatechartNode):
     """
-    Observes ``True`` once the tip link is within ``threshold`` of the line segment centered at
-    ``center_point`` along ``line_axis``.
+    Observes ``True`` once the tip link is within ``threshold`` of the line segment
+    centered at ``center_point`` along ``line_axis``.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     root_link: Body = field(kw_only=True)
-    """Reference link the line is expressed in."""
+    """
+    Reference link the line is expressed in.
+    """
+
     tip_link: Body = field(kw_only=True)
-    """Link whose distance to the line is checked."""
+    """
+    Link whose distance to the line is checked.
+    """
+
     center_point: Point3 = field(kw_only=True)
-    """Center of the line segment."""
+    """
+    Center of the line segment.
+    """
+
     line_axis: Vector3 = field(kw_only=True)
-    """Direction of the line segment."""
+    """
+    Direction of the line segment.
+    """
+
     line_length: float = field(kw_only=True)
-    """Length of the line segment."""
+    """
+    Length of the line segment.
+    """
+
     threshold: float = field(default=0.01, kw_only=True)
-    """Distance threshold to the line segment in meters."""
+    """
+    Distance threshold to the line segment in meters.
+    """
 
     def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         root_P_current = context.world.compose_forward_kinematics_expression(

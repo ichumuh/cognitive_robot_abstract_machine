@@ -7,8 +7,9 @@ from datetime import timedelta
 import numpy as np
 
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
@@ -455,7 +456,7 @@ class RoboKudoPerception(PerceptionInterface):
 
 
 @dataclass(eq=False, repr=False)
-class PerceptionTask(StatechartNode):
+class PerceptionTask(EndedByOwner, StatechartNode):
     """
     Statechart node that answers a perception query and writes what it saw into the
     world.
@@ -468,8 +469,6 @@ class PerceptionTask(StatechartNode):
     ..warning:: That tick blocks until the source replies, which on the real robot holds
         up the control loop for as long as the pipeline takes to answer.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     query: PerceptionQuery = field(kw_only=True)
     """

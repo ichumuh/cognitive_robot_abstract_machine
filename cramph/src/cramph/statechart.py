@@ -36,14 +36,12 @@ from cramph.data_types import (
     LifeCycleValues,
     LifeCyclePredicate,
     ObservationStateValues,
-    SuccessDecider,
 )
 from cramph.exceptions import (
     EmptyStatechartError,
     ConditionScopeError,
     TickDoesNotSettleError,
     CyclicNodeDependencyError,
-    SuccessDeciderNotDeclaredError,
     NodesMissingContextExtensionsError,
     PrerequisiteNotExpandedError,
     StatechartAlreadyCompiledError,
@@ -1659,7 +1657,7 @@ class Statechart(SubclassJSONSerializer):
         for kept_node in kept_nodes:
             referenced_nodes = list(kept_node.prerequisite_nodes) + [
                 dependency
-                for condition in kept_node.conditions
+                for condition in kept_node.effective_conditions
                 for dependency in condition.node_dependencies
             ]
             for referenced_node in referenced_nodes:
@@ -1730,7 +1728,7 @@ class Statechart(SubclassJSONSerializer):
         self._validate_condition_scopes()
         self.rx_graph.clear_edges()
         for node in self.nodes:
-            for condition in node.conditions:
+            for condition in node.effective_conditions:
                 self._create_edge_for_condition(node, condition)
 
     def _validate_condition_scopes(self):
@@ -1742,7 +1740,7 @@ class Statechart(SubclassJSONSerializer):
         :raises ConditionScopeError: If a condition references a node from a different scope level.
         """
         for node in self.nodes:
-            for condition in node.conditions:
+            for condition in node.effective_conditions:
                 self._validate_condition_scope(node, condition)
 
     def _validate_condition_scope(
@@ -1886,12 +1884,8 @@ class Statechart(SubclassJSONSerializer):
         :param nodes: The nodes no compile covered yet.
         """
         goals = [node for node in nodes if isinstance(node, CompositeNode)]
-        self._wire_conditions_over_children(goals)
         self._check_children_of_goals(goals)
-        self._check_every_node_declares_its_success_decider(nodes)
         self._check_required_context_extensions(nodes)
-        self._succeed_self_deciding_nodes_observing_true(nodes)
-        self._fail_self_failing_nodes_observing_false(nodes)
         if self._world_structure_changed():
             nodes_to_build = self.nodes
         else:
@@ -1977,27 +1971,6 @@ class Statechart(SubclassJSONSerializer):
         for goal in goals:
             goal.check_children()
 
-    @staticmethod
-    def _wire_conditions_over_children(goals: List[CompositeNode]) -> None:
-        """
-        Lets every goal in `goals` wire the conditions it derives from its final
-        children into its own transitions.
-        """
-        for goal in goals:
-            goal.wire_conditions_over_children()
-
-    @staticmethod
-    def _check_every_node_declares_its_success_decider(
-        nodes: List[StatechartNode],
-    ) -> None:
-        """
-        :raises SuccessDeciderNotDeclaredError: If the class of a node in `nodes` does
-            not declare :attr:`~cramph.node.StatechartNode.success_decided_by`.
-        """
-        for node in nodes:
-            if node.success_decided_by is None:
-                raise SuccessDeciderNotDeclaredError(node=node)
-
     def _check_required_context_extensions(self, nodes: List[StatechartNode]) -> None:
         """
         :raises NodesMissingContextExtensionsError: If :attr:`context` lacks an
@@ -2015,38 +1988,6 @@ class Statechart(SubclassJSONSerializer):
             raise NodesMissingContextExtensionsError(
                 nodes_by_missing_extension=nodes_by_missing_extension
             )
-
-    @staticmethod
-    def _succeed_self_deciding_nodes_observing_true(nodes: List[StatechartNode]):
-        """
-        Succeeds every node in `nodes` that declares
-        :attr:`~cramph.data_types.SuccessDecider.ITSELF` once it
-        observes True, on top of whatever else already ends it.
-
-        Runs once every goal has expanded, so no template can wire this away, and late
-        enough that the conditions are still the ones a caller wrote while the templates
-        were checking them.
-        """
-        for node in nodes:
-            if node.success_decided_by != SuccessDecider.ITSELF:
-                continue
-            node.success_condition = sm.logic_or(
-                node.success_condition, node.observes_true
-            )
-
-    @staticmethod
-    def _fail_self_failing_nodes_observing_false(nodes: List[StatechartNode]):
-        """
-        Fails every node in `nodes` that declares
-        :attr:`~cramph.node.StatechartNode.fails_when_observing_false`
-        once it observes False, on top of whatever else already fails it.
-
-        Runs once every goal has expanded, so no template can wire this away.
-        """
-        for node in nodes:
-            if not node.fails_when_observing_false:
-                continue
-            node.fail_condition = sm.logic_or(node.fail_condition, node.observes_false)
 
     def tick(self):
         """

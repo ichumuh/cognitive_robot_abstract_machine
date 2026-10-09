@@ -4,8 +4,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from cramph.node import SucceedsOnObservingTrue
 from cramph.context import ContextExtension, StatechartContext
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from cramph.exceptions import NodesMissingContextExtensionsError
 from cramph.executor import StatechartExecutor
 from cramph.node import CompositeNode
@@ -55,13 +56,11 @@ class SpecializedNodeRequiringAnotherExtension(NodeRequiringAnExtension):
 
 
 @dataclass(eq=False, repr=False)
-class CompositeRequiringAnExtension(CompositeNode):
+class CompositeRequiringAnExtension(SucceedsOnObservingTrue, CompositeNode):
     """
     A composite node that declares a context extension it requires and remembers whether
     it expanded.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
 
     expanded: bool = field(default=False, init=False)
     """

@@ -4,7 +4,7 @@ import ast
 import logging
 import threading
 import uuid
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from dataclasses import field, dataclass
 
 from typing_extensions import (
@@ -31,7 +31,6 @@ from cramph.data_types import (
     TransitionKind,
     TransitionConditionJSONKey,
     NodeJSONKey,
-    SuccessDecider,
 )
 from cramph.exceptions import (
     ChildTransitionAlreadyWiredError,
@@ -740,23 +739,12 @@ class LifeCycleTransitions:
 
 
 @dataclass(repr=False, eq=False)
-class StatechartNode(SubclassJSONSerializer):
+class StatechartNode(SubclassJSONSerializer, metaclass=ABCMeta):
     """
     A node of a statechart.
 
-    Every node class that is compiled declares :attr:`success_decided_by`, and may
-    declare :attr:`fails_when_observing_false`. The statechart turns both into
-    conditions when it is compiled, on top of whatever else already ends the node.
-    """
-
-    success_decided_by: ClassVar[Optional[SuccessDecider]] = None
-    """
-    Who decides that this node succeeded.
-    """
-
-    fails_when_observing_false: ClassVar[bool] = False
-    """
-    Whether observing False means this node can no longer reach its goal, so that it fails.
+    Every node class says how it succeeds by inheriting :class:`EndedByOwner` or
+    :class:`SucceedsOnObservingTrue`, and may inherit :class:`FailsOnObservingFalse`.
     """
 
     name: str = field(
@@ -1227,7 +1215,8 @@ class StatechartNode(SubclassJSONSerializer):
             *[
                 (
                     self._own_trigger(
-                        self.get_condition(transition_kind), own_transitions_allowed
+                        self.effective_condition(transition_kind),
+                        own_transitions_allowed,
                     ),
                     sm.Scalar(transition_kind.outcome),
                 )
@@ -1379,7 +1368,7 @@ class StatechartNode(SubclassJSONSerializer):
         :return: A node of the base class of this node's kind, with the same name, see
             :meth:`~cramph.statechart.Statechart.create_structure_copy`.
         """
-        return StatechartNode(name=self.name)
+        return StructureCopyNode(name=self.name)
 
     def set_up(self, context: StatechartContext) -> None:
         """
@@ -1634,16 +1623,56 @@ class StatechartNode(SubclassJSONSerializer):
     @property
     def can_fail_on_its_own(self) -> bool:
         """
-        Whether this node declares a way to fail, through its fail condition or by
-        failing once it observes False.
+        Whether this node has a way to fail, written as its :attr:`fail_condition` or
+        brought by itself as its :attr:`inherent_fail_condition`.
 
         .. note:: Complete only once every goal of the statechart has expanded,
-            because a template may write its own fail condition while expanding.
+            because a template may write a fail condition while expanding.
         """
-        return (
-            self.fails_when_observing_false
-            or not self.fail_condition.is_constant_false()
-        )
+        return not self.effective_condition(TransitionKind.FAIL).is_constant_false()
+
+    @property
+    @abstractmethod
+    def inherent_success_condition(self) -> Scalar:
+        """
+        :return: The expression by which this node succeeds whatever is written as its
+            :attr:`success_condition`.
+        """
+
+    @property
+    def decides_its_own_success(self) -> bool:
+        """
+        Whether this node succeeds without anything written as its
+        :attr:`success_condition`.
+        """
+        return not self.inherent_success_condition.is_constant_false()
+
+    @property
+    def inherent_fail_condition(self) -> Scalar:
+        """
+        :return: The expression by which this node fails whatever is written as its
+            :attr:`fail_condition`.
+        """
+        return Scalar.const_false()
+
+    def effective_condition(self, transition_kind: TransitionKind) -> Scalar:
+        """
+        :param transition_kind: The kind of transition whose condition to get.
+        :return: The expression deciding when that transition happens: the written
+            condition, see :meth:`get_condition`, or for succeeding and failing either
+            that or the inherent one.
+        """
+        written_condition = self.get_condition(transition_kind)
+        match transition_kind:
+            case TransitionKind.SUCCEED:
+                inherent_condition = self.inherent_success_condition
+            case TransitionKind.FAIL:
+                inherent_condition = self.inherent_fail_condition
+            case _:
+                return written_condition
+        if inherent_condition.is_constant_false():
+            return written_condition
+        return sm.logic_or(written_condition, inherent_condition)
 
     def _life_cycle_predicate(
         self, predicate: LifeCyclePredicate
@@ -1691,7 +1720,7 @@ class StatechartNode(SubclassJSONSerializer):
     @property
     def conditions(self) -> List[TransitionCondition]:
         """
-        :return: Every transition condition of this node.
+        :return: Every transition condition of this node, as written.
         """
         return [
             self._start_condition,
@@ -1701,6 +1730,19 @@ class StatechartNode(SubclassJSONSerializer):
             self._interrupt_condition,
             self._reset_condition,
         ]
+
+    @property
+    def effective_conditions(self) -> List[TransitionCondition]:
+        """
+        :return: Every transition condition of this node as it takes effect, see
+            :meth:`effective_condition`, in the order of :attr:`conditions`.
+        """
+        conditions = []
+        for transition_kind in [written.kind for written in self.conditions]:
+            condition = TransitionCondition(kind=transition_kind, owner=self)
+            condition.update_expression(self.effective_condition(transition_kind), self)
+            conditions.append(condition)
+        return conditions
 
     def _observation_predicate(
         self, predicate: ObservationPredicate
@@ -1892,6 +1934,56 @@ class StatechartNode(SubclassJSONSerializer):
 GenericStatechartNode = TypeVar("GenericStatechartNode", bound=StatechartNode)
 
 
+# %% how a node ends
+
+
+@dataclass(eq=False, repr=False)
+class EndedByOwner(StatechartNode):
+    """
+    A node whose observation says whether it reached its goal, but which only whoever runs
+    it ends, because releasing it may undo what it reached, as with a node that keeps
+    holding a state only while it runs.
+    """
+
+    @property
+    def inherent_success_condition(self) -> Scalar:
+        return Scalar.const_false()
+
+
+@dataclass(eq=False, repr=False)
+class SucceedsOnObservingTrue(StatechartNode):
+    """
+    A node that succeeds once it observes True, because ending it undoes nothing it did.
+    """
+
+    @property
+    def inherent_success_condition(self) -> Scalar:
+        return self.observes_true
+
+
+@dataclass(eq=False, repr=False)
+class FailsOnObservingFalse(StatechartNode):
+    """
+    A node that fails once it observes False, because it can then no longer reach its
+    goal.
+    """
+
+    @property
+    def inherent_fail_condition(self) -> Scalar:
+        return self.observes_false
+
+
+@dataclass(eq=False, repr=False)
+class StructureCopyNode(EndedByOwner, StatechartNode):
+    """
+    Stands in for a node in a structure copy, see
+    :meth:`~cramph.statechart.Statechart.create_structure_copy`.
+    """
+
+
+# %% deserialization
+
+
 @dataclass
 class DeserializedNodeTracker(DeserializedObjectTracker[str, StatechartNode]):
     """
@@ -1976,7 +2068,7 @@ class CompositeNode(StatechartNode):
         return list(self.nodes)
 
     def create_structure_copy(self) -> CompositeNode:
-        return CompositeNode(name=self.name)
+        return StructureCopyCompositeNode(name=self.name)
 
     def expand(self, context: StatechartContext) -> None:
         """
@@ -1992,16 +2084,6 @@ class CompositeNode(StatechartNode):
         """
         Rejects children this node cannot run, once the statechart is compiled and the
         children's conditions are complete.
-        """
-
-    def wire_conditions_over_children(self) -> None:
-        """
-        Wires the conditions this node derives from its children into its own
-        transitions.
-
-        Called once, when the statechart is compiled, so it sees the final children
-        and is not overwritten by a caller that sets this node's conditions after it
-        joined.
         """
 
     def _add_child_to_statechart(self, node: StatechartNode) -> None:
@@ -2119,7 +2201,15 @@ class CompositeNode(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class ThreadPayloadMonitor(ABC, StatechartNode):
+class StructureCopyCompositeNode(EndedByOwner, CompositeNode):
+    """
+    Stands in for a composite node in a structure copy, see
+    :meth:`~cramph.statechart.Statechart.create_structure_copy`.
+    """
+
+
+@dataclass(eq=False, repr=False)
+class ThreadPayloadMonitor(EndedByOwner, ABC, StatechartNode):
     """
     Payload monitor that evaluates _compute_observation in a background thread.
 
@@ -2127,8 +2217,6 @@ class ThreadPayloadMonitor(ABC, StatechartNode):
     - Until the first successful completion, returns TrinaryUnknown.
     - Afterwards, returns the last successfully computed value.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     # Internal threading primitives
     _request_event: threading.Event = field(
@@ -2195,14 +2283,12 @@ class ThreadPayloadMonitor(ABC, StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class TerminalNode(ABC, StatechartNode):
+class TerminalNode(EndedByOwner, ABC, StatechartNode):
     """
     A node that ends the whole statechart once its observation state turns true.
 
     No transition can happen afterwards, so conditions may not reference such a node.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     @staticmethod
     def _observing_true_or_succeeded(node: StatechartNode) -> Scalar:

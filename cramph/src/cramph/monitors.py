@@ -4,8 +4,9 @@ from abc import ABC, abstractmethod
 from dataclasses import field, dataclass
 from typing import Optional, Callable
 
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import SuccessDecider, LifeCycleValues, ObservationStateValues
+from cramph.data_types import LifeCycleValues, ObservationStateValues
 from cramph.node import StatechartNode, NodeArtifacts
 from cramph.threaded_nodes import ThreadedNode
 
@@ -13,12 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(eq=False, repr=False)
-class CheckTickCount(StatechartNode):
+class CheckTickCount(EndedByOwner, StatechartNode):
     """
     Sets observation to True if the tick count is above threshold.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     threshold: int = field(kw_only=True)
     """
@@ -32,12 +31,10 @@ class CheckTickCount(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class Print(StatechartNode):
+class Print(EndedByOwner, StatechartNode):
     """
     Prints a message to the console every tick.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     message: str = ""
 
@@ -47,15 +44,13 @@ class Print(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class CountSeconds(StatechartNode):
+class CountSeconds(EndedByOwner, StatechartNode):
     """
     This node counts X seconds and then turns True.
 
     Only counts while in state RUNNING, and it is up to whoever runs it to stop it once
     it has counted far enough.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     seconds: float = field(kw_only=True)
     _now: Callable[[], float] = field(default=time.monotonic, kw_only=True, repr=False)
@@ -72,7 +67,7 @@ class CountSeconds(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class TickCounter(StatechartNode, ABC):
+class TickCounter(EndedByOwner, StatechartNode, ABC):
     """
     Base for nodes that count ticks while RUNNING and turn True once a target is
     reached.
@@ -80,8 +75,6 @@ class TickCounter(StatechartNode, ABC):
     Only counts while in state RUNNING, and it is up to whoever runs it to stop it once
     it reaches its target.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     _counter: int = field(init=False, default=0)
     """
@@ -140,7 +133,7 @@ class CountTicks(TickCounter):
 
 
 @dataclass(eq=False, repr=False)
-class ThreadedPredicateMonitor(ThreadedNode):
+class ThreadedPredicateMonitor(EndedByOwner, ThreadedNode):
     """
     Evaluates an arbitrary boolean predicate in a background thread and exposes the
     result as the node's observation state.
@@ -152,8 +145,6 @@ class ThreadedPredicateMonitor(ThreadedNode):
     The predicate is a plain ``Callable[[], bool]`` so this class has no dependency on
     whatever produces it (e.g. an EQL condition is wrapped in a lambda by the caller).
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     predicate: Optional[Callable[[], bool]] = field(kw_only=True)
     """
@@ -196,12 +187,10 @@ class ThreadedPredicateMonitor(ThreadedNode):
 
 
 @dataclass(eq=False, repr=False)
-class Pulse(StatechartNode):
+class Pulse(EndedByOwner, StatechartNode):
     """
     Will stay True for a single tick, then turn False.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     _counter: int = field(default=0, init=False)
     """
@@ -225,7 +214,7 @@ class Pulse(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class CountNodeResets(StatechartNode):
+class CountNodeResets(EndedByOwner, StatechartNode):
     """
     Turns True once :attr:`node` has been reset :attr:`target` times.
 
@@ -233,8 +222,6 @@ class CountNodeResets(StatechartNode):
     count is never cleared, unlike the counters that reset themselves when they start,
     so it survives the resets it is counting.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     node: StatechartNode = field(kw_only=True)
     """

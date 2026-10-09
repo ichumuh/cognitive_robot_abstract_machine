@@ -13,9 +13,9 @@ from typing_extensions import (
 from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
 from coraplex.plans.designator import DesignatorParameters
 from krrood.ormatic.utils import classproperty
+from cramph.node import SucceedsOnObservingTrue, FailsOnObservingFalse
 from cramph.context import ContextExtension, StatechartContext
 from cramph.composites import Attempt
-from cramph.data_types import SuccessDecider
 from cramph.node import CompositeNode, NodeArtifacts, StatechartNode
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.variable import Variable
@@ -29,7 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(eq=False, repr=False)
-class Action(CompositeNode, DesignatorParameters, ABC):
+class Action(
+    SucceedsOnObservingTrue,
+    FailsOnObservingFalse,
+    CompositeNode,
+    DesignatorParameters,
+    ABC,
+):
     """
     Something a robot does, described by the parameters it is given and run as a node of
     a statechart.
@@ -45,9 +51,6 @@ class Action(CompositeNode, DesignatorParameters, ABC):
         method resolution order and taking the first mapped class, and an action is
         stored as the statechart node it is.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
-    fails_when_observing_false = True
 
     @classproperty
     def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:

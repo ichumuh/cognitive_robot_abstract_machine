@@ -8,12 +8,12 @@ from typing import List
 from typing_extensions import Optional
 
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner, SucceedsOnObservingTrue, FailsOnObservingFalse
 from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import (
     LifeCyclePredicate,
     LifeCycleValues,
     ObservationStateValues,
-    SuccessDecider,
 )
 from cramph.exceptions import (
     NotRunByLanguageNodeError,
@@ -45,7 +45,7 @@ from krrood.symbolic_math.symbolic_math import (
 
 
 @dataclass(repr=False, eq=False)
-class Attempt(CompositeNode):
+class Attempt(SucceedsOnObservingTrue, FailsOnObservingFalse, CompositeNode):
     """
     Runs a node that would never end on its own and decides it, one way or the other.
 
@@ -62,9 +62,6 @@ class Attempt(CompositeNode):
         reaching its goal and comes down only with this goal, so a task that was pushed
         off its goal again is still being held.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
-    fails_when_observing_false = True
 
     task: StatechartNode = field(kw_only=True)
     """
@@ -88,7 +85,7 @@ class Attempt(CompositeNode):
             without failure monitors deciding it, which fails only if `node` fails on its
             own.
         """
-        if node.success_decided_by == SuccessDecider.ITSELF:
+        if node.decides_its_own_success:
             return node
         return cls(name=f"{node.name}/attempt", task=node, failure_monitors=[])
 
@@ -175,7 +172,9 @@ class Attempt(CompositeNode):
 
 
 @dataclass(repr=False, eq=False)
-class CompositeNodeOverSelfDecidingNodes(CompositeNode, ABC):
+class CompositeNodeOverSelfDecidingNodes(
+    SucceedsOnObservingTrue, FailsOnObservingFalse, CompositeNode, ABC
+):
     """
     Base for the goals that order or choose between children, which only works if each
     child reaches a terminal state by itself.
@@ -184,9 +183,6 @@ class CompositeNodeOverSelfDecidingNodes(CompositeNode, ABC):
     their life cycles: what starts and ends a child is this goal's to decide. What comes
     out decides itself in turn, which is what lets one be a step of another.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
-    fails_when_observing_false = True
 
     def _adopt_self_deciding(self, node: StatechartNode) -> StatechartNode:
         """
@@ -485,7 +481,7 @@ class Sequence(CramLanguageNodeRunningItsChildrenInTurn):
 
 
 @dataclass(repr=False, eq=False)
-class Parallel(CramLanguageNode):
+class Parallel(EndedByOwner, CramLanguageNode):
     """
     Holds a list of nodes at once until enough of them are at their goals together.
 
@@ -497,8 +493,6 @@ class Parallel(CramLanguageNode):
     undo what it reached. For the same reason its own owner decides
     when it succeeded: a plan step built from one is an attempt wrapping it.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     minimum_success: Optional[int] = field(default=None, kw_only=True)
     """
@@ -524,18 +518,18 @@ class Parallel(CramLanguageNode):
         self._place_child_in_statechart(node)
         return node
 
-    def wire_conditions_over_children(self) -> None:
+    @property
+    def inherent_fail_condition(self) -> Scalar:
         """
-        Declare this goal failed once too few of its nodes can still reach their goals.
+        Fails as well once too few of its nodes can still reach their goals, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
 
         Observing False means the nodes are not at their goals, which is not a failure
         and is left to the attempt this goal is wrapped in. A node that ended without
         succeeding is different: nothing brings it back, so once too few are left this
         goal can no longer arrive and says so rather than holding its owner open forever.
         """
-        self.fail_condition = logic_or(
-            self.fail_condition, self._cannot_arrive_any_more
-        )
+        return logic_or(super().inherent_fail_condition, self._cannot_arrive_any_more)
 
     @property
     def _cannot_arrive_any_more(self) -> Scalar:
@@ -820,7 +814,7 @@ class TryInOrder(CramLanguageNodeRunningItsChildrenInTurn):
 
 
 @dataclass(repr=False, eq=False)
-class MonitoredCompositeNode(CompositeNode, ABC):
+class MonitoredCompositeNode(EndedByOwner, CompositeNode, ABC):
     """
     Runs a monitored node next to the monitor observing it.
 
@@ -832,8 +826,6 @@ class MonitoredCompositeNode(CompositeNode, ABC):
     node or a sibling of it. Neither node is chained to the other, so the monitor
     observes from the moment this goal starts.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     monitor: StatechartNode = field(kw_only=True)
     """
@@ -853,13 +845,16 @@ class MonitoredCompositeNode(CompositeNode, ABC):
         self._add_child_to_statechart(self.monitored_node)
         self.wire_monitor()
 
-    def wire_conditions_over_children(self) -> None:
+    @property
+    def inherent_fail_condition(self) -> Scalar:
         """
-        Declare this goal failed once the monitored node ended without succeeding,
-        because it can no longer arrive.
+        Fails as well once the monitored node ended without succeeding, because it can
+        no longer arrive, see
+        :meth:`~cramph.node.StatechartNode.inherent_fail_condition`.
         """
-        self.fail_condition = logic_or(
-            self.fail_condition, self.monitored_node.is_failed_or_interrupted
+        return logic_or(
+            super().inherent_fail_condition,
+            self.monitored_node.is_failed_or_interrupted,
         )
 
     @abstractmethod
@@ -1048,7 +1043,7 @@ class ChildChooserAccess(ContextExtension):
 
 
 @dataclass(eq=False, repr=False)
-class CompositeNodeChoosingItsChild(CompositeNode):
+class CompositeNodeChoosingItsChild(SucceedsOnObservingTrue, CompositeNode):
     """
     Runs a child that is only chosen once this node runs, against the world as the nodes
     before it left it.
@@ -1061,7 +1056,6 @@ class CompositeNodeChoosingItsChild(CompositeNode):
         again, see :meth:`~cramph.statechart.Statechart.modify`.
     """
 
-    success_decided_by = SuccessDecider.ITSELF
     accepts_children_after_compile = True
 
     _out_of_children: bool = field(default=False, init=False, repr=False)

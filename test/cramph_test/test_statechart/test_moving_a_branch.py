@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 import pytest
 from typing_extensions import List
 
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import LifeCycleValues, ObservationStateValues, SuccessDecider
+from cramph.data_types import LifeCycleValues, ObservationStateValues
 from cramph.executor import ExecutorExtension, StatechartExecutor
 from cramph.node import EndStatechart, NodeArtifacts, StatechartNode
 from cramph.statechart import Statechart
@@ -98,12 +99,10 @@ def recording_executor(
 
 
 @dataclass(eq=False, repr=False)
-class NodeCountingItsBuilds(StatechartNode):
+class NodeCountingItsBuilds(EndedByOwner, StatechartNode):
     """
     A node that keeps running and counts how often it was set up and built.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     set_up_count: int = field(default=0, init=False)
     """
@@ -124,13 +123,11 @@ class NodeCountingItsBuilds(StatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class NodeObservingABodyPastAPosition(StatechartNode):
+class NodeObservingABodyPastAPosition(EndedByOwner, StatechartNode):
     """
     A node that keeps running and observes whether a body lies at or beyond a position
     along the x axis of the root.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     body: Body = field(kw_only=True)
     """

@@ -15,8 +15,9 @@ from krrood.symbolic_math.symbolic_math import (
 )
 from giskardpy.motion_statechart.context import MotionControlContext
 from krrood.ormatic.utils import classproperty
+from cramph.node import EndedByOwner
 from cramph.context import ContextExtension, StatechartContext
-from cramph.data_types import SuccessDecider, LifeCycleValues, ObservationStateValues
+from cramph.data_types import LifeCycleValues, ObservationStateValues
 from giskardpy.motion_statechart.exceptions import NoProgressError
 from cramph.node import CancelStatechart, CompositeNode, NodeArtifacts
 from giskardpy.motion_statechart.graph_node import ConvergingTask, MotionStatechartNode
@@ -26,7 +27,7 @@ from cramph.monitors import CountSimulationTimeSeconds
 
 
 @dataclass(eq=False, repr=False)
-class NotApproachingGoal(MotionStatechartNode):
+class NotApproachingGoal(EndedByOwner, MotionStatechartNode):
     """
     Turns ``True`` while :attr:`monitored_task` is not closing on its goal fast enough.
 
@@ -49,8 +50,6 @@ class NotApproachingGoal(MotionStatechartNode):
         this node on its own is not evidence that a task is stuck.
         :class:`StillProgressing` requires it to hold for a while.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     monitored_task: ConvergingTask = field(kw_only=True)
     """
@@ -223,7 +222,7 @@ class NotApproachingGoal(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class AnyMonitoredTaskShortOfItsGoal(MotionStatechartNode):
+class AnyMonitoredTaskShortOfItsGoal(EndedByOwner, MotionStatechartNode):
     """
     Turns ``True`` while at least one of :attr:`monitored_tasks` is running and has not
     reached its goal.
@@ -235,8 +234,6 @@ class AnyMonitoredTaskShortOfItsGoal(MotionStatechartNode):
     nothing ends a task for arriving, so it would otherwise keep this true for the rest
     of the motion and make the first wait after the last goal was reached a stall.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     monitored_tasks: List[ConvergingTask] = field(kw_only=True)
     """
@@ -269,7 +266,7 @@ class AnyMonitoredTaskShortOfItsGoal(MotionStatechartNode):
 
 
 @dataclass(eq=False, repr=False)
-class StillProgressing(CompositeNode):
+class StillProgressing(EndedByOwner, CompositeNode):
     """
     Turns ``False`` once nothing under :attr:`monitored_node` has approached its goal
     for :attr:`timeout`.
@@ -281,8 +278,6 @@ class StillProgressing(CompositeNode):
     Wire :meth:`cancel_motion` to abort a motion that is no longer making progress, or
     the negation of its observation to a node's fail condition to give up on that node.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     monitored_node: MotionStatechartNode = field(kw_only=True)
     """

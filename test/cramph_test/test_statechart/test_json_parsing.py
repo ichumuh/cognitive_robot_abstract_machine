@@ -25,6 +25,8 @@ from cramph.node import (
     CompositeNode,
     DeserializedNodeTracker,
     StatechartNode,
+    StructureCopyCompositeNode,
+    StructureCopyNode,
     TransitionCondition,
 )
 from cramph.node import EndStatechart
@@ -202,8 +204,10 @@ def test_structure_copy_keeps_the_base_kinds_of_the_statechart_nodes():
 
     msc_copy = msc.create_structure_copy()
 
-    assert type(msc_copy.get_node_by_index(trigger.index)) is StatechartNode
-    assert type(msc_copy.get_node_by_index(goal.index)) is CompositeNode
+    assert type(msc_copy.get_node_by_index(trigger.index)) is StructureCopyNode
+    assert (
+        type(msc_copy.get_node_by_index(goal.index)) is StructureCopyCompositeNode
+    )
     assert type(msc_copy.get_node_by_index(end.index)) is EndStatechart
     cancel_copy = msc_copy.get_node_by_index(cancel.index)
     assert type(cancel_copy) is CancelStatechart
@@ -502,3 +506,24 @@ def test_node_state_variable_is_not_json_serializable():
         to_json(variable)
 
     assert error.value.variable is variable
+
+
+def test_written_conditions_of_a_compiled_statechart_survive_json_round_trip(
+    statechart_executor: StatechartExecutor,
+):
+    """
+    Compiling a statechart parsed from a compiled one leaves the conditions as they were
+    written on the original.
+    """
+    msc = Statechart(context=statechart_executor.context)
+    msc.add_node(sequence := Sequence([ConstTrueNode()]))
+    written = [str(condition) for condition in sequence.conditions]
+    statechart_executor.compile(statechart=msc)
+
+    msc_copy = Statechart.from_json(
+        json.loads(json.dumps(msc.to_json())), context=StatechartContext(world=World())
+    )
+    StatechartExecutor(msc_copy.context).compile(statechart=msc_copy)
+
+    sequence_copy = msc_copy.get_node_by_index(sequence.index)
+    assert [str(condition) for condition in sequence_copy.conditions] == written

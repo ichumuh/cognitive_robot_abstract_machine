@@ -85,26 +85,6 @@ class EndInCompositeNodeError(NodeInitializationError):
 
 
 @dataclass
-class SuccessDeciderNotDeclaredError(NodeInitializationError):
-    """
-    Raised when a statechart is compiled with a node whose class does not declare who
-    decides that it succeeded.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f'Node class "{type(self.node).__name__}" does not declare '
-            f"success_decided_by."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "Set success_decided_by on the class: SuccessDecider.OWNER if ending the node "
-            "may undo what it reached, SuccessDecider.ITSELF otherwise."
-        )
-
-
-@dataclass
 class AttemptCannotFailError(NodeInitializationError):
     """
     Raised when a template that only moves on once an attempt failed is handed an

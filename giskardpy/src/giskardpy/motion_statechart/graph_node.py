@@ -15,10 +15,8 @@ from typing_extensions import (
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.constraint_builders import GeometricConstraintBuilder
 from giskardpy.motion_statechart.context import MotionControlContext
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import (
-    SuccessDecider,
-)
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.exceptions import MissingErrorSignalError
 from cramph.plotters.plot_specs import NodePlotSpec, plot_specification_field
@@ -155,7 +153,7 @@ class MotionStatechartNode(StatechartNode):
     """
 
     def create_structure_copy(self) -> MotionStatechartNode:
-        return MotionStatechartNode(name=self.name)
+        return StructureCopyMotionStatechartNode(name=self.name)
 
     @property
     def artifacts(self) -> MotionNodeArtifacts:
@@ -266,15 +264,21 @@ def velocity_convergence_expression(
 
 
 @dataclass(eq=False, repr=False)
-class Task(MotionStatechartNode):
+class StructureCopyMotionStatechartNode(EndedByOwner, MotionStatechartNode):
+    """
+    Stands in for a motion statechart node in a structure copy, see
+    :meth:`~cramph.statechart.Statechart.create_structure_copy`.
+    """
+
+
+@dataclass(eq=False, repr=False)
+class Task(EndedByOwner, MotionStatechartNode):
     """
     Tasks are MotionStatechartNodes that add motion constraints.
 
     A task stops holding what it reached the moment it is released, so its owner decides
     when it succeeded.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     weight: float = field(
         default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE.value, kw_only=True

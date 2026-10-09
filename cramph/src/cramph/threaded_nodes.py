@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 
 from typing_extensions import Any, Callable, Optional, Tuple, Type
 
+from cramph.node import SucceedsOnObservingTrue, FailsOnObservingFalse
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues, SuccessDecider
+from cramph.data_types import ObservationStateValues
 from cramph.node import StatechartNode
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ class ThreadedNode(StatechartNode, ABC):
 
 
 @dataclass(eq=False, repr=False)
-class FunctionCall(ThreadedNode):
+class FunctionCall(SucceedsOnObservingTrue, FailsOnObservingFalse, ThreadedNode):
     """
     Calls a function once when it starts, in a thread of its own.
 
@@ -93,9 +94,6 @@ class FunctionCall(ThreadedNode):
     The tick after the start waits for the function, so no control cycle passes while it
     runs, and functions started in the same tick run at the same time.
     """
-
-    success_decided_by = SuccessDecider.ITSELF
-    fails_when_observing_false = True
 
     function: Callable[[], Any] = field(kw_only=True)
     """

@@ -330,27 +330,6 @@ class ObservationPredicate(ObservationPredicateDefinition, Enum):
         return self.name.lower()
 
 
-# %% who ends a node
-
-
-class SuccessDecider(Enum):
-    """
-    Who decides that a node succeeded, which every node class declares.
-    """
-
-    OWNER = auto()
-    """
-    The node's observation says whether it reached its goal, but only whoever runs it ends
-    it, because releasing it may undo what it reached, as with a node that keeps holding a
-    state only while it runs.
-    """
-
-    ITSELF = auto()
-    """
-    The node succeeds once it observes True, because ending it undoes nothing it did.
-    """
-
-
 class TransitionKind(Enum):
     START = 1
     """

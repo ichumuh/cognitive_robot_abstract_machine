@@ -5,19 +5,17 @@ from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection1DOF,
 )
+from cramph.node import EndedByOwner
 from cramph.context import StatechartContext
-from cramph.data_types import SuccessDecider
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from cramph.node import NodeArtifacts
 
 
 @dataclass(eq=False, repr=False)
-class JointPositionReached(MotionStatechartNode):
+class JointPositionReached(EndedByOwner, MotionStatechartNode):
     """
     Monitors if a joint position is reached within a certain threshold.
     """
-
-    success_decided_by = SuccessDecider.OWNER
 
     connection: ActiveConnection1DOF = field(kw_only=True)
     """
