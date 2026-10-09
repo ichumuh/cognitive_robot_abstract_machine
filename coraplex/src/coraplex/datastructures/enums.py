@@ -26,74 +26,6 @@ class ReachFraction(float, Enum):
     """
 
 
-class VisualizationLayout(Enum):
-    BFS = "bfs"
-    """
-    Breath first search layout, used for tree structures.
-    """
-
-    SPRING = "spring"
-    """
-    Spring layout, root is in the center and nodes are ordered in circles around it.
-    """
-
-
-class AdjacentBodyMethod(Enum):
-    ClosestPoints = auto()
-    """
-    The ClosestPoints method is used to find the closest points in other bodies to the
-    body.
-    """
-
-    RayCasting = auto()
-    """
-    The RayCasting method is used to find the points in other bodies that are
-    intersected by rays cast from the body bounding box to 6 directions (up, down, left,
-    right, front, back).
-    """
-
-
-class ContainerManipulationType(Enum):
-    """
-    Enum for the different types of container manipulation.
-    """
-
-    Opening = auto()
-    """
-    The Opening type is used to open a container.
-    """
-
-    Closing = auto()
-    """
-    The Closing type is used to close a container.
-    """
-
-
-class FindBodyInRegionMethod(Enum):
-    """
-    Enum for the different methods to find a body in a region.
-    """
-
-    FingerToCentroid = auto()
-    """
-    The FingerToCentroid method is used to find the body in a region by casting a ray
-    from each finger to the centroid of the region.
-    """
-
-    Centroid = auto()
-    """
-    The Centroid method is used to find the body in a region by calculating the centroid
-    of the region and casting two rays from opposite sides of the region to the
-    centroid.
-    """
-
-    MultiRay = auto()
-    """
-    The MultiRay method is used to find the body in a region by casting multiple rays
-    covering the region.
-    """
-
-
 class PerceptionSource(Enum):
     """
     The kinds of source a perception query can be answered by.
@@ -205,46 +137,6 @@ class AxisIdentifier(Enum):
         return next((axis for axis in cls if axis.value == axis_tuple), None)
 
 
-class GripperType(Enum):
-    """
-    Enum for the different types of grippers.
-    """
-
-    PARALLEL = auto()
-    SUCTION = auto()
-    FINGER = auto()
-    HYDRAULIC = auto()
-    PNEUMATIC = auto()
-    CUSTOM = auto()
-
-
-class ImageEnum(Enum):
-    """
-    Enum for image switch view on hsrb display.
-    """
-
-    HI = 0
-    TALK = 1
-    DISH = 2
-    DONE = 3
-    DROP = 4
-    HANDOVER = 5
-    ORDER = 6
-    PICKING = 7
-    PLACING = 8
-    REPEAT = 9
-    SEARCH = 10
-    WAVING = 11
-    FOLLOWING = 12
-    DRIVINGBACK = 13
-    PUSHBUTTONS = 14
-    FOLLOWSTOP = 15
-    JREPEAT = 16
-    SOFA = 17
-    INSPECT = 18
-    CHAIR = 37
-
-
 class DetectionTechnique(int, Enum):
     """
     Enum for techniques for detection tasks.
@@ -277,15 +169,6 @@ class MovementType(Enum):
     STRAIGHT_CARTESIAN = auto()
     TRANSLATION = auto()
     CARTESIAN = auto()
-
-
-class WaypointsMovementType(Enum):
-    """
-    Enum for the different movement types of the robot.
-    """
-
-    ENFORCE_ORIENTATION_STRICT = auto()
-    ENFORCE_ORIENTATION_FINAL_POINT = auto()
 
 
 class InsertionPosition(Enum):
