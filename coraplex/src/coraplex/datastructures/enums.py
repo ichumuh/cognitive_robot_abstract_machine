@@ -288,16 +288,6 @@ class WaypointsMovementType(Enum):
     ENFORCE_ORIENTATION_FINAL_POINT = auto()
 
 
-class FilterConfig(Enum):
-    """
-    Declare existing filter methods.
-
-    Currently supported: Butterworth
-    """
-
-    butterworth = 1
-
-
 class InsertionPosition(Enum):
     """
     Where an insertion rewrite places its nodes relative to the anchor node.

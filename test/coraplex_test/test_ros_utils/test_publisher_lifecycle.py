@@ -20,7 +20,6 @@ from typing import Callable
 
 from unittest.mock import MagicMock, patch
 
-from coraplex.ros_utils.force_torque_sensor import ForceTorqueSensorSimulated
 from coraplex.ros_utils.joint_state_publisher import JointStatePublisher
 
 
@@ -42,16 +41,6 @@ def _weakref_to_stopped_publisher(construct: Callable) -> weakref.ref:
 def test_joint_state_publisher_is_not_retained_after_stop(mock_create_publisher):
     reference = _weakref_to_stopped_publisher(
         lambda: JointStatePublisher(MagicMock(name="world"), MagicMock(name="node"))
-    )
-    gc.collect()
-    assert reference() is None, "publisher was retained after its thread stopped"
-
-
-@patch.object(ForceTorqueSensorSimulated, "_publish", lambda self: None)
-@patch("coraplex.ros_utils.force_torque_sensor.create_publisher")
-def test_force_torque_sensor_is_not_retained_after_stop(mock_create_publisher):
-    reference = _weakref_to_stopped_publisher(
-        lambda: ForceTorqueSensorSimulated("joint", MagicMock(name="world"))
     )
     gc.collect()
     assert reference() is None, "publisher was retained after its thread stopped"
