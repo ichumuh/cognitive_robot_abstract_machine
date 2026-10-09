@@ -11,7 +11,7 @@ from cramph.data_types import (
     ObservationStateValues,
 )
 
-from cramera.live.bridge import Bridge, TaskStatusName
+from cramera.live.bridge import Bridge
 from cramera.live.chart_structure import ObservationName
 from cramera.live.recording_bundle import write_recording_bundle
 from cramera.live.recording_storage import trim_recording_bundle
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from .dataset.motion_execution import MotionExecution
 
 
-# %% native status translation
+# %% native status publication
 
 
 class TestPlanStatus:
@@ -39,7 +39,10 @@ class TestPlanStatus:
     Life cycle values retain their meaning in the viewer.
     """
 
-    def test_an_unstarted_parent_inherits_its_running_child(self):
+    def test_an_unstarted_parent_keeps_its_state_with_a_running_child(self) -> None:
+        """
+        A child's execution does not replace its parent's current lifecycle.
+        """
         bridge = Bridge()
         child = make_plan_node("MotionNode", life_cycle_state=LifeCycleValues.RUNNING)
         root = make_plan_node("SequentialNode", children=[child])
@@ -47,7 +50,8 @@ class TestPlanStatus:
         bridge.begin_plan(make_statechart(root))
 
         assert (
-            nodes_by_kind(bridge)["SequentialNode"]["status"] == TaskStatusName.RUNNING
+            nodes_by_kind(bridge)["SequentialNode"]["status"]
+            == root.life_cycle_state.name
         )
 
     def test_a_paused_motion_publishes_a_paused_status(self):
@@ -56,7 +60,10 @@ class TestPlanStatus:
 
         bridge.begin_plan(make_statechart(motion))
 
-        assert nodes_by_kind(bridge)["MotionNode"]["status"] == TaskStatusName.PAUSE
+        assert (
+            nodes_by_kind(bridge)["MotionNode"]["status"]
+            == motion.life_cycle_state.name
+        )
 
 
 # %% plan persistence
@@ -123,7 +130,12 @@ class TestRecordedPlan:
     A replay keeps the completed run's plan available for inspection.
     """
 
-    def test_recording_contains_the_published_plan(self, tmp_path):
+    def test_recording_contains_the_published_plan(self, tmp_path) -> None:
+        """
+        The saved hierarchy retains native plan labels and completion states.
+
+        :param tmp_path: Temporary directory for the exported recording.
+        """
         bridge = attached_bridge()
         child = make_plan_node("ActionNode", life_cycle_state=LifeCycleValues.SUCCEEDED)
         root = make_plan_node(
@@ -139,7 +151,7 @@ class TestRecordedPlan:
 
         [recorded_root] = scene["planTrees"]
         assert recorded_root["label"] == type(root).__name__
-        assert recorded_root["status"] == TaskStatusName.SUCCEEDED
+        assert recorded_root["status"] == LifeCycleValues.SUCCEEDED.name
         [recorded_child] = recorded_root["children"]
         assert recorded_child["label"] == type(child).__name__
         assert recorded_child["children"] == []

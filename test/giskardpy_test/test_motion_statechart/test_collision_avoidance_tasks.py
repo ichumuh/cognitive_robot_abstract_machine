@@ -2,6 +2,7 @@ import json
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import numpy as np
 import pytest
@@ -721,7 +722,7 @@ def test_avoid_self_collision_with_l_arm(pr2_with_box, rclpy_node):
             MotionControl(
                 qp_controller_config=QPControllerConfig(
                     target_frequency=100,
-                    prediction_horizon=30,
+                    braking_time=timedelta(seconds=0.289),
                 )
             )
         ],
@@ -821,7 +822,7 @@ def _create_counting_executor(world: World) -> StatechartExecutor:
             MotionControl(
                 qp_controller_config=QPControllerConfig(
                     target_frequency=100,
-                    prediction_horizon=30,
+                    braking_time=timedelta(seconds=0.289),
                 )
             )
         ],

@@ -35,12 +35,14 @@ from krrood.entity_query_language.factories import (
     entity,
     variable,
 )
-from semantic_digital_twin.api import (
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
-    RobotSpecification,
-    SemanticAnnotationWithRootSpecification,
-    WorldSpecification,
 )
+from semantic_digital_twin.specifications.semantic_annotations import (
+    SemanticAnnotationWithRootSpecification,
+)
+from semantic_digital_twin.specifications.robots import RobotSpecification
+from semantic_digital_twin.specifications.worlds import WorldSpecification
 from segmind.detectors.agent_event_detector_nodes import GraspDetector
 from segmind.detectors.coarse_event_detector_nodes import (
     PickUpDetector,
@@ -234,7 +236,7 @@ class BulletWorldDemonstration(RobotDemonstration):
             SceneFile.MILK,
             HomogeneousTransformationMatrix.from_xyz_rpy(2.37, 2, 1.0345),
             along_table=4.8,
-            height=0.82,
+            height=0.81,
         )
     )
     """
@@ -260,7 +262,7 @@ class BulletWorldDemonstration(RobotDemonstration):
             SceneFile.SPOON,
             HomogeneousTransformationMatrix.from_xyz_rpy(-0.05, -0.05, -0.01),
             along_table=5.2,
-            height=0.74,
+            height=0.73,
             across_table=3.25,
             starts_on=ApartmentBody.SPOON_DRAWER,
         )

@@ -61,11 +61,17 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
+from semantic_digital_twin.specifications.connections import (
+    PrismaticConnectionSpecification,
+)
+from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
     Elevator,
     FirstFloor,
     Floor,
+    GroundFloor,
     Handle,
     Level,
 )
@@ -77,9 +83,11 @@ from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
     Quaternion,
+    Vector3,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Pose2D
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
 
 from ...conftest import SAMPLING_SEED
 from ...plan_running import (
@@ -163,7 +171,7 @@ def stand_facing(
     """
     return robot.mobile_base.pose_facing(
         heading_towards(world_P_stand, world_P_target, world)
-    ).to_homogeneous_matrix()
+    ).homogeneous_matrix
 
 
 @pytest.fixture(
@@ -310,10 +318,10 @@ def test_navigate_multi(multiple_robot_apartment_context, rclpy_node):
     )
 
     run_plan(plan, extensions)
-    robot_base_position = view.root.global_transform.to_position().to_np()
+    robot_base_position = view.root.global_transform.position.to_np()
     # An identity heading points the robot's front along the world's x-axis, whatever
     # the axes its own base happens to be modelled with.
-    world_R_base = view.mobile_base.root.global_transform.to_rotation_matrix()
+    world_R_base = view.mobile_base.root.global_transform.rotation_matrix
     world_V_forward = world_R_base @ view.mobile_base.forward_axis
 
     assert robot_base_position[:3] == pytest.approx(target_position, abs=0.01)
@@ -374,7 +382,7 @@ def test_reach_action_multi(multiple_robot_apartment_context):
         1, -2, 0.8, reference_frame=world.root
     )
     view.root.parent_connection.origin = stand_facing(
-        view, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
+        view, (0.3, -2.4, 0), milk_body.global_pose.position.to_np(), world
     )
     world.notify_state_change()
 
@@ -390,12 +398,10 @@ def test_reach_action_multi(multiple_robot_apartment_context):
 
     run_plan(plan, extensions)
     end_effector_pose = left_arm.end_effector.tool_frame.global_transform
-    end_effector_position = end_effector_pose.to_position().to_np()
-    end_effector_orientation = end_effector_pose.to_quaternion().to_np()
+    end_effector_position = end_effector_pose.position.to_np()
+    end_effector_orientation = end_effector_pose.quaternion.to_np()
 
-    target_orientation = left_arm.end_effector.tool_frame_goal(
-        grasp_pose
-    ).to_quaternion()
+    target_orientation = left_arm.end_effector.tool_frame_goal(grasp_pose).quaternion
 
     assert end_effector_position[:3] == pytest.approx([1, -2, 0.8], abs=0.01)
     compare_orientations(
@@ -431,7 +437,7 @@ def test_follow_tcp_path_multi(multiple_robot_apartment_context):
     grasp_axis = AxisIdentifier.from_tuple(front_axis)
 
     pose_T = world.get_body_by_name("milk.stl").global_transform
-    pose = pose_T.to_pose()
+    pose = pose_T.pose
     if grasp_axis == AxisIdentifier.X:
         target_pose = pose
     elif grasp_axis == AxisIdentifier.Z:
@@ -440,7 +446,7 @@ def test_follow_tcp_path_multi(multiple_robot_apartment_context):
             angle=np.pi / 2,
             reference_frame=world.root,
         )
-        target_pose = (pose_T @ offset_T).to_pose()
+        target_pose = (pose_T @ offset_T).pose
     else:
         target_pose = pose
 
@@ -456,7 +462,7 @@ def test_follow_tcp_path_multi(multiple_robot_apartment_context):
     )
     run_plan(plan, extensions)
     tip_pose = left_arm.end_effector.tool_frame.global_transform
-    dist = np.linalg.norm(tip_pose.to_position() - np.array(target_pose.to_position()))
+    dist = np.linalg.norm(tip_pose.position - np.array(target_pose.position))
     assert dist < 0.01
 
 
@@ -475,7 +481,7 @@ def test_grasping(multiple_robot_apartment_context):
         1, -2, 0.8, reference_frame=world.root
     )
     robot.root.parent_connection.origin = stand_facing(
-        robot, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
+        robot, (0.3, -2.4, 0), milk_body.global_pose.position.to_np(), world
     )
     world.notify_state_change()
 
@@ -488,8 +494,8 @@ def test_grasping(multiple_robot_apartment_context):
     run_plan(plan, extensions)
     # The grasp is the milk's own origin, so that is where the tool frame ends up.
     assert np.allclose(
-        milk_body.global_pose.to_position().to_np(),
-        left_arm.end_effector.tool_frame.global_pose.to_position().to_np(),
+        milk_body.global_pose.position.to_np(),
+        left_arm.end_effector.tool_frame.global_pose.position.to_np(),
         atol=0.01,
     )
 
@@ -503,7 +509,7 @@ def test_pick_up_multi(multiple_robot_apartment_context, rclpy_node):
         1, -2, 0.6, reference_frame=world.root
     )
     view.root.parent_connection.origin = stand_facing(
-        view, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
+        view, (0.3, -2.4, 0), milk_body.global_pose.position.to_np(), world
     )
     world.notify_state_change()
 
@@ -527,8 +533,8 @@ def test_pick_up_multi(multiple_robot_apartment_context, rclpy_node):
     )
 
     assert np.allclose(
-        world.get_body_by_name("milk.stl").global_pose.to_position().to_np(),
-        left_arm.end_effector.tool_frame.global_pose.to_position().to_np(),
+        world.get_body_by_name("milk.stl").global_pose.position.to_np(),
+        left_arm.end_effector.tool_frame.global_pose.position.to_np(),
         atol=0.01,
     )
 
@@ -542,7 +548,7 @@ def test_place_multi(multiple_robot_apartment_context):
         1, -2, 0.6, reference_frame=world.root
     )
     view.root.parent_connection.origin = stand_facing(
-        view, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
+        view, (0.3, -2.4, 0), milk_body.global_pose.position.to_np(), world
     )
     world.notify_state_change()
 
@@ -567,7 +573,7 @@ def test_place_multi(multiple_robot_apartment_context):
             world.get_body_by_name("milk.stl"),
         )
 
-    milk_position = milk_body.global_transform.to_position().to_np()
+    milk_position = milk_body.global_transform.position.to_np()
 
     assert milk_position[:3] == pytest.approx([1, -2.2, 0.6], abs=0.01)
 
@@ -613,7 +619,7 @@ def test_detect(multiple_robot_apartment_context):
     perceived = milk_annotations[0]
     assert milk_body in perceived.bodies
     np.testing.assert_allclose(
-        milk_body.global_pose.to_position().to_np().flatten()[:3],
+        milk_body.global_pose.position.to_np().flatten()[:3],
         (6, -2, 1.2),
         atol=1e-9,
     )
@@ -663,7 +669,7 @@ def test_close(multiple_robot_apartment_context, rclpy_node):
             NavigateAction(
                 heading_towards(
                     navigate_position,
-                    handle.root.global_pose.to_position().to_np(),
+                    handle.root.global_pose.position.to_np(),
                     world,
                 )
             ),
@@ -689,7 +695,7 @@ def test_facing(multiple_robot_apartment_context):
     # Facing the milk means it lies along the base's forward axis, which is the
     # x-axis only for a base modelled that way. The base turns about the vertical,
     # so only the horizontal direction to the milk is under test.
-    base_P_milk = milk_in_base_frame.to_position().to_np()[:2].flatten()
+    base_P_milk = milk_in_base_frame.position.to_np()[:2].flatten()
     base_V_milk = base_P_milk / np.linalg.norm(base_P_milk)
 
     assert base_V_milk == pytest.approx(
@@ -788,7 +794,7 @@ def test_multi_robot_gcs_navigation(multiple_robot_apartment_context, rclpy_node
     )
 
     run_plan(plan, extensions)
-    robot_base_position = robot.global_transform.to_position().to_np().flatten()
+    robot_base_position = robot.global_transform.position.to_np().flatten()
 
     assert robot_base_position[:2] == pytest.approx(target_position, abs=0.01)
 
@@ -818,7 +824,7 @@ def test_gcs_navigation_arrives_at_each_waypoint_facing_the_next_one(
         world_V_travel = np.array(
             [float(next_waypoint.x - waypoint.x), float(next_waypoint.y - waypoint.y)]
         )
-        world_V_facing = pose.to_rotation_matrix().to_np()[:2, 0]
+        world_V_facing = pose.rotation_matrix.to_np()[:2, 0]
 
         assert world_V_facing == pytest.approx(
             world_V_travel / np.linalg.norm(world_V_travel), abs=0.01
@@ -946,6 +952,49 @@ class ElevatorOperator(ModelChangeCallback):
         self.elevator.open()
 
 
+def test_elevator_navigation_needs_doors_that_can_open():
+    world = World.create_with_root_body("root")
+    with world.modify_world():
+        elevator = Elevator.create_with_new_body_in_world(
+            name="elevator", world=world, scale=Scale(2, 2, 2)
+        )
+        door = Door.create_with_new_body_in_world(
+            name="door", world=world, scale=Scale(0.05, 1, 2)
+        )
+        elevator.add(door)
+        ground_floor = GroundFloor.create_with_new_region_in_world(
+            name="ground_floor", world=world, scale=Scale(4, 4, 0.1)
+        )
+    navigation = ElevatorNavigation(elevator, ground_floor)
+
+    with pytest.raises(MissingMovableJointError):
+        navigation._elevator_open_at_floor(ground_floor)
+
+
+def test_elevator_navigation_needs_a_cabin_that_can_move():
+    world = World.create_with_root_body("root")
+    with world.modify_world():
+        elevator = Elevator.create_with_new_body_in_world(
+            name="elevator", world=world, scale=Scale(2, 2, 2)
+        )
+        door = Door.create_with_new_body_in_world(
+            name="door",
+            world=world,
+            scale=Scale(0.05, 1, 2),
+            parent_connection_specification=PrismaticConnectionSpecification(
+                axis=Vector3.Y()
+            ),
+        )
+        elevator.add(door)
+        ground_floor = GroundFloor.create_with_new_region_in_world(
+            name="ground_floor", world=world, scale=Scale(4, 4, 0.1)
+        )
+    navigation = ElevatorNavigation(elevator, ground_floor)
+
+    with pytest.raises(MissingMovableJointError):
+        navigation._elevator_open_at_floor(ground_floor)
+
+
 def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     world, robot, extensions = multiple_robot_apartment_context
 
@@ -953,9 +1002,9 @@ def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     elevator.open()
 
     first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
-    starting_height = float(robot.root.global_pose.to_position().z)
+    starting_height = float(robot.root.global_pose.position.z)
     elevator_travel = float(elevator.drive_position_for_floor(first_floor)) - float(
-        elevator.mechanical_joint.position
+        elevator.movable_joint.position
     )
 
     operator = ElevatorOperator(
@@ -975,7 +1024,7 @@ def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     finally:
         operator.stop()
 
-    cabin_position = elevator.root.global_transform.to_position().to_np().flatten()
+    cabin_position = elevator.root.global_transform.position.to_np().flatten()
 
     # The robot ends up in front of the elevator's opening, a floor higher.
     distance_from_cabin_center = float(elevator.scale.x) / 2 + action.exit_clearance
@@ -988,6 +1037,6 @@ def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     expected_position[2] = starting_height + elevator_travel
 
     assert operator.robot_boarded
-    assert robot.root.global_transform.to_position().to_np().flatten()[
-        :3
-    ] == pytest.approx(expected_position, abs=0.01)
+    assert robot.root.global_transform.position.to_np().flatten()[:3] == pytest.approx(
+        expected_position, abs=0.01
+    )

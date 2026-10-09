@@ -4,7 +4,7 @@ import pytest
 from giskardpy.motion_statechart.graph_node import EndMotion
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
-from giskardpy.qp.dof_limits import QuadraticProgramDegreeOfFreedomLimits
+from giskardpy.qp.dof_limits import DegreeOfFreedomDecisionVariables, DirectLimits
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import ActiveConnection
@@ -203,10 +203,11 @@ def _default_config() -> QPControllerConfig:
     )
 
 
-def _compute_limits(world: World) -> QuadraticProgramDegreeOfFreedomLimits:
-    return QuadraticProgramDegreeOfFreedomLimits.create(
-        world.active_degrees_of_freedom, qp_controller_config=_default_config()
-    )
+def _compute_limits(world: World) -> DirectLimits:
+    return DegreeOfFreedomDecisionVariables(
+        degrees_of_freedom=world.active_degrees_of_freedom,
+        qp_controller_config=_default_config(),
+    ).direct_limits()
 
 
 def _connection(world: World) -> ActiveConnection:
@@ -317,3 +318,36 @@ def test_dof_limits_no_position_limits(prismatic_world_no_position_limits):
     assert np.allclose(
         lower_vel, -VELOCITY_LIMIT, atol=1e-3
     ), "Without position limits, lower velocity bounds must be flat"
+
+
+# %% reaching a position limit
+
+LIMIT_REACHING_TOLERANCE = 1e-3
+
+
+def test_joint_goal_at_upper_limit_is_reached(prismatic_bot):
+    """
+    A joint goal placed exactly on a position limit is reached, instead of the joint
+    stopping short of the limit.
+    """
+    connection = _connection(prismatic_bot)
+    upper = connection.dof.limits.upper.position
+
+    kin_sim = StatechartExecutor(
+        context=StatechartContext(world=prismatic_bot),
+        extensions=[MotionControl(qp_controller_config=_default_config())],
+    )
+    msc = Statechart(context=kin_sim.context)
+    joint_goal = JointPositionList(
+        goal_state=JointState.from_mapping({connection: upper}),
+        threshold=LIMIT_REACHING_TOLERANCE,
+    )
+    msc.add_node(joint_goal)
+    end = EndMotion()
+    msc.add_node(end)
+    end.start_condition = joint_goal.observes_true
+
+    kin_sim.compile(statechart=msc)
+    kin_sim.tick_until_end()
+
+    assert np.isclose(connection.position, upper, atol=LIMIT_REACHING_TOLERANCE)

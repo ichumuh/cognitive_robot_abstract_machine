@@ -19,7 +19,7 @@ from cramph.context import ContextExtension
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
-from semantic_digital_twin.predetermined_maps.building_floor import BuildingFloor
+from semantic_digital_twin.predefined_maps.building_floor import BuildingFloor
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World

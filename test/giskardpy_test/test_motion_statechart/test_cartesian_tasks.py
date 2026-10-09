@@ -36,6 +36,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import (
+    AxisAngle,
     HomogeneousTransformationMatrix,
     Vector3,
     Point3,
@@ -205,8 +206,7 @@ class TestCartesianPositionTrajectory:
             world.notify_state_change()
             p = (
                 world.compute_forward_kinematics(root_link, tip_link)
-                .to_position()
-                .evaluate()[:-1]
+                .position.evaluate()[:-1]
                 .astype(float)
             )
             executed_points.append(p.copy())
@@ -694,7 +694,7 @@ class TestCartesianTasks:
                         tip_link=hand.tool_frame,
                         goal_point=_hsr_world_setup.bodies[
                             -1
-                        ].global_transform.to_position(),
+                        ].global_transform.position,
                     ),
                 ]
             )
@@ -815,7 +815,9 @@ class TestCartesianTasks:
             "odom_combined"
         )
 
-        tip_goal = RotationMatrix.from_axis_angle(Vector3.Z(), 4.0, reference_frame=tip)
+        tip_goal = RotationMatrix.from_axis_angle(
+            AxisAngle(Vector3.Z(), 4.0, reference_frame=tip)
+        )
 
         executor = StatechartExecutor(
             context=StatechartContext(world=pr2_world_state_reset),
@@ -1010,10 +1012,10 @@ class TestCartesianTasks:
         initial_fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
 
         tip_rot1 = RotationMatrix.from_axis_angle(
-            Vector3.Z(), np.pi / 6, reference_frame=tip
+            AxisAngle(Vector3.Z(), np.pi / 6, reference_frame=tip)
         )
         tip_rot2 = RotationMatrix.from_axis_angle(
-            Vector3.Z(), -np.pi / 6, reference_frame=tip
+            AxisAngle(Vector3.Z(), -np.pi / 6, reference_frame=tip)
         )
 
         executor = StatechartExecutor(
@@ -1067,10 +1069,10 @@ class TestCartesianTasks:
         )
 
         tip_rot1 = RotationMatrix.from_axis_angle(
-            Vector3.Z(), np.pi / 6, reference_frame=tip
+            AxisAngle(Vector3.Z(), np.pi / 6, reference_frame=tip)
         )
         tip_rot2 = RotationMatrix.from_axis_angle(
-            Vector3.Z(), -np.pi / 6, reference_frame=tip
+            AxisAngle(Vector3.Z(), -np.pi / 6, reference_frame=tip)
         )
 
         executor = StatechartExecutor(

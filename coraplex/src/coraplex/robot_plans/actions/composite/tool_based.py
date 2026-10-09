@@ -227,7 +227,7 @@ class MixingAction(ToolMotionAction):
         return build_container_path(self.container, pattern=MixingPattern.SPIRAL)
 
     def _path_frame(self) -> HomogeneousTransformationMatrix:
-        return self.container.global_pose.to_homogeneous_matrix()
+        return self.container.global_pose.homogeneous_matrix
 
     @property
     def _alignment_target(self) -> Optional[Union[Body, Pose]]:
@@ -280,7 +280,7 @@ class CuttingAction(ToolMotionAction):
         )
 
     def _path_frame(self) -> HomogeneousTransformationMatrix:
-        return self.object_to_cut.global_pose.to_homogeneous_matrix()
+        return self.object_to_cut.global_pose.homogeneous_matrix
 
     @property
     def _alignment_target(self) -> Optional[Union[Body, Pose]]:
@@ -367,10 +367,10 @@ class WipingAction(ToolMotionAction):
 
     def _path_frame(self) -> HomogeneousTransformationMatrix:
         if self.surface is not None:
-            return self.surface.global_pose.to_homogeneous_matrix()
+            return self.surface.global_pose.homogeneous_matrix
         if self.target_pose.reference_frame is None:
             self.target_pose.reference_frame = self.world.root
-        return self.target_pose.to_homogeneous_matrix()
+        return self.target_pose.homogeneous_matrix
 
     @property
     def _alignment_target(self) -> Optional[Union[Body, Pose]]:
@@ -500,9 +500,7 @@ class PouringAction(FullBodyControlledAction, MovesToolCenterPoint):
             approach_x /= approach_norm
             approach_y /= approach_norm
 
-        target_quaternion = [
-            float(value) for value in target_pose.to_quaternion().to_np()
-        ]
+        target_quaternion = [float(value) for value in target_pose.quaternion.to_np()]
         target_rotation = Rotation.from_quat(target_quaternion)
         target_x_axis = target_rotation.apply([1, 0, 0])
         target_y_axis = target_rotation.apply([0, 1, 0])

@@ -4,11 +4,12 @@ Statechart history publication and recording boundaries.
 
 from __future__ import annotations
 
+import pytest
+
 from typing_extensions import TYPE_CHECKING
 
 from cramph.data_types import LifeCycleValues
 
-from cramera.live.bridge import TaskStatusName
 from cramera.live.recording import Recording
 from cramera.live.visualization import (
     LiveVisualization,
@@ -57,7 +58,7 @@ class TestMotionHistoryPublication:
             LifeCycleValues.RUNNING.name
         )
         assert motion_execution.bridge.plan_state.nodes[0].status == (
-            TaskStatusName.RUNNING
+            LifeCycleValues.RUNNING
         )
 
     def test_compiling_twice_subscribes_to_the_history_once(
@@ -84,7 +85,7 @@ class TestMotionHistoryPublication:
         motion_execution.record(LifeCycleValues.NOT_STARTED)
 
         assert {node.status for node in motion_execution.bridge.plan_state.nodes} == {
-            TaskStatusName.CREATED
+            LifeCycleValues.NOT_STARTED
         }
 
     def test_root_completion_removes_the_history_subscription(

@@ -215,7 +215,7 @@ class BenchmarkRobot(GiskardTester):
         """
         return self.giskard.executor.context.require_extension(
             MotionControlContext
-        ).qp_controller_config.control_dt
+        ).qp_controller_config.control_time_step.total_seconds()
 
     def get_kinematic_structure_entity(self, name: str) -> KinematicStructureEntity:
         """
@@ -461,7 +461,7 @@ class KitchenPointingScenario(BenchmarkScenario):
         handle_point = robot.api.world.compute_forward_kinematics(
             root=map_frame,
             tip=robot.get_kinematic_structure_entity("iai_fridge_door_handle"),
-        ).to_position()
+        ).position
         arm_pose = {
             name: position
             for name, position in robot.better_pose.items()

@@ -183,13 +183,10 @@ def test_executing_json_parsed_statechart(tmp_path):
         root = Body(name=PrefixedName("root"))
         tip = Body(name=PrefixedName("tip"))
         tip2 = Body(name=PrefixedName("tip2"))
-        ul = DerivativeMap()
-        ul.velocity = 1
-        ll = DerivativeMap()
-        ll.velocity = -1
+        limits = DegreeOfFreedomLimits.from_position_range_and_speed(maximum_speed=1)
         dof = DegreeOfFreedom(
             name=PrefixedName("dof", "a"),
-            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
+            limits=limits,
         )
         world.add_degree_of_freedom(dof)
         root_C_tip = RevoluteConnection(
@@ -199,7 +196,7 @@ def test_executing_json_parsed_statechart(tmp_path):
 
         dof = DegreeOfFreedom(
             name=PrefixedName("dof", "b"),
-            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
+            limits=limits,
         )
         world.add_degree_of_freedom(dof)
         root_C_tip2 = RevoluteConnection(

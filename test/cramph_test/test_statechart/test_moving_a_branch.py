@@ -146,7 +146,7 @@ class NodeObservingABodyPastAPosition(StatechartNode):
         root_T_body = context.world.compose_forward_kinematics_expression(
             context.world.root, self.body
         )
-        return NodeArtifacts(observation=root_T_body.to_position().x >= self.position)
+        return NodeArtifacts(observation=root_T_body.position.x >= self.position)
 
 
 @dataclass

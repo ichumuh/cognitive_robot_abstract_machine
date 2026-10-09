@@ -28,7 +28,7 @@ def test_motion_control_ticks_at_the_control_rate():
 
     assert (
         context.require_tick_duration()
-        == motion_control.qp_controller_config.control_dt
+        == motion_control.qp_controller_config.control_time_step.total_seconds()
     )
 
 
@@ -48,7 +48,8 @@ def test_motion_control_rejects_a_context_ticking_at_another_rate():
     motion_control = MotionControl()
     context = StatechartContext(
         world=World(),
-        tick_duration=motion_control.qp_controller_config.control_dt * 2,
+        tick_duration=motion_control.qp_controller_config.control_time_step.total_seconds()
+        * 2,
     )
 
     with pytest.raises(ConflictingTickDurationError):

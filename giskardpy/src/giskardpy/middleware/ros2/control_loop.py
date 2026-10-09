@@ -5,8 +5,10 @@ from typing import List
 
 from cramph.executor import StatechartExecutor
 from giskardpy.middleware.ros2.action_server import ActionServerHandler
+from giskardpy.middleware.ros2.client_presence import ClientWatchdog
 from giskardpy.middleware.ros2.command_publishing import CommandPublisher
 from giskardpy.middleware.ros2.exceptions import (
+    ClientDisconnectedError,
     ExecutionCanceledException,
     WorldModelModifiedDuringMotionError,
 )
@@ -52,6 +54,11 @@ class ControlLoop:
     Ticked at the end of every cycle, shared with the idle loop of the motion server.
     """
 
+    client_watchdog: ClientWatchdog
+    """
+    Watches the client of the running goal; polled for its disconnect.
+    """
+
     world_updates: IncomingWorldUpdates
     """
     Delivers the world updates of other processes at the start of every cycle.
@@ -75,6 +82,7 @@ class ControlLoop:
         Run cycles until the motion statechart reaches an end motion.
 
         :raises ExecutionCanceledException: If the goal was canceled.
+        :raises ClientDisconnectedError: If the client of the goal disconnected.
         """
         while True:
             self.run_cycle()
@@ -87,12 +95,14 @@ class ControlLoop:
         Synchronize the inputs, compute the next command and publish it.
 
         :raises ExecutionCanceledException: If the goal was canceled.
+        :raises ClientDisconnectedError: If the client of the goal disconnected.
         :raises WorldModelModifiedDuringMotionError: If another process modified the
             world model.
         """
         self.apply_world_updates()
         self.inputs.synchronize()
         self.raise_if_canceled()
+        self.raise_if_client_disconnected()
         self.executor.tick()
         self.publish_commands()
         self.feedback_publisher.publish_if_changed()
@@ -123,6 +133,15 @@ class ControlLoop:
             action_server_name=self.action_server.action_name,
             goal_id=self.action_server.goal_id,
         )
+
+    def raise_if_client_disconnected(self) -> None:
+        """
+        :raises ClientDisconnectedError: If the client that sent the goal is gone.
+        """
+        if not self.client_watchdog.is_client_gone():
+            return
+        self.action_server.loginfo("client disconnected")
+        raise ClientDisconnectedError(client=self.client_watchdog.client)
 
     def publish_commands(self) -> None:
         """

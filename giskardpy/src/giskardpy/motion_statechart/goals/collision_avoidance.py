@@ -90,11 +90,7 @@ class _ExternalCollisionAvoidanceNode(_CollisionAvoidanceTask):
     object in the environment.
 
     Moves `root_T_tip @ tip_P_contact` in `root_T_contact_normal` direction until the
-    distance is larger than buffer_zone. Limits the slack variables to prevent the tip
-    from coming closer than violated_distance.
-
-    .. warning:: Can result in insolvable QPs if multiple of these constraints are
-        violated.
+    distance is larger than buffer_zone.
     """
 
     body: Body = field(kw_only=True)
@@ -202,11 +198,8 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
     object in the environment.
 
     Moves `root_T_tip @ tip_P_contact` in `root_T_contact_normal` direction until the
-    distance is larger than buffer_zone. Limits the slack variables to prevent the tip
-    from coming closer than violated_distance.
-
-    .. warning:: Can result in insolvable QPs if multiple of these constraints are
-        violated.
+    distance is larger than buffer_zone. Its observation turns false once the distance
+    drops below violated_distance.
     """
 
     max_velocity: float = field(default=0.2, kw_only=True)
@@ -258,7 +251,7 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
             context.world.root, self.tip
         )
 
-        root_V_point_on_a = (root_T_group_a @ self.group_a_P_point_on_a).to_vector3()
+        root_V_point_on_a = (root_T_group_a @ self.group_a_P_point_on_a).vector3
 
         # the position distance is not accurate, but the derivative is still correct
         a_projected_on_normal = self.root_V_contact_normal @ root_V_point_on_a
@@ -558,8 +551,7 @@ class _SelfCollisionAvoidanceNode(_CollisionAvoidanceTask):
 
     Moves `group_a_P_point_on_a @ group_b_P_point_on_b` in
     `group_a_T_group_b_contact_normal` direction until the distance is larger than
-    buffer_zone. Limits the slack variables to prevent the tip from coming closer than
-    violated_distance.
+    buffer_zone.
     """
 
     body_a: Body = field(kw_only=True)
@@ -686,7 +678,7 @@ class _SelfCollisionAvoidanceTask(_SelfCollisionAvoidanceNode):
 
     Moves `group_a_P_point_on_a @ group_b_P_point_on_b` in
     `group_a_T_group_b_contact_normal` direction until the distance is larger than
-    buffer_zone. Limits the slack variables to prevent the tip from coming closer than
+    buffer_zone. Its observation turns false once the distance drops below
     violated_distance.
     """
 

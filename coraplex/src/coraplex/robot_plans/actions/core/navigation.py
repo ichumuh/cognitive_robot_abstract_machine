@@ -24,6 +24,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable_from, and_, ConditionType
+from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.reasoning.predicates import allclose, InsideOf
 from semantic_digital_twin.reasoning.robot_predicates import is_pose_free_for_robot
 from semantic_digital_twin.robots.robot_parts import Camera
@@ -58,7 +59,7 @@ class DrivesBase(Action, ABC):
         """
         if self.context.require_extension(ExecutionMode).simulated:
             return SetOdometry(
-                base_pose=target.to_homogeneous_matrix(),
+                base_pose=target.homogeneous_matrix,
                 odom_connection=self.robot.root.parent_connection,
             )
         return CartesianPose(
@@ -145,7 +146,7 @@ class LookAtAction(Action):
         return Pointing(
             root_link=self.robot.get_torso().root,
             tip_link=camera.root,
-            goal_point=self.target.to_position(),
+            goal_point=self.target.position,
             pointing_axis=camera.forward_facing_axis,
         )
 
@@ -189,7 +190,7 @@ class FaceAtAction(Action):
         :return: :attr:`target` moved vertically to the height of the base, which can
             only turn about the vertical and so can only point level.
         """
-        root_P_target = self.world.transform(self.target, self.world.root).to_position()
+        root_P_target = self.world.transform(self.target, self.world.root).position
         root_P_target.z = self.robot.root.global_pose.z
         return root_P_target
 
@@ -292,7 +293,7 @@ class PathPlanningNavigateAction(DrivesBase):
                     reference_frame=waypoint.reference_frame,
                 ),
                 reference_frame=waypoint.reference_frame,
-            ).to_pose()
+            ).pose
             for waypoint, next_waypoint in zip(waypoints[1:], waypoints[2:])
         ]
         return poses + [self.target]
@@ -414,18 +415,21 @@ class ElevatorNavigation(Action):
         """
         nodes = []
         for door in self.elevator.doors:
-            connection = door.mechanical_joint.root.parent_connection
+            if door.movable_joint is None:
+                raise MissingMovableJointError(door)
             nodes.append(
                 JointPositionReached(
-                    connection=connection,
-                    position=connection.dof.limits.upper.position,
+                    connection=door.movable_joint,
+                    position=door.movable_joint.dof.limits.upper.position,
                     threshold=self.arrival_threshold,
                     name=f"{door.name}Open",
                 )
             )
+        if self.elevator.movable_joint is None:
+            raise MissingMovableJointError(self.elevator)
         nodes.append(
             JointPositionReached(
-                connection=self.elevator.mechanical_joint.root.parent_connection,
+                connection=self.elevator.movable_joint,
                 position=self.elevator.drive_position_for_floor(target_floor),
                 threshold=self.arrival_threshold,
                 name="ElevatorAtTargetFloor",

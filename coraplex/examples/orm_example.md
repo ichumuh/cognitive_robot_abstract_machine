@@ -100,7 +100,7 @@ The data obtained throughout the plan execution, including robot states, poses, 
 logged into the database once we insert the plan.
 
 ```python
-from krrood.ormatic.data_access_objects.helper import to_dao, get_dao_class
+from krrood.ormatic.data_access_objects.helper import to_dao, get_data_access_object_class
 
 session.add(to_dao(plan))
 session.commit()
@@ -112,7 +112,7 @@ Now we can query the database to see what we have logged. Let's say we want to s
 from sqlalchemy import select
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 
-navigations = session.scalars(select(get_dao_class(NavigateAction))).all()
+navigations = session.scalars(select(get_data_access_object_class(NavigateAction))).all()
 print(*navigations, sep="\n")
 ```
 
@@ -124,7 +124,7 @@ Due to the inheritance mapped in the ORM package, we can also get all executed a
 ```python
 from coraplex.robot_plans.actions.base import Action
 
-actions = session.scalars(select(get_dao_class(Action))).all()
+actions = session.scalars(select(get_data_access_object_class(Action))).all()
 print(*actions, sep="\n")
 ```
 

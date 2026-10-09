@@ -19,12 +19,12 @@ from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from coraplex.testing import start_visualization
-from semantic_digital_twin.api import (
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
-    RobotSpecification,
-    WorldSpecification,
 )
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from semantic_digital_twin.specifications.robots import RobotSpecification
+from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.robots.unitree_g1 import UnitreeG1
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Parcel
@@ -96,7 +96,7 @@ def build_world() -> World:
         robots=[
             RobotSpecification(
                 semantic_annotation_type=UnitreeG1,
-                world_T_odom=ROBOT_START_POSE.to_homogeneous_matrix(),
+                world_T_odom=ROBOT_START_POSE.homogeneous_matrix,
             )
         ],
         objects=[
@@ -104,7 +104,7 @@ def build_world() -> World:
                 "parcel",
                 PARCEL_SCALE,
                 color=Color(0.85, 0.45, 0.1),
-                parent_T_self=PICK_POSE.to_homogeneous_matrix(),
+                parent_T_self=PICK_POSE.homogeneous_matrix,
             )
         ],
     ).to_domain_object()
@@ -175,8 +175,8 @@ def build_statechart(
                 PlaceAction(
                     parcel,
                     Pose(
-                        destination.to_position(),
-                        destination.to_quaternion(),
+                        destination.position,
+                        destination.quaternion,
                         reference_frame=world.root,
                     ),
                 ),
@@ -233,6 +233,6 @@ for _ in range(10):
 run(PICK_POSE, PLACE_POSE, -1.57, world, robot)
 
 parcel_position = world.get_body_by_name("parcel").global_pose
-print(f"parcel delivered to {np.round(parcel_position.to_position(), 3)}")
-print(f"Expected parcel to be delivered to {np.round(PLACE_POSE.to_position(), 3)}")
+print(f"parcel delivered to {np.round(parcel_position.position, 3)}")
+print(f"Expected parcel to be delivered to {np.round(PLACE_POSE.position, 3)}")
 assert np.allclose(parcel_position, PLACE_POSE, atol=0.05)

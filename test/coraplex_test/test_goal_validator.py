@@ -91,9 +91,9 @@ def test_single_position_goal_generic(goal_validator_world):
     world, robot_view, extensions = goal_validator_world
     goal_validator = GoalValidator(
         PositionErrorChecker(),
-        lambda: (world.get_body_by_name("breakfast_cereal.stl").global_pose)
-        .to_position()
-        .to_list(),
+        lambda: (
+            world.get_body_by_name("breakfast_cereal.stl").global_pose
+        ).position.to_list(),
     )
     validate_position_goal(goal_validator, world)
 
@@ -101,9 +101,9 @@ def test_single_position_goal_generic(goal_validator_world):
 def test_single_position_goal(goal_validator_world):
     world, robot_view, extensions = goal_validator_world
     goal_validator = PositionGoalValidator(
-        lambda: (world.get_body_by_name("breakfast_cereal.stl").global_pose)
-        .to_position()
-        .to_list()
+        lambda: (
+            world.get_body_by_name("breakfast_cereal.stl").global_pose
+        ).position.to_list()
     )
     validate_position_goal(goal_validator, world)
 
@@ -120,9 +120,7 @@ def validate_position_goal(goal_validator, world):
         )
     )
     assert (
-        (world.get_body_by_name("breakfast_cereal.stl").global_pose)
-        .to_position()
-        .to_list()
+        (world.get_body_by_name("breakfast_cereal.stl").global_pose).position.to_list()
         == cereal_goal_position,
     )
     assert goal_validator.goal_achieved
@@ -134,9 +132,9 @@ def test_single_orientation_goal_generic(goal_validator_world):
     world, robot_view, extensions = goal_validator_world
     goal_validator = GoalValidator(
         OrientationErrorChecker(),
-        lambda: (world.get_body_by_name("breakfast_cereal.stl").global_pose)
-        .to_quaternion()
-        .to_list(),
+        lambda: (
+            world.get_body_by_name("breakfast_cereal.stl").global_pose
+        ).quaternion.to_list(),
     )
     validate_orientation_goal(goal_validator, world)
 
@@ -144,9 +142,9 @@ def test_single_orientation_goal_generic(goal_validator_world):
 def test_single_orientation_goal(goal_validator_world):
     world, robot_view, extensions = goal_validator_world
     goal_validator = OrientationGoalValidator(
-        lambda: (world.get_body_by_name("breakfast_cereal.stl").global_pose)
-        .to_quaternion()
-        .to_list()
+        lambda: (
+            world.get_body_by_name("breakfast_cereal.stl").global_pose
+        ).quaternion.to_list()
     )
     validate_orientation_goal(goal_validator, world)
 
@@ -167,9 +165,9 @@ def validate_orientation_goal(goal_validator, world):
         )
     )
     for v1, v2 in zip(
-        (world.get_body_by_name("breakfast_cereal.stl").global_pose)
-        .to_quaternion()
-        .to_list(),
+        (
+            world.get_body_by_name("breakfast_cereal.stl").global_pose
+        ).quaternion.to_list(),
         cereal_goal_orientation,
     ):
         assert v1 == pytest.approx(v2, abs=0.001)
@@ -420,20 +418,16 @@ def validate_list_of_poses_goal(goal_validator, world):
             world.root,
         )
         world.get_body_by_name("base_footprint").parent_connection.origin = (
-            current_pose_goal.to_homogeneous_matrix()
+            current_pose_goal.homogeneous_matrix
         )
         assert np.allclose(
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_position()
-            .to_list(),
-            current_pose_goal.to_position().to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).position.to_list(),
+            current_pose_goal.position.to_list(),
             atol=0.001,
         )
         assert np.allclose(
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_quaternion()
-            .to_list(),
-            current_pose_goal.to_quaternion().to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).quaternion.to_list(),
+            current_pose_goal.quaternion.to_list(),
             atol=0.001,
         )
         if percent == 1:
@@ -462,12 +456,8 @@ def test_list_of_positions_goal_generic(goal_validator_world):
     goal_validator = GoalValidator(
         PositionErrorChecker(is_iterable=True),
         lambda: [
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_position()
-            .to_list(),
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_position()
-            .to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).position.to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).position.to_list(),
         ],
     )
     validate_list_of_positions_goal(goal_validator, world)
@@ -477,12 +467,8 @@ def test_list_of_positions_goal(goal_validator_world):
     world, robot_view, extensions = goal_validator_world
     goal_validator = MultiPositionGoalValidator(
         lambda: [
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_position()
-            .to_list(),
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_position()
-            .to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).position.to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).position.to_list(),
         ]
     )
     validate_list_of_positions_goal(goal_validator, world)
@@ -502,9 +488,7 @@ def validate_list_of_positions_goal(goal_validator, world):
             HomogeneousTransformationMatrix.from_xyz_rpy(*current_position_goal)
         )
         assert np.allclose(
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_position()
-            .to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).position.to_list(),
             current_position_goal,
             atol=0.001,
         )
@@ -528,12 +512,8 @@ def test_list_of_orientations_goal_generic(goal_validator_world):
     goal_validator = GoalValidator(
         OrientationErrorChecker(is_iterable=True),
         lambda: [
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_quaternion()
-            .to_list(),
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_quaternion()
-            .to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).quaternion.to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).quaternion.to_list(),
         ],
     )
     validate_list_of_orientations_goal(goal_validator, world)
@@ -543,12 +523,8 @@ def test_list_of_orientations_goal(goal_validator_world):
     world, robot_view, extensions = goal_validator_world
     goal_validator = MultiOrientationGoalValidator(
         lambda: [
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_quaternion()
-            .to_list(),
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_quaternion()
-            .to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).quaternion.to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).quaternion.to_list(),
         ]
     )
     validate_list_of_orientations_goal(goal_validator, world)
@@ -579,9 +555,7 @@ def validate_list_of_orientations_goal(goal_validator, world):
             )
         )
         assert np.allclose(
-            (world.get_body_by_name("base_footprint").global_pose)
-            .to_quaternion()
-            .to_list(),
+            (world.get_body_by_name("base_footprint").global_pose).quaternion.to_list(),
             quaternion_from_euler(*current_orientation_goal.tolist()),
             atol=0.001,
         )

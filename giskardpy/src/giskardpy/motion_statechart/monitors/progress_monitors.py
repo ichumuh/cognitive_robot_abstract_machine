@@ -108,7 +108,7 @@ class NotApproachingGoal(MotionStatechartNode):
         super().set_up(context)
         self._control_dt = context.require_extension(
             MotionControlContext
-        ).qp_controller_config.control_dt
+        ).qp_controller_config.control_time_step.total_seconds()
         self._error_at_last_progress = self._registered_variable(
             "error_at_last_progress", context
         )

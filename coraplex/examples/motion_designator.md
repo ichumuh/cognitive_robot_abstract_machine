@@ -61,7 +61,7 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose
 
 target = Pose.from_xyz_quaternion(pos_x=1.0, reference_frame=world.root)
 goal = SetOdometry(
-    base_pose=target.to_homogeneous_matrix(),
+    base_pose=target.homogeneous_matrix,
     odom_connection=pr2_view.root.parent_connection,
 )
 
@@ -104,7 +104,7 @@ goal = Pointing(
     tip_link=camera.root,
     goal_point=Pose.from_xyz_quaternion(
         1, 1, 1, 0, 0, 0, 1, reference_frame=world.root
-    ).to_position(),
+    ).position,
     pointing_axis=camera.forward_facing_axis,
 )
 

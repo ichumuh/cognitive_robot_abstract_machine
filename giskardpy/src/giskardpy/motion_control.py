@@ -78,7 +78,9 @@ class MotionControl(ExecutorExtension):
                 float_variable_data=context.float_variable_data,
             )
         )
-        context.set_tick_duration(self.qp_controller_config.control_dt)
+        context.set_tick_duration(
+            self.qp_controller_config.control_time_step.total_seconds()
+        )
 
     def before_recompile(self, executor: StatechartExecutor) -> bool:
         """
@@ -94,7 +96,7 @@ class MotionControl(ExecutorExtension):
         state = executor.context.world.state
         return all(
             abs(state[degree_of_freedom.id].velocity) <= self.speed_at_rest
-            for degree_of_freedom in self.qp_controller.active_dofs
+            for degree_of_freedom in self.qp_controller.active_degrees_of_freedom
         )
 
     def after_compile(self, executor: StatechartExecutor) -> None:
@@ -123,7 +125,7 @@ class MotionControl(ExecutorExtension):
         )
         world.apply_control_commands(
             next_command,
-            self.qp_controller.config.control_dt,
+            self.qp_controller.config.control_time_step.total_seconds(),
             self.qp_controller.config.max_derivative,
         )
 

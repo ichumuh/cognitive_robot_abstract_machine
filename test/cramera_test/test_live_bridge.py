@@ -1,10 +1,5 @@
 """
-Unit tests for the live bridge's serializers and its viewer-facing accessors.
-
-The bridge is exercised against mimics of the interfaces it reads. What is covered is
-the interesting logic: bottom-up status aggregation in the plan tree, statechart
-signatures that let the frontend distinguish "re-colour only" from "rebuild", and the
-queue that carries viewer drags onto the simulation thread.
+Live bridge snapshots of plans, worlds and motion statecharts.
 """
 
 from __future__ import annotations
@@ -14,12 +9,13 @@ from dataclasses import dataclass, field, make_dataclass
 
 import pytest
 from cramph.data_types import LifeCycleValues
+from krrood.entity_query_language.factories import inference
+from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
 )
-from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
@@ -46,11 +42,8 @@ from coraplex.plans.designator import DesignatorParameters
 
 from cramera.knowledge.enums import PlanNodeGroup
 from cramera.live.chart_structure import ChartEdgeEntry
-from cramera.live.bridge import (
-    Bridge,
-    ROBOT_BASE_KEY,
-    TaskStatusName,
-)
+from cramera.live.bridge import Bridge
+from cramera.recording_fields import SceneField
 
 from .test_robot_parts import ArmPart, EndEffectorPart, NamedBody, OneArmedRobot
 
@@ -71,45 +64,16 @@ class ActionDescription:
     """
 
     @classmethod
-    def of(cls, target: Optional[str] = None, arm: Optional[str] = None) -> Self:
+    def of(cls, target: Optional[Body] = None, arm: Optional[str] = None) -> Self:
         """
         :return: The parameters of an action acting on `target` with `arm`.
         """
         parameters = {}
         if target is not None:
-            parameters["acted_on"] = NamedWorldEntity(name="world/" + target)
+            parameters["acted_on"] = target
         if arm is not None:
             parameters["arm"] = arm
         return cls(parameters)
-
-
-@dataclass
-class NamedWorldEntity:
-    """
-    Something in the world that carries a prefixed name.
-    """
-
-    name: str
-
-
-@dataclass
-class ShapeSet:
-    """
-    A body's shape collection, of which the bridge reads only the shapes.
-    """
-
-    shapes: List[Any] = field(default_factory=list)
-
-
-@dataclass
-class PublishedBody:
-    """
-    A world body as the bridge publishes it: a prefixed name and its shapes.
-    """
-
-    name: str
-    visual: ShapeSet = field(default_factory=ShapeSet)
-    collision: ShapeSet = field(default_factory=ShapeSet)
 
 
 def make_plan_node(
@@ -148,29 +112,23 @@ def make_statechart(*top_level_nodes: Any) -> Any:
 
 
 @pytest.fixture()
-def plan_bridge():
+def plan_bridge() -> tuple[Bridge, Any, Any, Any, Any]:
     """
-    A bridge bound to a small plan: root -> action -> [condition, motion].
+    Build a plan with an action acting on a published body, a condition and a motion.
+
+    :return: The observing bridge and the plan's root, action, condition and motion.
     """
     bridge = Bridge()
+    target = Body(name=PrefixedName("milk.stl", prefix="world"))
     motion = make_plan_node("MotionNode")
     condition = make_plan_node("ConditionNode")
     action = make_plan_node(
         "ActionNode",
-        designator=ActionDescription.of(target="milk.stl", arm="LEFT"),
+        designator=ActionDescription.of(target=target, arm="LEFT"),
         children=[condition, motion],
     )
-    root = make_plan_node(
-        "SequentialNode",
-        life_cycle_state=LifeCycleValues.SUCCEEDED,
-        children=[action],
-    )
-    bridge.publish_bodies(
-        {
-            "milk.stl": PublishedBody(name="world/milk.stl"),
-            ROBOT_BASE_KEY: PublishedBody(name="world/base_link"),
-        }
-    )
+    root = make_plan_node("SequentialNode", children=[action])
+    bridge.publish_bodies({"milk.stl": target})
     bridge.begin_plan(make_statechart(root))
     return bridge, root, action, condition, motion
 
@@ -198,23 +156,32 @@ def set_life_cycle_state(
 
 # %% plan tree
 class TestPlanSnapshot:
-    def test_running_task_bubbles_up(self, plan_bridge):
-        bridge, root, action, condition, motion = plan_bridge
+    """
+    Each published node retains its own identity, metadata, and life cycle state.
+    """
+
+    def test_running_nodes_publish_their_own_status(self, plan_bridge) -> None:
+        """
+        Life cycle states are read from both the action and its motion.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, _, motion = plan_bridge
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
         set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
         nodes = nodes_by_kind(bridge)
-        assert nodes["MotionNode"]["status"] == TaskStatusName.RUNNING
+        assert nodes["MotionNode"]["status"] == motion.life_cycle_state.name
         assert nodes["MotionNode"]["derived"] is False
-        assert nodes["ActionNode"]["status"] == TaskStatusName.RUNNING
-        assert nodes["ActionNode"]["derived"] is True
+        assert nodes["ActionNode"]["status"] == action.life_cycle_state.name
 
     def test_each_node_carries_the_colour_group_of_its_kind(self, plan_bridge):
         """
-        The bridge classifies plan nodes, so the viewer does not keep its own copy of
-        the kind-to-group table.
+        The bridge publishes the node kind's colour group.
+
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, *_ = plan_bridge
         by_kind = {node["kind"]: node["group"] for node in bridge.get_plan()["nodes"]}
-
         assert by_kind["ActionNode"] == PlanNodeGroup.ACTION
         assert by_kind["MotionNode"] == PlanNodeGroup.MOTION
         assert by_kind["ConditionNode"] == PlanNodeGroup.CONDITION
@@ -222,50 +189,96 @@ class TestPlanSnapshot:
 
     def test_the_plan_payload_carries_the_legend_of_every_group(self, plan_bridge):
         bridge, *_ = plan_bridge
-
         assert bridge.get_plan()["legend"] == [
             {"group": group.value, "label": group.label} for group in PlanNodeGroup
         ]
 
-    def test_designator_metadata_is_serialized(self, plan_bridge):
-        bridge, *_ = plan_bridge
+    def test_designator_metadata_is_serialized(self, plan_bridge) -> None:
+        """
+        Publish the target identity and description of designator parameters.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, _, _ = plan_bridge
         nodes = nodes_by_kind(bridge)
-        assert nodes["ActionNode"]["target"] == "milk.stl"
-        assert nodes["ActionNode"]["arm"] == "LEFT"
-
-    def test_real_status_wins_over_derivation(self, plan_bridge):
-        bridge, *_ = plan_bridge
-        assert nodes_by_kind(bridge)["SequentialNode"]["status"] == (
-            TaskStatusName.SUCCEEDED
+        assert nodes["ActionNode"]["target"] == action.acted_on.name.name
+        assert nodes["ActionNode"][SceneField.DESCRIPTION] == verbalize_expression(
+            inference(type(action))(**action.designator_parameter)
         )
-        assert nodes_by_kind(bridge)["SequentialNode"]["derived"] is False
 
-    def test_partially_done_parent_is_running_not_succeeded(self, plan_bridge):
-        bridge, root, action, condition, motion = plan_bridge
-        action.children.append(make_plan_node("MotionNode"))
+    def test_completed_parent_keeps_its_status_with_unstarted_children(
+        self, plan_bridge
+    ) -> None:
+        """
+        An unstarted child does not change its completed parent's life cycle state.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, root, *_ = plan_bridge
+        set_life_cycle_state(bridge, root, LifeCycleValues.SUCCEEDED)
+        nodes = nodes_by_kind(bridge)
+        assert nodes["SequentialNode"]["status"] == root.life_cycle_state.name
+        assert nodes["SequentialNode"]["derived"] is False
+
+    def test_running_parent_remains_running_after_a_motion_finishes(
+        self, plan_bridge
+    ) -> None:
+        """
+        A finished motion does not finish the action it belongs to.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, _, motion = plan_bridge
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
         set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == TaskStatusName.RUNNING
+        assert (
+            nodes_by_kind(bridge)["ActionNode"]["status"]
+            == action.life_cycle_state.name
+        )
 
-    def test_fully_done_parent_is_succeeded(self, plan_bridge):
-        bridge, root, action, condition, motion = plan_bridge
+    def test_completed_action_publishes_its_terminal_state(self, plan_bridge) -> None:
+        """
+        The action's terminal state is retained with completed descendants.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, condition, motion = plan_bridge
+        for node in (action, condition, motion):
+            set_life_cycle_state(bridge, node, LifeCycleValues.SUCCEEDED)
+        assert (
+            nodes_by_kind(bridge)["ActionNode"]["status"]
+            == action.life_cycle_state.name
+        )
+
+    def test_failed_action_keeps_its_failure_with_succeeded_motion(
+        self, plan_bridge
+    ) -> None:
+        """
+        A successful motion does not clear an action-level failure.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, _, motion = plan_bridge
+        set_life_cycle_state(bridge, action, LifeCycleValues.FAILED)
         set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
-        set_life_cycle_state(bridge, condition, LifeCycleValues.SUCCEEDED)
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == TaskStatusName.SUCCEEDED
+        assert (
+            nodes_by_kind(bridge)["ActionNode"]["status"]
+            == action.life_cycle_state.name
+        )
 
-    def test_failure_outranks_done_sibling(self, plan_bridge):
-        bridge, root, action, condition, motion = plan_bridge
-        set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
-        set_life_cycle_state(bridge, condition, LifeCycleValues.FAILED)
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == TaskStatusName.FAILED
+    def test_signature_is_stable_across_status_changes(self, plan_bridge) -> None:
+        """
+        Changing life cycle states leaves the plan structure signature unchanged.
 
-    def test_signature_is_stable_across_status_changes(self, plan_bridge):
-        bridge, root, action, condition, motion = plan_bridge
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, _, _, motion = plan_bridge
         set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
         while_running = bridge.get_plan()["signature"]
         set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
         assert bridge.get_plan()["signature"] == while_running
 
-    def test_structurally_identical_nodes_keep_separate_statuses(self):
+    def test_identical_designators_keep_separate_node_statuses(self) -> None:
         """
         Two steps that look the same are published with their own statuses.
         """
@@ -280,7 +293,10 @@ class TestPlanSnapshot:
             for node in bridge.get_plan()["nodes"]
             if node["kind"] == "MotionNode"
         ]
-        assert statuses == [TaskStatusName.FAILED, TaskStatusName.CREATED]
+        assert statuses == [
+            first.life_cycle_state.name,
+            second.life_cycle_state.name,
+        ]
 
     def test_a_new_plan_replaces_the_previous_one(self, plan_bridge):
         bridge, root, action, condition, motion = plan_bridge
@@ -306,39 +322,42 @@ class TestPlanSnapshot:
 # %% the step a recording is labelled with
 class TestRunningStep:
     """
-    What a recording labels each of its ticks with: the action the plan is performing
-    right now (see cramera.live.recording_segments).
+    Recorded ticks name the deepest action that is running.
     """
 
-    def test_nothing_is_reported_before_anything_runs(self, plan_bridge):
-        bridge, _, _, _, _ = plan_bridge
-        bridge.snapshot_plan()
+    def test_nothing_is_reported_before_anything_runs(self, plan_bridge) -> None:
+        """
+        A plan that has not started does not label recording ticks.
 
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, *_ = plan_bridge
         assert bridge.running_step() is None
 
-    def test_the_running_action_is_reported(self, plan_bridge):
-        bridge, _, _, _, motion = plan_bridge
-        set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
+    def test_the_running_action_is_reported(self, plan_bridge) -> None:
+        """
+        The running action provides the recording step label.
 
-        assert bridge.running_step() == nodes_by_kind(bridge)["ActionNode"]["label"]
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, _, _ = plan_bridge
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
+        assert bridge.running_step() == type(action).__name__
 
-    def test_a_finished_action_is_no_longer_reported(self):
-        motion = make_plan_node("MotionNode")
-        action = make_plan_node(
-            "ActionNode", designator=ActionDescription.of(), children=[motion]
-        )
-        bridge = Bridge()
-        bridge.begin_plan(make_statechart(action))
-        set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
-        set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
+    def test_a_finished_action_is_no_longer_reported(self, plan_bridge) -> None:
+        """
+        A completed action no longer labels subsequent recording ticks.
+
+        :param plan_bridge: The bridge and its plan nodes.
+        """
+        bridge, _, action, _, _ = plan_bridge
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
         set_life_cycle_state(bridge, action, LifeCycleValues.SUCCEEDED)
-
         assert bridge.running_step() is None
 
     def test_a_running_motion_is_not_reported_as_the_step(self):
         """
-        Only actions name a step; a motion node is one step's implementation, not a step
-        of its own.
+        A motion without a running action does not name a recording step.
         """
         bridge = Bridge()
         motion = make_plan_node("MotionNode")
@@ -357,8 +376,8 @@ def make_hinged_door() -> Tuple[World, RevoluteConnection]:
     door = Body(name=PrefixedName("fridge_door"))
     hinge = DegreeOfFreedom(
         name=PrefixedName("fridge_door_joint", prefix="kitchen"),
-        limits=DegreeOfFreedomLimits(
-            lower=DerivativeMap(position=0.0), upper=DerivativeMap(position=1.57)
+        limits=DegreeOfFreedomLimits.from_position_range_and_speed(
+            lower_position=0.0, upper_position=1.57
         ),
     )
     with world.modify_world():
@@ -412,27 +431,38 @@ def make_free_floating_object() -> Tuple[World, Connection6DoF, Body]:
 
 # %% what the HTTP layer reads
 class TestViewerAccessors:
+    """
+    The viewer reads the bridge's published bodies and current session state.
+    """
+
     def test_object_keys_exclude_the_robot_base(self):
         bridge = Bridge()
         bridge.publish_bodies(
             {
-                ROBOT_BASE_KEY: PublishedBody(name="world/base_link"),
-                "milk.stl": PublishedBody(name="world/milk.stl"),
+                bridge.configuration.robot_base_key: Body(
+                    name=PrefixedName("base_link", prefix="world")
+                ),
+                "milk.stl": Body(name=PrefixedName("milk.stl", prefix="world")),
             }
         )
         assert bridge.object_keys() == ["milk.stl"]
 
-    def test_an_object_with_unscaled_shapes_falls_back_to_the_default_size(self):
+    def test_a_shapeless_object_keeps_empty_geometry(self):
+        """
+        A shapeless published body retains an empty geometry list.
+        """
         bridge = Bridge()
-        bridge.publish_bodies({"blob.stl": PublishedBody(name="world/blob.stl")})
-        assert bridge.object_catalog()[0]["size"] == list(Bridge.DEFAULT_OBJECT_SIZE)
+        bridge.publish_bodies(
+            {"blob.stl": Body(name=PrefixedName("blob.stl", prefix="world"))}
+        )
+        assert bridge.object_catalog()[0]["shapes"] == []
 
     def test_an_unserved_mesh_has_no_path(self):
         assert Bridge().mesh_path("milk.stl") is None
 
     def test_object_body_returns_the_published_body(self):
         bridge = Bridge()
-        milk = PublishedBody(name="world/milk.stl")
+        milk = Body(name=PrefixedName("milk.stl", prefix="world"))
         bridge.publish_bodies({"milk.stl": milk})
 
         assert bridge.object_body("milk.stl") is milk
@@ -618,6 +648,9 @@ class TestShapeCatalogEntries:
     """
 
     def test_primitive_shapes_carry_dimensions_colors_and_local_poses(self):
+        """
+        Each native primitive retains its appearance and body-relative pose.
+        """
         body = Body(
             name=PrefixedName("tower", prefix="scene"),
             visual=ShapeCollection(
@@ -639,18 +672,18 @@ class TestShapeCatalogEntries:
 
         entry = bridge.object_catalog()[0]
 
-        assert entry["kind"] == "shapes"
-        assert entry["color"] == "#cc3333"
+        assert isinstance(bridge.object_metadata[0].shapes, ShapeCollection)
+        assert entry["color"] == body.visual[0].color.to_hex()
         box, cylinder, sphere = entry["shapes"]
         assert box["kind"] == "box"
         assert box["size"] == [0.2, 0.3, 0.4]
-        assert box["color"] == "#cc3333"
+        assert box["color"] == body.visual[0].color.to_hex()
         assert box["position"] == [0.1, 0.0, 0.05]
         assert box["quaternion"] == [0.0, 0.0, 0.0, 1.0]
         assert cylinder["kind"] == "cylinder"
         assert cylinder["radius"] == 0.05
         assert cylinder["height"] == 0.3
-        assert cylinder["color"] == "#0080ff"
+        assert cylinder["color"] == body.visual[1].color.to_hex()
         assert sphere["kind"] == "sphere"
         assert sphere["radius"] == 0.05
 
@@ -668,14 +701,14 @@ class TestShapeCatalogEntries:
 
         shape = bridge.object_catalog()[0]["shapes"][0]
 
-        serve_key = "montessori/board#0"
+        serve_key = str(mesh_file)
         assert shape["kind"] == "mesh"
         assert shape["format"] == "obj"
         assert shape["mesh"] == "/mesh?key=" + urllib.parse.quote(serve_key, safe="")
         assert shape["scale"] == [1.0, 2.0, 3.0]
         assert bridge.mesh_path(serve_key) == str(mesh_file)
 
-    def test_a_mesh_shape_whose_file_vanished_becomes_a_default_box(self):
+    def test_a_mesh_shape_whose_file_vanished_reports_the_missing_file(self):
         body = Body(
             name=PrefixedName("board", prefix="montessori"),
             visual=ShapeCollection(shapes=[Mesh(filename="/gone/board.obj")]),
@@ -683,12 +716,13 @@ class TestShapeCatalogEntries:
         bridge = Bridge()
         bridge.publish_bodies({"montessori/board": body})
 
-        shape = bridge.object_catalog()[0]["shapes"][0]
-
-        assert shape["kind"] == "box"
-        assert shape["size"] == list(Bridge.DEFAULT_OBJECT_SIZE)
+        with pytest.raises(FileNotFoundError):
+            bridge.object_catalog()
 
     def test_collision_shapes_stand_in_when_a_body_has_no_visual_ones(self):
+        """
+        The catalog renders native collision geometry when visual geometry is absent.
+        """
         body = Body(
             name=PrefixedName("guard", prefix="scene"),
             collision=ShapeCollection(shapes=[Box(scale=Scale(0.5, 0.5, 0.5))]),
@@ -698,7 +732,7 @@ class TestShapeCatalogEntries:
 
         entry = bridge.object_catalog()[0]
 
-        assert entry["kind"] == "shapes"
+        assert isinstance(bridge.object_metadata[0].shapes, ShapeCollection)
         assert entry["shapes"][0]["size"] == [0.5, 0.5, 0.5]
 
 

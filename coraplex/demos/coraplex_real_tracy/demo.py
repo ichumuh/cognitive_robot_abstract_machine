@@ -4,6 +4,7 @@ import subprocess
 import threading
 import time
 
+import numpy as np
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 
@@ -17,11 +18,11 @@ from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_se
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.semantic_annotations.semantic_annotations import GelatinBox
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.world_description.connections import (
-    Connection6DoF,
     FixedConnection,
 )
 from semantic_digital_twin.world_description.geometry import Box, Scale, Color
@@ -144,7 +145,7 @@ plan = Sequence(
         # Stack Box 2
         ParkArmsAction(tracy.all_arms),
         PickUpAction(
-            box2_annotation.grasp_candidates()[0],
+            GraspCandidate(box2_annotation, Pose.from_xyz_rpy(pitch=np.pi/2, reference_frame=box2_annotation.root)),
             tracy.left_arm,
         ),
         PlaceAction(
@@ -154,7 +155,7 @@ plan = Sequence(
         # Stack Box 3
         ParkArmsAction(tracy.all_arms),
         PickUpAction(
-            box3_annotation.grasp_candidates()[0],
+            GraspCandidate(box3_annotation, Pose.from_xyz_rpy(pitch=np.pi/2, reference_frame=box3_annotation.root)),
             tracy.right_arm,
         ),
         PlaceAction(
@@ -170,5 +171,6 @@ try:
     executor.compile(statechart)
     executor.execute()
 finally:
+    rclpy.shutdown()
     os.killpg(os.getpgid(giskard_process.pid), signal.SIGTERM)
     giskard_process.wait()

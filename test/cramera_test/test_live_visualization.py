@@ -25,7 +25,7 @@ from cramph.statechart import Statechart
 
 from cramera import paths
 from cramera.live import visualization as visualization_module
-from cramera.live.bridge import Bridge, TaskStatusName
+from cramera.live.bridge import Bridge
 from cramera.live.recording import Recording, RecordingState
 from cramera.live.visualization import (
     StatechartPublishing,
@@ -38,7 +38,6 @@ from .dataset.motion_execution import motion_execution
 from .test_live_bridge import (
     ActionDescription,
     make_chart,
-    make_plan_node,
     nodes_by_kind,
 )
 
@@ -225,7 +224,7 @@ class TestStatechartPublishing:
 
         assert (
             nodes_by_kind(motion_execution.bridge)["ConstTrueNode"]["status"]
-            == TaskStatusName.RUNNING
+            == LifeCycleValues.RUNNING.name
         )
 
 
@@ -233,6 +232,10 @@ class TestStatechartPublishing:
 
 
 class TestLiveVisualization:
+    """
+    Viewer sessions bind native world and plan observers for their lifetime.
+    """
+
     def test_start_attaches_and_serves(self, world, monkeypatch):
         bridge = Bridge()
         server = ServerRecorder()
