@@ -15,15 +15,14 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
-    from coraplex.validation.goal_validator import MultiJointPositionGoalValidator
     from cramph.node import StatechartNode
-    from semantic_digital_twin.datastructures.definitions import StaticJointState
 
 
 @dataclass
 class PlanFailure(ExecutionFailure):
     """
     Base class for all exceptions that are related to plan errors.
+
     Can also be raised directly as a generic plan failure.
     """
 
@@ -67,8 +66,8 @@ class MotionExceededSimulationTimeLimit(PlanFailure):
     Raised when a simulated motion ran for longer than any motion is allowed to.
 
     The chart's stall monitor ends a motion that stopped approaching its goal, but one
-    that keeps creeping towards it, or that is held and so never counts as stalled, would
-    tick forever without this limit.
+    that keeps creeping towards it, or that is held and so never counts as stalled,
+    would tick forever without this limit.
     """
 
     time_limit: timedelta
@@ -158,30 +157,12 @@ class CandidateLimitReached(EmptyUnderspecified):
 
 @dataclass
 class RobotInCollision(PlanFailure):
-    """Thrown when the robot is in collision with the environment."""
+    """
+    Thrown when the robot is in collision with the environment.
+    """
 
     def error_message(self) -> str:
         return "The robot is in collision with the environment."
-
-    def suggest_correction(self) -> str:
-        return ""
-
-
-@dataclass
-class ConfigurationNotReached(PlanFailure):
-    """"""
-
-    goal_validator: MultiJointPositionGoalValidator
-    """
-    The goal validator that was used to check if the goal was reached.
-    """
-    configuration_type: StaticJointState
-    """
-    The configuration type that should be reached.
-    """
-
-    def error_message(self) -> str:
-        return f"Configuration type: {self.configuration_type.name} not reached"
 
     def suggest_correction(self) -> str:
         return ""
@@ -235,7 +216,7 @@ class BodyUnfetchable(PlanFailure):
 @dataclass
 class EndEffectorDidNotReachTarget(PlanFailure):
     """
-    Raised when an end effector did not reach its target during a motion
+    Raised when an end effector did not reach its target during a motion.
     """
 
     end_effector: EndEffector
