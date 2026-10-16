@@ -51,4 +51,6 @@ NotRunByLanguageNodeError->NoLanguageNodeAboveError, coraplex
 _run_as_action_body->_put_below_as_action_body; parent-of "runs" in
 docstrings/messages -> child/below/holds (execution "run" stays); test names
 too; ORM regen; tests; commit, push, PR description, reply on thread 6 and
-resolve it. [in progress]
+resolve it. [done: 9e01341f8 pushed, still draft, cramph_test + coraplex_test
+1562 passed, only place_setting fails; thread 6 replied and resolved, all 6
+threads resolved]
