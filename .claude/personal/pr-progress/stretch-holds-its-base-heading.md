@@ -37,6 +37,10 @@ Action.replace_action_body(node) where `node` may hold the replaced child
 (kept, owner wiring cleared); transformation uses
 replace_action_body(Parallel([hold, body])); trim its docstring; reword
 "run" (= parent of) in touched docstrings only, offer a wider rename in the
-reply to thread 6 and leave that thread unresolved. Steps: (1) tests
-[todo]; (2) implement [todo]; (3) ORM + test suites [todo]; (4) commit,
-push, re-draft, PR description, reply + resolve threads 1-5 [todo].
+reply to thread 6 and leave that thread unresolved. Done: committed
+37b887ba3 and pushed (still draft), PR description updated, threads 1-5
+replied and resolved, thread 6 replied and left open. The held body goes
+first in the Parallel (test helper steps_of expects it at index 0).
+cramph_test + coraplex_test: 1562 passed, only place_setting (PR2, local)
+fails. Open: thread 6 asks ichumuh whether to rename cramph's "runs" wording
+(~15 docstrings, _runs, NotRunByLanguageNodeError) in a separate PR.
