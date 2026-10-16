@@ -44,3 +44,11 @@ first in the Parallel (test helper steps_of expects it at index 0).
 cramph_test + coraplex_test: 1562 passed, only place_setting (PR2, local)
 fails. Open: thread 6 asks ichumuh whether to rename cramph's "runs" wording
 (~15 docstrings, _runs, NotRunByLanguageNodeError) in a separate PR.
+User (2026-10-16): do the rename now, in this PR. Plan: _runs->_has_child,
+_check_does_not_run->_check_is_not_a_child, _check_can_run->
+_check_can_be_a_child, CramLanguageNode.running->closest_above,
+NotRunByLanguageNodeError->NoLanguageNodeAboveError, coraplex
+_run_as_action_body->_put_below_as_action_body; parent-of "runs" in
+docstrings/messages -> child/below/holds (execution "run" stays); test names
+too; ORM regen; tests; commit, push, PR description, reply on thread 6 and
+resolve it. [in progress]
