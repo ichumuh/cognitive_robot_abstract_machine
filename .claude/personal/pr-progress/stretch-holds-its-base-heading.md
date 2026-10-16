@@ -30,3 +30,13 @@ coraplex_test 724 passed, only place_setting (PR2, local) fails.
 Not run: experiments, real-Stretch demo (user OK with real-robot change).
 Open: wrap not undone when a modify() block raises (documented);
 double-transformation warning on Stretch reaches.
+Review by ichumuh (2026-10-16, 6 threads), user agreed to fix all: drop
+CramLanguageNode.wrap and _hand_over_place_of (+ ChildCannotBeWrappedError,
+TopLevelNodeCannotBeWrappedError, ORM regen) for replace(reference, node) /
+Action.replace_action_body(node) where `node` may hold the replaced child
+(kept, owner wiring cleared); transformation uses
+replace_action_body(Parallel([hold, body])); trim its docstring; reword
+"run" (= parent of) in touched docstrings only, offer a wider rename in the
+reply to thread 6 and leave that thread unresolved. Steps: (1) tests
+[todo]; (2) implement [todo]; (3) ORM + test suites [todo]; (4) commit,
+push, re-draft, PR description, reply + resolve threads 1-5 [todo].
