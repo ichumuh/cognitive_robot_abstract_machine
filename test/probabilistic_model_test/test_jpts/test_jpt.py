@@ -296,8 +296,8 @@ class ContinuousOnlyTestCase(unittest.TestCase):
 
     def test_dependent_variables_are_split_apart(self):
         """
-        Small x always comes with large y and vice versa, so a single leaf, which
-        models x and y as independent, is not a fit of this data.
+        Small x always comes with large y and vice versa, so a single leaf, which models
+        x and y as independent, is not a fit of this data.
         """
         data = pd.DataFrame(
             {
@@ -313,8 +313,8 @@ class ContinuousOnlyTestCase(unittest.TestCase):
 
 class MaxStandardDeviationTestCase(unittest.TestCase):
     """
-    A maximum standard deviation is a precision to reach: once every numeric target
-    in a node is at least that precise, the node is not split any further.
+    A maximum standard deviation is a precision to reach: once every numeric target in a
+    node is at least that precise, the node is not split any further.
     """
 
     def test_splitting_stops_once_every_leaf_is_precise_enough(self):

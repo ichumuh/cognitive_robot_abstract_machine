@@ -337,11 +337,9 @@ def test_every_two_finger_gripper_can_measure_where_its_fingers_meet(
             if not isinstance(gripper, HasTwoFingers):
                 continue
             assert gripper.fingertips.tool_P_grasp.reference_frame is gripper.tool_frame
-            assert gripper.fingertips.surface_depth >= 0.0
-            assert np.linalg.norm(
-                gripper.fingertips.finger_P_thumb(0.05).to_np()[:3].ravel()
-            ) > np.linalg.norm(
-                gripper.fingertips.finger_P_thumb(0.02).to_np()[:3].ravel()
+            assert (
+                gripper.fingertips.thumb_P_facing_point.reference_frame
+                is gripper.fingertips.thumb
             )
 
 
@@ -381,40 +379,37 @@ def test_the_goal_for_a_grasp_turns_the_gripper_the_same_way_as_the_tool_frame_g
     )
 
 
-# %% how wide the fingers are sent
+# %% how wide the fingers stand
 
 
-def test_a_wider_object_sends_the_fingertip_frames_further_apart(pr2_gripper):
-    narrower = np.linalg.norm(
-        pr2_gripper.fingertips.finger_P_thumb(0.02).to_np()[:3].ravel()
-    )
-    wider = np.linalg.norm(
-        pr2_gripper.fingertips.finger_P_thumb(0.05).to_np()[:3].ravel()
-    )
-
-    assert wider - narrower == pytest.approx(0.03)
-
-
-def test_the_separation_a_goal_is_built_for_is_the_one_asked_for(pr2_gripper):
-    """
-    The surfaces stand where they were asked to, which is the distance between the
-    fingertip frames less what each surface sits inside its own frame.
-    """
-    separation = 0.04
-
-    frames_apart = np.linalg.norm(
-        pr2_gripper.fingertips.finger_P_thumb(separation).to_np()[:3].ravel()
+def test_the_finger_to_thumb_axis_points_from_the_finger_to_the_thumb(pr2_gripper):
+    fingertips = pr2_gripper.fingertips
+    thumb, finger = (
+        fingertips._bounding_box(tip).center.vector3.dot(
+            fingertips.tool_V_finger_to_thumb
+        )
+        for tip in fingertips.both
     )
 
-    assert frames_apart - 2 * pr2_gripper.fingertips.surface_depth == pytest.approx(
-        separation
-    )
+    assert thumb > finger
 
 
-def test_the_thumb_tip_goal_is_read_in_the_other_fingertips_frame(pr2_gripper):
-    goal = pr2_gripper.fingertips.finger_P_thumb(0.04)
+def test_each_facing_point_is_read_in_its_own_tips_frame(pr2_gripper):
+    fingertips = pr2_gripper.fingertips
 
-    assert goal.reference_frame is pr2_gripper.finger.tip
+    assert fingertips.thumb_P_facing_point.reference_frame is fingertips.thumb
+    assert fingertips.finger_P_facing_point.reference_frame is fingertips.finger
+
+
+def test_opening_the_gripper_moves_the_facing_points_apart(pr2_gripper):
+    world = pr2_gripper._world
+    with world.reset_state_context():
+        pr2_gripper.get_joint_state_by_type(GripperState.CLOSE).apply_to(world)
+        closed = pr2_gripper.fingertips.separation
+        pr2_gripper.get_joint_state_by_type(GripperState.OPEN).apply_to(world)
+        opened = pr2_gripper.fingertips.separation
+
+    assert opened > closed
 
 
 # %% reading where the fingers meet for a state the world does not stand in
@@ -486,3 +481,32 @@ def test_reading_the_travel_stands_the_world_back_up(tracy_world):
     gripper.travel_when_closing
 
     np.testing.assert_array_equal(tracy_world.state.positions, positions_before)
+
+
+# %% how wide a gripper opens
+
+
+def test_a_gripper_opens_as_wide_as_its_fingertips_stand_in_its_open_state(
+    pr2_gripper,
+):
+    world = pr2_gripper._world
+    pr2_gripper.get_joint_state_by_type(GripperState.CLOSE).apply_to(world)
+    positions_before = world.state.positions.copy()
+    with world.reset_state_context():
+        pr2_gripper.get_joint_state_by_type(GripperState.OPEN).apply_to(world)
+        expected = pr2_gripper.fingertips.separation
+
+    assert pr2_gripper.separation_when_open == pytest.approx(expected)
+    np.testing.assert_array_equal(world.state.positions, positions_before)
+
+
+def test_a_robotiq_2f_85_opens_as_wide_as_its_name_says(tracy_world):
+    """
+    The 2F-85 is named for the 85 mm its pads stand apart when open, so this is read on
+    the pads' surfaces rather than on the fingertip frames.
+    """
+    gripper = tracy_world.get_semantic_annotations_by_type(Tracy)[
+        0
+    ].left_arm.end_effector
+
+    assert gripper.separation_when_open == pytest.approx(0.085, abs=0.001)

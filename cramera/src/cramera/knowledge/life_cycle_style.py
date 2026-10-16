@@ -9,8 +9,8 @@ from enum import StrEnum
 
 from typing_extensions import Any
 
-from giskardpy.motion_statechart.data_types import LifeCycleValues
-from giskardpy.motion_statechart.plotters.styles import DRAWING_METRICS
+from cramph.data_types import LifeCycleValues
+from cramph.plotters.styles import DRAWING_METRICS
 
 
 # %% graph payload vocabulary

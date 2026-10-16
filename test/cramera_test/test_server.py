@@ -10,7 +10,7 @@ import urllib.request
 
 import pytest
 
-from giskardpy.motion_statechart.data_types import LifeCycleValues
+from cramph.data_types import LifeCycleValues
 
 from cramera import paths
 from cramera.knowledge.detected_events import SceneField

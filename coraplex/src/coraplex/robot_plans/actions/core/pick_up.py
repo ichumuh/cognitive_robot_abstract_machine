@@ -3,47 +3,27 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from typing_extensions import Any, Dict
 
-from coraplex.plans.attachment_nodes import ReAttachNode
-from coraplex.plans.plan_node import PlanNode
-from krrood.entity_query_language.core.variable import Variable
-from krrood.entity_query_language.factories import (
-    or_,
-    variable_from,
-    ConditionType,
-)
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import (
-    MovementType,
-)
-from coraplex.plans.factories import sequential
-from coraplex.querying.predicates import (
-    GripperHolds,
-    GripperIsFree,
-    ToolFrameIsAtGrasp,
-)
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.datastructures.enums import MovementType
+from cramph.composites import Parallel, Sequence
+from cramph.node import StatechartNode
 from coraplex.robot_plans.mixins import (
+    ReattachesBodies,
     HasApproachesGraspPoses,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
+    MovesToolCenterPoint,
     PickUpTuningParameters,
     ReachTuningParameters,
 )
-from coraplex.robot_plans.motions.gripper import (
-    MoveGripperMotion,
-    MoveToolCenterPointMotion,
-)
 from semantic_digital_twin.datastructures.definitions import GripperState
-from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
-from semantic_digital_twin.robots.robot_parts import Arm
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
+from semantic_digital_twin.robots.robot_parts import Arm
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HasGraspChoice:
     """
     Adds to an action the grasp it takes hold by.
@@ -66,13 +46,13 @@ class HasGraspChoice:
     """
 
 
-@dataclass
+@dataclass(eq=False, repr=False, kw_only=True)
 class ReachAction(
-    ActionDescription,
+    MovesToolCenterPoint,
     HasApproachesGraspPoses,
     ReachTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
 ):
     """
     Let the robot reach a specific pose.
@@ -100,69 +80,41 @@ class ReachAction(
     :class:`PickUpAction` to open before its slower final approach.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_action_body(self) -> StatechartNode:
         poses = self.grasp_pose_sequence(
             self.grasp.grasp_pose, self.arm.end_effector, self.grasp
         )
         pre_pose = poses.retreat if self.reverse_reach_order else poses.pre_grasp
         children = [
-            MoveToolCenterPointMotion(
+            self.tool_center_point_goal(
                 pre_pose,
                 self.arm,
                 allow_gripper_collision=True,
                 max_linear_velocity=self.pre_approach_linear_velocity,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
             ),
         ]
         if self.open_gripper_at_pre_pose:
-            children.append(
-                MoveGripperMotion(
-                    motion=GripperState.OPEN, gripper=self.arm.end_effector
-                )
-            )
+            children.append(self.gripper_goal(GripperState.OPEN, self.arm.end_effector))
         children.append(
-            MoveToolCenterPointMotion(
+            self.tool_center_point_goal(
                 poses.grasp,
                 self.arm,
                 allow_gripper_collision=True,
                 max_linear_velocity=self.final_approach_linear_velocity,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
             )
         )
-        return sequential(children=children)
-
-    def execute(self) -> Any:
-        self.add_subplan(self.action_plan).perform()
-
-    @staticmethod
-    def post_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        The end effector needs to be close to the target pose.
-        """
-        end_effector = kwargs["arm"].end_effector
-        return or_(
-            is_body_gripped(
-                variable_from(kwargs["grasp"].graspable.root),
-                end_effector,
-                threshold=kwargs["grasp_detection_threshold"],
-            ),
-            ToolFrameIsAtGrasp(end_effector, kwargs["grasp"]),
-        )
+        return Sequence(nodes=children)
 
 
-@dataclass
+@dataclass(eq=False, repr=False, kw_only=True)
 class PickUpAction(
-    ActionDescription,
+    MovesToolCenterPoint,
+    ReattachesBodies,
     HasGraspChoice,
     HasApproachesGraspPoses,
     PickUpTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
 ):
     """
     Let the robot pick up an object: take hold of it and lift it clear of its support.
@@ -171,7 +123,7 @@ class PickUpAction(
     tolerate_grasp_stall: bool = False
     """
     Whether the CLOSE motion's completion also tolerates a stalled grasp (see
-    :attr:`~coraplex.robot_plans.motions.gripper.MoveGripperMotion.tolerate_stall`).
+    :attr:`~giskardpy.motion_statechart.goals.gripper.MoveGripper.tolerate_stall`).
 
     Opt-in rather than always on: building the stall monitor needs a velocity variable
     for every one of the gripper's connections, which is not guaranteed for every robot
@@ -179,15 +131,16 @@ class PickUpAction(
     one.
     """
 
-    def _grasp_attempt_plan(self) -> PlanNode:
+    def _grasp_attempt(self) -> Sequence:
         """
         A pick-up is a grasp the world is then told about: the object hangs off the tool
         frame afterwards, which is what makes it move with the arm.
 
         :return: One attempt at taking :attr:`grasp`, without lifting the object.
         """
-        return sequential(
-            children=[
+        return Sequence(
+            name=f"{self.name}/grasp attempt",
+            nodes=[
                 GraspingAction(
                     grasp=self.grasp,
                     arm=self.arm,
@@ -202,69 +155,38 @@ class PickUpAction(
                     position_threshold=self.position_threshold,
                     orientation_threshold=self.orientation_threshold,
                 ),
-                ReAttachNode(
-                    body=self.grasp.graspable.root,
-                    new_parent=self.arm.end_effector.tool_frame,
+                *self.reattach(
+                    self.grasp.graspable.root, self.arm.end_effector.tool_frame
                 ),
             ],
         )
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_action_body(self) -> StatechartNode:
         lift_to_pose = self.grasp_pose_sequence(
             self.grasp.grasp_pose, self.arm.end_effector, self.grasp
         ).retreat
-        return sequential(
-            children=[
-                self._grasp_attempt_plan(),
-                MoveToolCenterPointMotion(
+        return Sequence(
+            nodes=[
+                self._grasp_attempt(),
+                self.tool_center_point_goal(
                     lift_to_pose,
                     self.arm,
                     allow_gripper_collision=True,
                     movement_type=MovementType.TRANSLATION,
                     max_linear_velocity=self.lift_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-            ],
-        )
-
-    @staticmethod
-    def pre_condition(
-        variables: Dict, context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        The gripper needs to be free.
-        """
-        return GripperIsFree(variables["arm"].end_effector)
-
-    @staticmethod
-    def post_condition(
-        variables: Dict, context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        The object itself needs to be in the gripper, not merely something.
-        """
-        end_effector = variables["arm"].end_effector
-        object_body = kwargs["grasp"].graspable.root
-        return or_(
-            GripperHolds(end_effector, object_body),
-            is_body_gripped(
-                variable_from(object_body),
-                end_effector,
-                threshold=kwargs["grasp_detection_threshold"],
-            ),
+            ]
         )
 
 
-@dataclass
+@dataclass(eq=False, repr=False, kw_only=True)
 class GraspingAction(
-    ActionDescription,
+    MovesToolCenterPoint,
     HasGraspChoice,
     HasApproachesGraspPoses,
     PickUpTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
 ):
     """
     Let the robot take hold of an object: reach onto a grasp and close on it.
@@ -276,13 +198,12 @@ class GraspingAction(
     tolerate_grasp_stall: bool = False
     """
     Whether the CLOSE motion's completion also tolerates a stalled grasp (see
-    :attr:`~coraplex.robot_plans.motions.gripper.MoveGripperMotion.tolerate_stall`).
+    :attr:`~giskardpy.motion_statechart.goals.gripper.MoveGripper.tolerate_stall`).
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential(
-            children=[
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            nodes=[
                 ReachAction(
                     grasp=self.grasp,
                     arm=self.arm,
@@ -295,41 +216,34 @@ class GraspingAction(
                     orientation_threshold=self.orientation_threshold,
                     grasp_detection_threshold=self.grasp_detection_threshold,
                 ),
-                MoveGripperMotion(
-                    motion=GripperState.CLOSE,
-                    gripper=self.arm.end_effector,
-                    allow_gripper_collision=True,
-                    finger_velocity=self.grasp_closing_velocity,
-                    stall_minimum_time=self.grasp_stall_minimum_time,
-                    tolerate_stall=self.tolerate_grasp_stall,
+                self.closing_step(
+                    self.gripper_goal(
+                        GripperState.CLOSE,
+                        self.arm.end_effector,
+                        allow_gripper_collision=True,
+                        finger_velocity=self.grasp_closing_velocity,
+                        stall_minimum_time=self.grasp_stall_minimum_time,
+                        tolerate_stall=self.tolerate_grasp_stall,
+                    )
                 ),
             ]
         )
 
-    @staticmethod
-    def pre_condition(
-        variables: Dict[str, Any], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
+    def closing_step(self, closing_goal: StatechartNode) -> Parallel:
         """
-        The gripper needs to be free.
+        :param closing_goal: A new node closing the gripper on the object.
+        :return: A new step running `closing_goal` while the gripper is kept at the
+            grasp, whatever else moves the robot meanwhile.
         """
-        return GripperIsFree(variables["arm"].end_effector)
-
-    @staticmethod
-    def post_condition(
-        variables: Dict[str, Any], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        The object needs to be between the gripper's fingers, or the gripper at the
-        grasp when a thin handle or rim leaves too little between them for the rays to
-        see.
-        """
-        end_effector = variables["arm"].end_effector
-        return or_(
-            is_body_gripped(
-                variable_from(kwargs["grasp"].graspable.root),
-                end_effector,
-                threshold=kwargs["grasp_detection_threshold"],
-            ),
-            ToolFrameIsAtGrasp(end_effector, kwargs["grasp"]),
+        return Parallel(
+            nodes=[
+                closing_goal,
+                self.tool_center_point_goal(
+                    self.grasp_pose_sequence(
+                        self.grasp.grasp_pose, self.arm.end_effector, self.grasp
+                    ).grasp,
+                    self.arm,
+                    allow_gripper_collision=True,
+                ),
+            ]
         )

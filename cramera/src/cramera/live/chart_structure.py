@@ -1,5 +1,5 @@
 """
-What a motion statechart is made of, as the viewer and a recording read it.
+What a statechart is made of, as the viewer and a recording read it.
 
 Lives apart from the bridge that publishes it: a recording is written by the onboarder
 too, and both have to describe a statechart the same way.
@@ -12,7 +12,7 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.statechart import Statechart
 from typing_extensions import Dict, List, Optional
 
 
@@ -51,7 +51,7 @@ class ChartEdgeEntry:
 @dataclass(frozen=True)
 class ChartStructure:
     """
-    A statechart's cached structure, rebuilt only when the executor compiles a new one.
+    A statechart's cached structure, rebuilt only when the statechart changes.
     """
 
     nodes: List[ChartNodeStructure] = field(default_factory=list)
@@ -101,20 +101,20 @@ class ChartNodeEntry:
 @dataclass(frozen=True)
 class ChartSnapshot:
     """
-    The motion statechart in the shape the viewer renders.
+    The statechart in the shape the viewer renders.
     """
 
     signature: str = ""
     title: str = ""
     """
-    Name of the action whose motion group this statechart belongs to.
+    Name of the action that runs while this snapshot is taken.
     """
 
     nodes: List[ChartNodeEntry] = field(default_factory=list)
     edges: List[ChartEdgeEntry] = field(default_factory=list)
 
 
-def structure_of(chart: MotionStatechart) -> ChartStructure:
+def structure_of(chart: Statechart) -> ChartStructure:
     """
     Nodes and transition edges of a statechart.
 

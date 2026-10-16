@@ -6,7 +6,8 @@ never what an object rests on.
 
 from __future__ import annotations
 
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
 from typing_extensions import List
 
 from semantic_digital_twin.reasoning.predicates import InContactWith
@@ -15,8 +16,8 @@ from segmind.detectors.base import SegmindContext
 from segmind.datastructures.events import ContactEvent
 from segmind.detectors.atomic_event_detectors_nodes import ContactDetector
 from segmind.detectors.spatial_relation_detector_nodes import SupportDetector
-from segmind.episode_segmenter import EpisodeSegmenterExecutor
-from segmind.statecharts.segmind_statechart import SegmindStatechart
+from segmind.episode_segmenter import EpisodeSegmentation
+from segmind.statecharts.segmind_statechart import DetectorStatechartBuilder
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -94,11 +95,13 @@ def _box_resting_on(
 def _supporters_detected_for(
     world: World, box: Body, exclude_robot: bool = True
 ) -> List[Body]:
-    executor = EpisodeSegmenterExecutor(context=MotionStatechartContext(world=world))
+    executor = StatechartExecutor(
+        context=StatechartContext(world=world), extensions=[EpisodeSegmentation()]
+    )
     executor.compile(
-        SegmindStatechart().build_statechart(
+        DetectorStatechartBuilder(
             [SupportDetector(tracked_object=box, exclude_robot=exclude_robot)]
-        )
+        ).build(executor.context)
     )
     executor.tick()
     segmind_context = executor.context.require_extension(SegmindContext)
@@ -143,11 +146,13 @@ def test_an_object_on_a_gripper_is_not_supported_by_the_gripper(pr2_world_copy):
 def _contacts_detected_for(
     world: World, box: Body, exclude_robot: bool = True
 ) -> List[Body]:
-    executor = EpisodeSegmenterExecutor(context=MotionStatechartContext(world=world))
+    executor = StatechartExecutor(
+        context=StatechartContext(world=world), extensions=[EpisodeSegmentation()]
+    )
     executor.compile(
-        SegmindStatechart().build_statechart(
+        DetectorStatechartBuilder(
             [ContactDetector(tracked_object=box, exclude_robot=exclude_robot)]
-        )
+        ).build(executor.context)
     )
     executor.tick()
     segmind_context = executor.context.require_extension(SegmindContext)

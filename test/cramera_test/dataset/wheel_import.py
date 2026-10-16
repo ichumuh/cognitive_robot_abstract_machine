@@ -8,7 +8,6 @@ from pathlib import Path
 
 import cramera
 
-
 print(
     json.dumps(
         {

@@ -4,7 +4,7 @@ from typing import Any, List, Optional
 
 import pytest
 
-from giskardpy.executor import Executor, NoPacing
+from cramph.executor import NoPacing
 from giskardpy.middleware.ros2 import rospy
 from giskardpy.middleware.ros2.action_server import GoalOutcome
 from giskardpy.middleware.ros2.client_presence import ClientWatchdog, HeartbeatPresence
@@ -17,7 +17,10 @@ from giskardpy.middleware.ros2.exceptions import (
     UnserializableGoalError,
     WorldModelModifiedDuringMotionError,
 )
-from giskardpy.middleware.ros2.feedback_publisher import ActionFeedbackPublisher
+from giskardpy.middleware.ros2.feedback_publisher import (
+    ActionFeedbackPublisher,
+    MotionStatechartPayloadKey,
+)
 from giskardpy.middleware.ros2.cycle_counter import CycleCounter
 from semantic_digital_twin.input_synchronization import (
     InputSynchronizer,
@@ -26,22 +29,21 @@ from semantic_digital_twin.input_synchronization import (
 from giskardpy.middleware.ros2.motion_goal import MotionGoal
 from giskardpy.middleware.ros2.motion_server import MotionServer
 from giskardpy.middleware.ros2.post_goal_plotters import PostGoalPlotter
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.exceptions import SelfInStartConditionError
+from cramph.exceptions import SelfInStartConditionError
 from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.monitors.payload_monitors import (
-    CountSimulationTimeSeconds,
-)
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
-from giskardpy.motion_statechart.nodes_for_testing.nodes_for_testing import (
-    ConstTrueNode,
-)
+from cramph.monitors import CountSimulationTimeSeconds
+from cramph.statechart import LastObservationState, Statechart
+from cramph.nodes_for_testing import ConstTrueNode
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.adapters.json_serializer import from_json
 from krrood.utils import get_full_class_name
 from semantic_digital_twin.adapters.ros.messages import MetaData, StreamPosition
 from semantic_digital_twin.callbacks.callback import StateChangeCallback
 from semantic_digital_twin.world import World
+from giskardpy.motion_control import MotionControl
+from cramph.context import StatechartContext
+from cramph.executor import StatechartExecutor
+
 
 from .test_client_presence import SteppingClock, heartbeat_of, let_heartbeats_stop
 
@@ -148,7 +150,7 @@ class WorldUpdatesMimic:
     recording what the server had already done whenever it asked about a position.
     """
 
-    executor: Optional[Executor] = None
+    executor: Optional[StatechartExecutor] = None
     """
     The executor whose compiled motion statechart is observed while a goal waits.
     """
@@ -194,7 +196,7 @@ class WorldUpdatesMimic:
     def has_applied(self, position: StreamPosition) -> bool:
         self.awaited_positions.append(position)
         self.compiled_while_waiting.append(
-            self.executor is not None and self.executor.motion_statechart is not None
+            self.executor is not None and self.executor.statechart is not None
         )
         if self.drains_until_caught_up is None:
             return False
@@ -243,7 +245,7 @@ class RecordingInputSynchronizer(InputSynchronizer):
     Records in which order inputs are read relative to the control cycles.
     """
 
-    executor: Executor = None
+    executor: StatechartExecutor = None
     """
     The executor whose control cycles are recorded on every apply.
     """
@@ -254,7 +256,7 @@ class RecordingInputSynchronizer(InputSynchronizer):
     """
 
     def apply(self) -> bool:
-        self.applied_at_control_cycles.append(self.executor.control_cycles)
+        self.applied_at_control_cycles.append(self.executor.tick_count)
         return False
 
 
@@ -337,10 +339,10 @@ def create_error_holding_a_variable() -> SelfInStartConditionError:
     :return: The error of a node that waits for itself, which holds the observation
         variable of that node and therefore cannot be serialized.
     """
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart(context=StatechartContext(world=World()))
     motion_statechart.add_node(node := ConstTrueNode(name="waits for itself"))
     with pytest.raises(SelfInStartConditionError) as error:
-        node.start_condition = node.observation_variable
+        node.start_condition = node.observes_true
     return error.value
 
 
@@ -570,16 +572,18 @@ class BrokenPlotError(Exception):
 # %% fixtures
 
 
-def create_executor() -> Executor:
+def create_executor() -> StatechartExecutor:
     """
     Build an executor that simulates as fast as possible in an empty world.
     """
-    return Executor(
-        context=MotionStatechartContext(
-            world=World(),
-            qp_controller_config=QPControllerConfig.create_with_simulation_defaults(),
-        ),
+    return StatechartExecutor(
+        context=StatechartContext(world=World()),
         pacer=NoPacing(),
+        extensions=[
+            MotionControl(
+                qp_controller_config=QPControllerConfig.create_with_simulation_defaults()
+            )
+        ],
     )
 
 
@@ -601,7 +605,7 @@ def create_goal_json(
     A goal that names no client comes from one that no check recognizes, which is what
     every test that is not about a client leaving wants.
     """
-    motion_statechart = MotionStatechart()
+    motion_statechart = Statechart(context=StatechartContext(world=World()))
     motion_statechart.add_node(counter := CountSimulationTimeSeconds(seconds=seconds))
     motion_statechart.add_node(EndMotion.when_true(counter))
     if client is None:
@@ -618,7 +622,7 @@ class MotionServerFixture:
     A motion server wired to mimics, so its lifecycle can be driven from a test.
     """
 
-    executor: Executor
+    executor: StatechartExecutor
     action_server: GoalQueueMimic
     world_updates: WorldUpdatesMimic
     publication_progress: PublicationProgressMimic
@@ -857,6 +861,41 @@ class TestGoalResult:
         assert "life_cycle_state" in result
         assert "observation_state" in result
 
+    def test_result_contains_the_last_observation_state(
+        self, motion_server: MotionServerFixture
+    ):
+        motion_server.action_server.goal_json = create_goal_json()
+
+        motion_server.motion_server.run_idle_cycle()
+
+        result = json.loads(motion_server.action_server.sent_results[0].result)
+        motion_statechart = motion_server.executor.statechart
+        assert (
+            LastObservationState.from_json(
+                result[MotionStatechartPayloadKey.LAST_OBSERVATION_STATE],
+                statechart=motion_statechart,
+            )
+            == motion_statechart.last_observation_state
+        )
+
+
+class TestStatesOfAFailedGoal:
+    """
+    A goal reports only the states of its own statechart.
+    """
+
+    def test_a_goal_failing_before_it_compiled_reports_no_states(
+        self, motion_server: MotionServerFixture
+    ):
+        motion_server.action_server.goal_json = create_goal_json()
+        motion_server.motion_server.run_idle_cycle()
+        motion_server.action_server.goal_json = "not a goal"
+
+        motion_server.motion_server.run_idle_cycle()
+
+        result = json.loads(motion_server.action_server.sent_results[-1].result)
+        assert MotionStatechartPayloadKey.LIFE_CYCLE_STATE not in result
+
 
 class TestCleanupAfterGoal:
     """
@@ -949,6 +988,25 @@ class TestCleanupAfterGoal:
         assert motion_server.plotter.plotted_goal_ids == [
             motion_server.action_server.goal_id
         ]
+
+
+class TestStateFeedback:
+    """
+    The client learns at which tick the states it is sent were taken.
+    """
+
+    def test_the_last_feedback_carries_the_tick_the_goal_ended_on(
+        self, motion_server: MotionServerFixture
+    ):
+        motion_server.action_server.goal_json = create_goal_json()
+
+        motion_server.motion_server.run_idle_cycle()
+
+        last_feedback = feedback_data(motion_server.action_server.feedback_messages[-1])
+        assert (
+            last_feedback[MotionStatechartPayloadKey.TICK_COUNT]
+            == motion_server.executor.tick_count
+        )
 
 
 class TestGoalStructureFeedback:
@@ -1068,7 +1126,7 @@ class TestControlCycleOrder:
         applied = motion_server.control_input.applied_at_control_cycles
         assert applied == sorted(applied)
         assert applied[0] == 0
-        assert applied[-1] == motion_server.executor.control_cycles - 1
+        assert applied[-1] == motion_server.executor.tick_count - 1
 
     def test_commands_are_published_once_per_cycle(
         self, motion_server: MotionServerFixture

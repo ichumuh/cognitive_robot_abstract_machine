@@ -2,21 +2,19 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
-from typing_extensions import Optional, TYPE_CHECKING, Type
+from typing_extensions import TYPE_CHECKING, List, Type
 
-from krrood.entity_query_language.factories import ConditionType, get_false_statements
 from krrood.exceptions import DataclassException
 from coraplex.datastructures.enums import (
-    ExecutionType,
     VisualizationBackend,
     VisualizationOption,
 )
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
-    from coraplex.plans.designator import Designator
-    from coraplex.plans.plan_node import PlanNode
-    from coraplex.robot_plans.actions.base import ActionDescription
+    from coraplex.plans.designator import DesignatorParameters
+    from cramph.composites import CompositeNodeChoosingItsChild
+    from cramph.node import StatechartNode
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
     from semantic_digital_twin.grasping.grasp_candidates import HasGraspCandidates
     from semantic_digital_twin.world_description.world_entity import (
@@ -78,28 +76,53 @@ class VisualizationBackendUnavailable(DataclassException):
         return "Install the selected visualization provider or select another backend."
 
 
-# %% plan execution
 @dataclass
-class ContextIsUnavailable(DataclassException):
+class RvizVisualizationWithoutRosNode(DataclassException):
     """
-    Raised when an instance that tries to access the context of a plan has no reference
-    to the plan.
-
-    Most likely raised when an action created a subplan without calling
-    `ActionDescription.add_subplan`
-    """
-
-    instance: Designator
-    """
-    The instance where the plan node is None.
+    RViz is selected as the renderer, but no ROS node is given to publish through.
     """
 
     def error_message(self) -> str:
-        return f"{self.instance} has no plan node."
+        return "RViz is selected as the renderer without a ROS node to publish through."
+
+    def suggest_correction(self) -> str:
+        return "Pass a ROS node when selecting the visualization, or select another backend."
+
+
+# %% plan execution
+@dataclass
+class PlanNotCompiled(DataclassException):
+    """
+    Raised when a plan executor is asked to execute before it compiled a plan.
+    """
+
+    def error_message(self) -> str:
+        return "No plan was compiled to execute."
+
+    def suggest_correction(self) -> str:
+        return "call compile with the plan before calling execute."
+
+
+@dataclass
+class NotAStatementNode(DataclassException):
+    """
+    Raised when a node asks for a child to be grounded that carries no underspecified
+    statement.
+    """
+
+    node: CompositeNodeChoosingItsChild
+    """
+    The node that asked.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.node} carries no underspecified statement to ground a child from."
+        )
 
     def suggest_correction(self) -> str:
         return (
-            "did you forget to call `add_subplan` when creating plans inside actions?"
+            "build nodes that choose their child in a plan with `a(...)` or `an(...)`."
         )
 
 
@@ -131,43 +154,41 @@ class CannotMatchOnType(DataclassException):
 
 
 @dataclass
-class CannotInsertBesideRoot(DataclassException):
+class ActionNotExpanded(DataclassException):
     """
-    Raised when a node is to be inserted before or after the root node, which has no
-    parent that could hold the new sibling.
+    Raised when the body of an action is to be replaced before the action was expanded,
+    so it has no body yet.
     """
 
-    root: PlanNode
+    action: StatechartNode
     """
-    The root node that was given as the reference node.
+    The action that has no body.
     """
 
     def error_message(self) -> str:
-        return (
-            f"{self.root} is the root of the plan and has no parent to hold a sibling."
-        )
+        return f"{self.action} was not expanded, so it has no body to replace."
 
     def suggest_correction(self) -> str:
-        return "insert the node as the last child of the root instead"
+        return "add the action to a statechart before replacing its body"
 
 
 @dataclass
-class NodeNotInPlanTree(DataclassException):
+class ClosingGoalNotFound(DataclassException):
     """
-    Raised when the nodes before a node are asked for, but the node cannot be reached
-    from the root of its plan.
+    Raised when the goal closing the container is asked for, but no such goal lies below
+    the close action's node.
     """
 
-    node: PlanNode
+    plan_node: StatechartNode
     """
-    The node that is not part of its plan's tree.
+    The node of the close action.
     """
 
     def error_message(self) -> str:
-        return f"{self.node} cannot be reached from the root of its plan."
+        return f"{self.plan_node} has no goal closing its container below it."
 
     def suggest_correction(self) -> str:
-        return "add the node below the plan's root before asking what precedes it"
+        return "ask for the closing goal only once the close action has been expanded"
 
 
 @dataclass
@@ -177,7 +198,7 @@ class ReachHasNoFinalApproach(DataclassException):
     motion lies below the reach's node.
     """
 
-    plan_node: PlanNode
+    plan_node: StatechartNode
     """
     The node of the reach.
     """
@@ -190,22 +211,41 @@ class ReachHasNoFinalApproach(DataclassException):
 
 
 @dataclass
-class GraspHasNoClosingMotion(DataclassException):
+class GraspHasNoClosingGoal(DataclassException):
     """
-    Raised when the motion a grasp closes with is asked for, but no gripper motion that
+    Raised when the goal a grasp closes its gripper with is asked for, but no goal that
     shuts the gripper lies below the grasp's node.
     """
 
-    plan_node: PlanNode
+    plan_node: StatechartNode
     """
     The node of the grasp.
     """
 
     def error_message(self) -> str:
-        return f"{self.plan_node} has no motion closing the gripper below it."
+        return f"{self.plan_node} has no goal closing the gripper below it."
 
     def suggest_correction(self) -> str:
-        return "ask for the closing motion only once the grasp has been expanded"
+        return "ask for the closing goal only once the grasp has been expanded"
+
+
+@dataclass
+class ToolPathNotFound(DataclassException):
+    """
+    Raised when the goal moving a tool along its path is asked for, but no such goal
+    lies below the tool action's node.
+    """
+
+    plan_node: StatechartNode
+    """
+    The node of the tool action.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.plan_node} has no goal moving its tool along a path below it."
+
+    def suggest_correction(self) -> str:
+        return "ask for the tool path only once the tool action has been expanded"
 
 
 @dataclass
@@ -214,7 +254,7 @@ class MissingWaypoints(DataclassException):
     Raised when a waypoint motion or tool action produced no waypoints to follow.
     """
 
-    instance: Designator
+    instance: DesignatorParameters
     """
     The designator that has no waypoints.
     """
@@ -232,7 +272,7 @@ class WipingTargetMissing(DataclassException):
     Raised when a wiping action is created without a surface to wipe.
     """
 
-    instance: Designator
+    instance: DesignatorParameters
     """
     The wiping action that has no target.
     """
@@ -268,18 +308,23 @@ class MissingToolFrame(DataclassException):
 
 
 @dataclass
-class ConditionNotSatisfied(PlanFailure):
+class MotionDidNotFinish(PlanFailure):
+    """
+    Raised when a plan ended without succeeding.
+    """
 
-    pre_condition: bool
-    action: Type[ActionDescription]
-    condition: ConditionType
+    unfinished_motions: List[StatechartNode]
+    """
+    The nodes that did not succeed, whether they failed, were interrupted or never
+    ended.
+    """
 
     def error_message(self) -> str:
-        prefix = "Pre" if self.pre_condition else "Post"
-        if isinstance(self.condition, bool):
-            return f"{prefix}-Condition for Action '{self.action.__name__}' is not satisfied"
-        false_statements = get_false_statements(self.condition)
-        return f"{prefix}-Condition for Action '{self.action.__name__}' is not satisfied, following statements could not be satisfied: {[s._name_ for s in false_statements]}"
+        reports = ", ".join(
+            f"{motion.unique_name} ({motion.life_cycle_state.name})"
+            for motion in self.unfinished_motions
+        )
+        return f"Motion did not finish, following motions did not succeed: {reports}"
 
     def suggest_correction(self) -> str:
         return ""
@@ -302,51 +347,6 @@ class ObjectIsNotHeld(DataclassException):
 
     def suggest_correction(self) -> str:
         return "place the object after a pick-up of it."
-
-
-@dataclass
-class FingerWidthNeedsPhysics(DataclassException):
-    """
-    Raised when fingers are sent to a width while the execution is not physically
-    simulated.
-    """
-
-    execution_type: Optional[ExecutionType]
-    """
-    The execution type the motion was performed under.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"closing the fingers to a width has no effect under "
-            f"{self.execution_type}"
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "Perform the plan inside a PhysicallySimulatedRobot or on the real robot, "
-            "where the fingers meet the object. Where the world is only moved "
-            "kinematically, a held object hangs off the tool frame and a gripper state "
-            "of its own is enough: use MoveGripperMotion instead."
-        )
-
-
-@dataclass
-class UnknownExecutionType(DataclassException):
-    """
-    Raised when an executable is run with an execution type it does not handle.
-    """
-
-    execution_type: ExecutionType
-    """
-    The execution type that is not supported.
-    """
-
-    def error_message(self) -> str:
-        return f"Unknown execution type: {self.execution_type}"
-
-    def suggest_correction(self) -> str:
-        return ""
 
 
 @dataclass
@@ -408,25 +408,6 @@ class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation):
 
     def suggest_correction(self) -> str:
         return "narrow the query's semantic annotation so it names a single object."
-
-
-@dataclass
-class NothingDetected(PerceptionExceptionWithSemanticAnnotation):
-    """
-    Raised when a perception source answers a query without reporting any object.
-
-    Treated as a failure rather than an empty answer: a plan that carried on would act on
-    the pose the object was spawned with while believing perception had confirmed it.
-    """
-
-    def error_message(self) -> str:
-        return f"The perception source reported no {self.semantic_annotation.__name__}."
-
-    def suggest_correction(self) -> str:
-        return (
-            "check that the object is in view and that the pipeline's crop and plane "
-            "parameters cover it."
-        )
 
 
 @dataclass

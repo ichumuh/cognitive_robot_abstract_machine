@@ -1,23 +1,28 @@
-from __future__ import division
+from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from krrood.symbolic_math.symbolic_math import trinary_logic_and
+from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
-from giskardpy.motion_statechart.context import MotionStatechartContext
+from cramph.node import EndedByOwner
+from cramph.context import StatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
+from cramph.node import CompositeNode, NodeArtifacts
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 
 
-@dataclass(eq=False, repr=False)
-class Open(Goal):
+@dataclass(eq=False, repr=False, kw_only=True)
+class Open(EndedByOwner, CompositeNode):
     """
     Open a 1-dof mechanism in an environment by driving its degree of freedom towards
     its upper limit while keeping the end effector fixed relative to the grasped part.
@@ -27,26 +32,24 @@ class Open(Goal):
     :class:`ActiveConnection1DOF`, e.g. drawers, doors, or screw caps.
     """
 
-    tip_link: KinematicStructureEntity = field(kw_only=True)
+    tip_link: KinematicStructureEntity
     """
     End effector that is grasping the handle.
     """
 
-    environment_link: KinematicStructureEntity = field(kw_only=True)
+    environment_link: KinematicStructureEntity
     """
     Name of the handle that was grasped.
     """
 
-    goal_joint_state: Optional[float] = field(default=None, kw_only=True)
+    goal_joint_state: Optional[float] = None
     """
     Goal state for the mechanism.
 
     default is the limit this goal drives towards.
     """
 
-    mechanism_weight: float = field(
-        default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE, kw_only=True
-    )
+    mechanism_weight: float = DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE
     """
     Weight of the goal driving the degree of freedom of the mechanism.
 
@@ -55,9 +58,7 @@ class Open(Goal):
     pushing the arm through what is in its way.
     """
 
-    grasp_weight: float = field(
-        default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True
-    )
+    grasp_weight: float = DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE
     """
     Weight of the goal keeping the end effector fixed relative to the grasped part.
 
@@ -65,13 +66,19 @@ class Open(Goal):
     letting the end effector drift off the grasped part, and the two move independently.
     """
 
-    def expand(self, context: MotionStatechartContext) -> None:
+    grasping_end_effector: EndEffector | None = None
+    """
+    The end effector grasping the part, which may then touch its surroundings while the
+    mechanism moves; ``None`` leaves collision avoidance as it is.
+    """
+
+    def expand(self, context: StatechartContext) -> None:
         self.connection = self.environment_link.get_first_parent_connection_of_type(
             ActiveConnection1DOF
         )
         self.goal_joint_state = self._reachable_goal_joint_state()
 
-        self._add_children_to_motion_statechart(
+        self._add_children_to_statechart(
             [
                 JointPositionList(
                     name="hinge goal",
@@ -89,6 +96,14 @@ class Open(Goal):
                 ),
             ]
         )
+        if self.grasping_end_effector is not None:
+            self._add_children_to_statechart(
+                [
+                    UpdateTemporaryCollisionRules.for_end_effector(
+                        self.grasping_end_effector
+                    )
+                ]
+            )
 
     def _reachable_goal_joint_state(self) -> float:
         """
@@ -99,21 +114,23 @@ class Open(Goal):
             return limit
         return min(limit, self.goal_joint_state)
 
-    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+    def build_artifacts(self, context: StatechartContext) -> NodeArtifacts:
         """
         Build an observation that is True once both the degree of freedom and the grip
         on the grasped part reached their goals.
 
-        This goal ends neither of them, so a part that keeps running is judged by what
-        it observes now and stops counting once it drifts away from its goal again. A
-        part something *else* ended keeps counting, because its verdict outlasts it.
+        Both parts are created here and end only when this goal ends, so each is judged
+        by what it observes now and stops counting once it drifts away from its goal
+        again.
         """
         return NodeArtifacts(
-            observation=trinary_logic_and(*[node.goal_reached for node in self.nodes])
+            observation=trinary_logic_and(
+                *[node.observation_variable for node in self.nodes]
+            )
         )
 
 
-@dataclass(eq=False, repr=False)
+@dataclass(eq=False, repr=False, kw_only=True)
 class Close(Open):
     """
     Close a 1-dof mechanism in an environment by driving its degree of freedom towards

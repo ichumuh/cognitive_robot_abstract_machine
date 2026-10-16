@@ -129,7 +129,9 @@ class LayeredProbabilisticCircuit(GroundableCircuit[LayerNode]):
 
     variables: SortedSet
     """
-    The variables of the circuit. The layers refer to them by their index here.
+    The variables of the circuit.
+
+    The layers refer to them by their index here.
     """
 
     root: Layer

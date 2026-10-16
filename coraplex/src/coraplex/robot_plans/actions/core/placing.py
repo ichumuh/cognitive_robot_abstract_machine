@@ -1,53 +1,46 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from typing_extensions import Any, Dict, List, Tuple
 
-from coraplex.plans.attachment_nodes import ReAttachNode
-from coraplex.plans.plan_node import PlanNode
-from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import (
-    or_,
-    not_,
-    and_,
     variable_from,
     ConditionType,
 )
-from coraplex.datastructures.dataclasses import Context
+from coraplex.plans.context_extensions import RobotAccess
+from cramph.context import StatechartContext
 from coraplex.exceptions import ObjectIsNotHeld
 from coraplex.querying.predicates import GripperHolds
-from coraplex.plans.factories import sequential
+from cramph.node import StatechartNode
+from cramph.composites import Parallel, Sequence
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.mixins import (
+    ReattachesBodies,
     HasApproachesGraspPoses,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
+    MovesToolCenterPoint,
     PlaceTuningParameters,
 )
-from coraplex.robot_plans.motions.gripper import (
-    MoveGripperMotion,
-    MoveToolCenterPointMotion,
-)
 from semantic_digital_twin.datastructures.definitions import GripperState
-from semantic_digital_twin.reasoning.predicates import allclose
-from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
-from semantic_digital_twin.robots.robot_parts import Arm
-from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.grasping.grasp_candidates import (
     GraspCandidate,
     HasGraspCandidates,
 )
+from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
+from semantic_digital_twin.robots.robot_parts import Arm
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 
 
-@dataclass
+@dataclass(eq=False, repr=False, kw_only=True)
 class PlaceAction(
-    ActionDescription,
+    MovesToolCenterPoint,
+    ReattachesBodies,
     HasApproachesGraspPoses,
     PlaceTuningParameters,
     HasGraspDetectionThreshold,
-    HasTcpGoalThresholds,
+    MovesGripper,
 ):
     """
     Places an object at a position with the arm that holds it.
@@ -57,20 +50,20 @@ class PlaceAction(
     """
     The annotation of the object that should be placed.
     """
+
     target_location: Pose
     """
     Pose in the world at which the object should be placed.
     """
 
-    grasp_release_threshold: float = field(default=0.1, kw_only=True)
+    grasp_release_threshold: float = 0.1
     """
     Maximum fraction of sampled rays between the gripper's fingers that may still hit
     :attr:`object_designator` for it to count as released (see
     :func:`~semantic_digital_twin.reasoning.robot_predicates.is_body_gripped`).
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_action_body(self) -> StatechartNode:
         arm, grasp = self._holding_arm_and_grasp()
         # A release runs the grasp backwards: down from above the target, then out
         # along the way the grasp was approached.
@@ -78,50 +71,66 @@ class PlaceAction(
             grasp.moved_to(self.target_location), arm.end_effector, grasp
         )
 
-        return sequential(
-            [
-                MoveToolCenterPointMotion(
+        return Sequence(
+            nodes=[
+                self.tool_center_point_goal(
                     poses.retreat,
                     arm,
                     allow_gripper_collision=True,
                     max_linear_velocity=self.transport_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveToolCenterPointMotion(
+                self.tool_center_point_goal(
                     poses.grasp,
                     arm,
                     allow_gripper_collision=True,
                     max_linear_velocity=self.placing_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
-                MoveGripperMotion(
-                    GripperState.OPEN,
-                    arm.end_effector,
-                    allow_gripper_collision=True,
-                    finger_velocity=self.release_opening_velocity,
+                Parallel(
+                    nodes=[
+                        self.gripper_goal(
+                            GripperState.OPEN,
+                            arm.end_effector,
+                            allow_gripper_collision=True,
+                            finger_velocity=self.release_opening_velocity,
+                        ),
+                        # Keeps the gripper in place while it opens, whatever else
+                        # moves the robot meanwhile.
+                        self.tool_center_point_goal(
+                            poses.grasp, arm, allow_gripper_collision=True
+                        ),
+                    ]
                 ),
-                ReAttachNode(
-                    body=self.object_designator.root, new_parent=self.world.root
-                ),
-                MoveToolCenterPointMotion(
-                    poses.pre_grasp,
+                self._retract(arm, poses.pre_grasp),
+            ]
+        )
+
+    def _retract(self, arm: Arm, retract_pose: Pose) -> Sequence:
+        """
+        :param arm: The arm that placed the object.
+        :param retract_pose: Where its tool frame withdraws to.
+        :return: The steps that re-parent the placed object back to the world and
+            retract the end effector away from it.
+        """
+        return Sequence(
+            name=f"{self.name}/retract",
+            nodes=[
+                *self.reattach(self.object_designator.root, self.world.root),
+                # The gripper starts out around the object it has just let go of.
+                self.tool_center_point_goal(
+                    retract_pose,
                     arm,
+                    allow_gripper_collision=True,
                     max_linear_velocity=self.retract_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                 ),
             ],
-            self.context,
         )
 
     def _holding_arm_and_grasp(self) -> Tuple[Arm, GraspCandidate]:
         """
         The arm that holds :attr:`object_designator`, and the grasp it holds it by.
 
-        Read off the gripper while it holds the object; while the plan is still being
-        built, taken from the latest pick-up before this place.
+        Read off the gripper while it holds the object; while the statechart is still
+        being built, taken from the latest pick-up of the object before this place.
 
         :return: The arm and its grasp on the object.
         :raises ObjectIsNotHeld: If no arm holds the object and no pick-up precedes this
@@ -134,12 +143,12 @@ class PlaceAction(
                 return arm, GraspCandidate(
                     self.object_designator, end_effector.held_body_T_grasp
                 )
-        previous_pick = self.plan_node.get_previous_node_by_designator_type(
-            PickUpAction
-        )
-        if previous_pick is None:
-            raise ObjectIsNotHeld(self.object_designator)
-        return previous_pick.designator.arm, previous_pick.designator.grasp
+        for previous_pick in self.statechart.get_preceding_nodes_by_type(
+            self, PickUpAction
+        ):
+            if previous_pick.grasp.graspable.root is object_body:
+                return previous_pick.arm, previous_pick.grasp
+        raise ObjectIsNotHeld(self.object_designator)
 
     def _grasp_on_the_held_object(self) -> GraspCandidate:
         """
@@ -149,51 +158,8 @@ class PlaceAction(
         return self._holding_arm_and_grasp()[1]
 
     @staticmethod
-    def pre_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        An arm of the robot needs to hold the object, whether the object hangs off its
-        gripper or merely lies between the fingers.
-
-        A thin or rim grasp leaves too little of the object between the fingers for the
-        ray test alone to see it, so a gripper the object hangs off counts too.
-        """
-        object_body = kwargs["object_designator"].root
-        return or_(
-            *[
-                GripperHolds(arm.end_effector, object_body)
-                for arm in context.robot.all_arms
-            ],
-            *PlaceAction._grips_of_every_arm(
-                context, kwargs, kwargs["grasp_detection_threshold"]
-            ),
-        )
-
-    @staticmethod
-    def post_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        No arm may hold the object any more and it needs to be at the target location.
-        """
-        return and_(
-            *[
-                not_(grip)
-                for grip in PlaceAction._grips_of_every_arm(
-                    context, kwargs, kwargs["grasp_release_threshold"]
-                )
-            ],
-            allclose(
-                variable_from(kwargs["object_designator"].root).global_pose,
-                kwargs["target_location"],
-                atol=0.03,
-            ),
-        )
-
-    @staticmethod
     def _grips_of_every_arm(
-        context: Context, kwargs: Dict[str, Any], threshold: float
+        context: StatechartContext, kwargs: Dict[str, Any], threshold: float
     ) -> List[ConditionType]:
         """
         :param threshold: The fraction of rays between the fingers that has to hit the
@@ -206,5 +172,5 @@ class PlaceAction(
                 arm.end_effector,
                 threshold=threshold,
             )
-            for arm in context.robot.all_arms
+            for arm in context.require_extension(RobotAccess).robot.all_arms
         ]

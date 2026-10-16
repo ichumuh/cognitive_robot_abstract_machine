@@ -18,7 +18,7 @@ classifiers = [
 keywords = ["robotics", "visualization"]
 dynamic = ["version"]
 dependencies = [
-    "coraplex", "giskardpy", "semantic_digital_twin", "krrood", "segmind",
+    "coraplex", "cramph", "giskardpy", "semantic_digital_twin", "krrood", "segmind",
     "numpy", "scipy", "rapidfuzz>=3.0", "typing_extensions", "urdf-parser-py",
 ]
 license = { text = "GPL-3.0-only" }

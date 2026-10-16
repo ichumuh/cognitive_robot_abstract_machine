@@ -1,24 +1,17 @@
 """
-Live bridge snapshots of native plans, worlds and motion statecharts.
+Live bridge snapshots of plans, worlds and motion statecharts.
 """
 
 from __future__ import annotations
 
 import urllib.parse
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, make_dataclass
 
 import pytest
-from coraplex.language import SequentialNode
-from coraplex.plans.condition_nodes import ConditionNode
-from coraplex.plans.plan import Plan
-from coraplex.plans.plan_node import ActionNode, MotionNode
-from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
-from coraplex.robot_plans.motions.base import BaseMotion
-from giskardpy.motion_statechart.data_types import LifeCycleValues
+from cramph.data_types import LifeCycleValues
 from krrood.entity_query_language.factories import inference
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -43,41 +36,100 @@ from semantic_digital_twin.world_description.geometry import (
 )
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
-from typing_extensions import Any, Dict, List, Optional, Tuple
+from typing_extensions import Any, Dict, List, Optional, Self, Tuple
+
+from coraplex.plans.designator import DesignatorParameters
 
 from cramera.knowledge.enums import PlanNodeGroup
 from cramera.live.chart_structure import ChartEdgeEntry
 from cramera.live.bridge import Bridge
 from cramera.recording_fields import SceneField
 
-from .dataset.plan_metadata import BodyTargetMotion
 from .test_robot_parts import ArmPart, EndEffectorPart, NamedBody, OneArmedRobot
 
 
-# %% native plan fixtures
-@pytest.fixture()
-def plan_bridge(
-    pr2_world_copy: World,
-) -> tuple[Bridge, SequentialNode, ActionNode, ConditionNode, MotionNode]:
+# %% mimics of the interfaces the bridge reads
+@dataclass
+class ActionDescription:
     """
-    Build a native plan with an action, condition, and body-targeting motion.
+    The parameters an action was given, as the bridge inspects them.
 
-    :param pr2_world_copy: The world containing the native robot annotations.
+    Parameters are set only when present, mirroring real actions whose fields differ per
+    action type.
+    """
+
+    designator_parameter: Dict[str, Any] = field(default_factory=dict)
+    """
+    The parameters by the name they were given under.
+    """
+
+    @classmethod
+    def of(cls, target: Optional[Body] = None, arm: Optional[str] = None) -> Self:
+        """
+        :return: The parameters of an action acting on `target` with `arm`.
+        """
+        parameters = {}
+        if target is not None:
+            parameters["acted_on"] = target
+        if arm is not None:
+            parameters["arm"] = arm
+        return cls(parameters)
+
+
+def make_plan_node(
+    kind: str,
+    life_cycle_state: LifeCycleValues = LifeCycleValues.NOT_STARTED,
+    designator: Optional[ActionDescription] = None,
+    children: tuple = (),
+) -> Any:
+    """
+    A plan-node mimic of the given class name, as the serializer walks it.
+
+    Given a designator, it is an action carrying those parameters.
+    """
+    if designator is None:
+        node = type(kind, (object,), {})()
+    else:
+        node_class = make_dataclass(
+            kind,
+            [(name, Any) for name in designator.designator_parameter],
+            bases=(DesignatorParameters,),
+            eq=False,
+        )
+        node = node_class(**designator.designator_parameter)
+    node.life_cycle_state = life_cycle_state
+    node.children = list(children)
+    return node
+
+
+def make_statechart(*top_level_nodes: Any) -> Any:
+    """
+    A statechart mimic holding `top_level_nodes`, as the bridge reads a plan off it.
+    """
+    statechart = type("Statechart", (object,), {})()
+    statechart.top_level_nodes = list(top_level_nodes)
+    return statechart
+
+
+@pytest.fixture()
+def plan_bridge() -> tuple[Bridge, Any, Any, Any, Any]:
+    """
+    Build a plan with an action acting on a published body, a condition and a motion.
+
     :return: The observing bridge and the plan's root, action, condition and motion.
     """
     bridge = Bridge()
     target = Body(name=PrefixedName("milk.stl", prefix="world"))
-    motion = MotionNode(designator=BodyTargetMotion(target_body=target))
-    [robot] = pr2_world_copy.get_semantic_annotations_by_type(PR2)
-    action = ActionNode(designator=ParkArmsAction(arms=[robot.right_arm]))
-    condition = ConditionNode(condition=True, pre_condition=True, action_node=action)
-    root = SequentialNode()
-    plan = Plan()
-    plan.add_edge(root, action)
-    plan.add_edge(action, condition)
-    plan.add_edge(action, motion)
+    motion = make_plan_node("MotionNode")
+    condition = make_plan_node("ConditionNode")
+    action = make_plan_node(
+        "ActionNode",
+        designator=ActionDescription.of(target=target, arm="LEFT"),
+        children=[condition, motion],
+    )
+    root = make_plan_node("SequentialNode", children=[action])
     bridge.publish_bodies({"milk.stl": target})
-    bridge.begin_plan(plan)
+    bridge.begin_plan(make_statechart(root))
     return bridge, root, action, condition, motion
 
 
@@ -88,32 +140,45 @@ def nodes_by_kind(bridge: Bridge) -> Dict[str, Dict[str, Any]]:
     return {node["kind"]: node for node in bridge.get_plan()["nodes"]}
 
 
+def set_life_cycle_state(
+    bridge: Bridge, node: Any, life_cycle_state: LifeCycleValues
+) -> None:
+    """
+    Put a plan node into a life cycle state and republish the plan.
+
+    :param bridge: The bridge observing the plan.
+    :param node: The plan-node mimic whose state changes.
+    :param life_cycle_state: The state the node is in now.
+    """
+    node.life_cycle_state = life_cycle_state
+    bridge.snapshot_plan()
+
+
 # %% plan tree
 class TestPlanSnapshot:
     """
-    Each published node retains its native identity, metadata, and lifecycle.
+    Each published node retains its own identity, metadata, and life cycle state.
     """
 
     def test_running_nodes_publish_their_own_status(self, plan_bridge) -> None:
         """
-        Execution states are read from both the native action and its motion.
+        Life cycle states are read from both the action and its motion.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, action, _, motion = plan_bridge
-        action.status = LifeCycleValues.RUNNING
-        motion.status = LifeCycleValues.RUNNING
-        bridge.snapshot_plan()
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
+        set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
         nodes = nodes_by_kind(bridge)
-        assert nodes["MotionNode"]["status"] == motion.status.name
+        assert nodes["MotionNode"]["status"] == motion.life_cycle_state.name
         assert nodes["MotionNode"]["derived"] is False
-        assert nodes["ActionNode"]["status"] == action.status.name
+        assert nodes["ActionNode"]["status"] == action.life_cycle_state.name
 
     def test_each_node_carries_the_colour_group_of_its_kind(self, plan_bridge):
         """
-        The bridge publishes the native node kind's colour group.
+        The bridge publishes the node kind's colour group.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, *_ = plan_bridge
         by_kind = {node["kind"]: node["group"] for node in bridge.get_plan()["nodes"]}
@@ -130,55 +195,60 @@ class TestPlanSnapshot:
 
     def test_designator_metadata_is_serialized(self, plan_bridge) -> None:
         """
-        Publish the target identity and native description of designator parameters.
+        Publish the target identity and description of designator parameters.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
-        bridge, _, action, _, motion = plan_bridge
+        bridge, _, action, _, _ = plan_bridge
         nodes = nodes_by_kind(bridge)
-        assert nodes["MotionNode"]["target"] == motion.designator.target_body.name.name
+        assert nodes["ActionNode"]["target"] == action.acted_on.name.name
         assert nodes["ActionNode"][SceneField.DESCRIPTION] == verbalize_expression(
-            inference(type(action.designator))(**action.designator.designator_parameter)
+            inference(type(action))(**action.designator_parameter)
         )
 
     def test_completed_parent_keeps_its_status_with_unstarted_children(
         self, plan_bridge
     ) -> None:
         """
-        An unstarted child does not change its completed parent's lifecycle.
+        An unstarted child does not change its completed parent's life cycle state.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, root, *_ = plan_bridge
-        root.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
-        assert nodes_by_kind(bridge)["SequentialNode"]["status"] == root.status.name
-        assert nodes_by_kind(bridge)["SequentialNode"]["derived"] is False
+        set_life_cycle_state(bridge, root, LifeCycleValues.SUCCEEDED)
+        nodes = nodes_by_kind(bridge)
+        assert nodes["SequentialNode"]["status"] == root.life_cycle_state.name
+        assert nodes["SequentialNode"]["derived"] is False
 
     def test_running_parent_remains_running_after_a_motion_finishes(
         self, plan_bridge
     ) -> None:
         """
-        Motion completion does not complete the native action's execution scope.
+        A finished motion does not finish the action it belongs to.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, action, _, motion = plan_bridge
-        action.status = LifeCycleValues.RUNNING
-        motion.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == action.status.name
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
+        set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
+        assert (
+            nodes_by_kind(bridge)["ActionNode"]["status"]
+            == action.life_cycle_state.name
+        )
 
     def test_completed_action_publishes_its_terminal_state(self, plan_bridge) -> None:
         """
         The action's terminal state is retained with completed descendants.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, action, condition, motion = plan_bridge
-        action.status = condition.status = motion.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == action.status.name
+        for node in (action, condition, motion):
+            set_life_cycle_state(bridge, node, LifeCycleValues.SUCCEEDED)
+        assert (
+            nodes_by_kind(bridge)["ActionNode"]["status"]
+            == action.life_cycle_state.name
+        )
 
     def test_failed_action_keeps_its_failure_with_succeeded_motion(
         self, plan_bridge
@@ -186,75 +256,80 @@ class TestPlanSnapshot:
         """
         A successful motion does not clear an action-level failure.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, action, _, motion = plan_bridge
-        action.status = LifeCycleValues.FAILED
-        motion.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
-        assert nodes_by_kind(bridge)["ActionNode"]["status"] == action.status.name
+        set_life_cycle_state(bridge, action, LifeCycleValues.FAILED)
+        set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
+        assert (
+            nodes_by_kind(bridge)["ActionNode"]["status"]
+            == action.life_cycle_state.name
+        )
 
     def test_signature_is_stable_across_status_changes(self, plan_bridge) -> None:
         """
-        Changing lifecycle states leaves the plan structure signature unchanged.
+        Changing life cycle states leaves the plan structure signature unchanged.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, _, _, motion = plan_bridge
-        motion.status = LifeCycleValues.RUNNING
-        bridge.snapshot_plan()
+        set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
         while_running = bridge.get_plan()["signature"]
-        motion.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
+        set_life_cycle_state(bridge, motion, LifeCycleValues.SUCCEEDED)
         assert bridge.get_plan()["signature"] == while_running
 
     def test_identical_designators_keep_separate_node_statuses(self) -> None:
         """
-        Two steps with identical parameters retain their independent lifecycles.
+        Two steps that look the same are published with their own statuses.
         """
         bridge = Bridge()
-        first = MotionNode(designator=BaseMotion(), status=LifeCycleValues.FAILED)
-        second = MotionNode(designator=BaseMotion())
-        root = SequentialNode()
-        plan = Plan()
-        plan.add_edge(root, first)
-        plan.add_edge(root, second)
-        bridge.begin_plan(plan)
+        first = make_plan_node("MotionNode")
+        second = make_plan_node("MotionNode")
+        root = make_plan_node("SequentialNode", children=[first, second])
+        bridge.begin_plan(make_statechart(root))
+        set_life_cycle_state(bridge, first, LifeCycleValues.FAILED)
         statuses = [
             node["status"]
             for node in bridge.get_plan()["nodes"]
-            if node["kind"] == MotionNode.__name__
+            if node["kind"] == "MotionNode"
         ]
-        assert statuses == [first.status.name, second.status.name]
+        assert statuses == [
+            first.life_cycle_state.name,
+            second.life_cycle_state.name,
+        ]
 
-    def test_a_new_plan_publishes_only_its_current_nodes(self, plan_bridge) -> None:
+    def test_a_new_plan_replaces_the_previous_one(self, plan_bridge):
+        bridge, root, action, condition, motion = plan_bridge
+        other = make_plan_node("OtherNode")
+        bridge.begin_plan(make_statechart(other))
+        assert [node["kind"] for node in bridge.get_plan()["nodes"]] == ["OtherNode"]
+
+    def test_a_plan_of_several_top_level_nodes_is_published_as_trees_of_its_own(self):
         """
-        Starting a new plan replaces the previously published hierarchy.
-
-        :param plan_bridge: The bridge and its native plan nodes.
+        A statechart has no root node, so each top-level node of a plan roots a tree.
         """
-        bridge, _, _, _, motion = plan_bridge
-        motion.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
-        replacement = Plan()
-        replacement.add_node(MotionNode(designator=BaseMotion()))
-        bridge.begin_plan(replacement)
-        [published] = bridge.get_plan()["nodes"]
-        assert published["status"] == replacement.root.status.name
-        assert published["id"] != "plan_node_%d" % id(motion)
+        bridge = Bridge()
+        first = make_plan_node("FirstNode")
+        second = make_plan_node("SecondNode")
+
+        bridge.begin_plan(make_statechart(first, second))
+
+        assert [
+            (node["kind"], node["parent"]) for node in bridge.get_plan()["nodes"]
+        ] == [("FirstNode", None), ("SecondNode", None)]
 
 
-# %% recording step labels
+# %% the step a recording is labelled with
 class TestRunningStep:
     """
-    Recorded ticks name the deepest action whose native execution is running.
+    Recorded ticks name the deepest action that is running.
     """
 
     def test_nothing_is_reported_before_anything_runs(self, plan_bridge) -> None:
         """
         A plan that has not started does not label recording ticks.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, *_ = plan_bridge
         assert bridge.running_step() is None
@@ -263,24 +338,21 @@ class TestRunningStep:
         """
         The running action provides the recording step label.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, action, _, _ = plan_bridge
-        action.status = LifeCycleValues.RUNNING
-        bridge.snapshot_plan()
-        assert bridge.running_step() == type(action.designator).__name__
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
+        assert bridge.running_step() == type(action).__name__
 
     def test_a_finished_action_is_no_longer_reported(self, plan_bridge) -> None:
         """
         A completed action no longer labels subsequent recording ticks.
 
-        :param plan_bridge: The bridge and its native plan nodes.
+        :param plan_bridge: The bridge and its plan nodes.
         """
         bridge, _, action, _, _ = plan_bridge
-        action.status = LifeCycleValues.RUNNING
-        bridge.snapshot_plan()
-        action.status = LifeCycleValues.SUCCEEDED
-        bridge.snapshot_plan()
+        set_life_cycle_state(bridge, action, LifeCycleValues.RUNNING)
+        set_life_cycle_state(bridge, action, LifeCycleValues.SUCCEEDED)
         assert bridge.running_step() is None
 
     def test_a_running_motion_is_not_reported_as_the_step(self):
@@ -288,10 +360,10 @@ class TestRunningStep:
         A motion without a running action does not name a recording step.
         """
         bridge = Bridge()
-        motion = MotionNode(designator=BaseMotion(), status=LifeCycleValues.RUNNING)
-        plan = Plan()
-        plan.add_node(motion)
-        bridge.begin_plan(plan)
+        motion = make_plan_node("MotionNode")
+        bridge.begin_plan(make_statechart(motion))
+        set_life_cycle_state(bridge, motion, LifeCycleValues.RUNNING)
+
         assert bridge.running_step() is None
 
 

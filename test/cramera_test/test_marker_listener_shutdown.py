@@ -9,7 +9,6 @@ from rclpy.executors import ExternalShutdownException
 from cramera.live.bridge import Bridge
 from cramera.live.ros_markers import RosMarkerListener
 
-
 # %% external context shutdown
 
 

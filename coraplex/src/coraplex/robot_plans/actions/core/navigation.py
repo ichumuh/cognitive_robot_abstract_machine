@@ -1,26 +1,28 @@
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass, field
 
-from typing_extensions import Optional, Any, Dict
+from typing_extensions import Optional
 
-from coraplex.datastructures.dataclasses import Context
 from coraplex.exceptions import NoFloorBelowRobot, NotOnASingleLevelException
-from coraplex.plans.attachment_nodes import ReAttachNode
-from coraplex.plans.factories import execute_single, pause_until, sequential
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.motions.navigation import MoveMotion, TurnMotion
-from coraplex.robot_plans.motions.robot_body import LookingMotion
-from giskardpy.motion_statechart.goals.templates import Parallel
+from cramph.node import StatechartNode
+from coraplex.robot_plans.actions.base import Action
+from coraplex.robot_plans.mixins import ReattachesBodies
+from cramph.composites import Parallel, PausedUntilTrue, Sequence
+from giskardpy.motion_statechart.goals.cartesian_goals import DifferentialDriveBaseGoal
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from giskardpy.motion_statechart.monitors.joint_monitors import (
     JointPositionReached,
 )
-from krrood.entity_query_language.core.variable import Variable
-from krrood.entity_query_language.factories import variable_from, and_, ConditionType
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPose,
+    CartesianPosition,
+)
+from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingBeside
 from semantic_digital_twin.exceptions import MissingMovableJointError
-from semantic_digital_twin.reasoning.predicates import allclose, InsideOf
-from semantic_digital_twin.reasoning.robot_predicates import is_pose_free_for_robot
+from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Level,
@@ -38,8 +40,61 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 
 
-@dataclass
-class NavigateAction(ActionDescription):
+@dataclass(eq=False, repr=False, kw_only=True)
+class DrivesBase(Action, ABC):
+    """
+    Base class for the actions that move the robot's base to a pose.
+    """
+
+    base_pose_threshold: float = DifferentialDriveBaseGoal.threshold
+    """
+    How far the base may be from a pose it drives to, in meters and in radians, to count
+    as arrived.
+
+    .. note:: Only read while the base :attr:`drives_differentially`.
+    """
+
+    drives_differentially: bool = field(default=False, init=False)
+    """
+    Whether the base is moved with a goal for its differential drive, which turns
+    towards a pose, drives there and turns again, instead of a goal that asks the base
+    to move sideways.
+    """
+
+    writes_odometry: bool = field(default=False, init=False)
+    """
+    Whether the base is put at a pose by writing the odometry, instead of being driven
+    there.
+    """
+
+    def _drive_to(self, target: Pose) -> MotionStatechartNode:
+        """
+        :param target: Where the base should end up.
+        :return: The node that puts the base there: a goal of its own for a
+            differential drive, otherwise the odometry written directly where the base
+            :attr:`writes_odometry`, and otherwise the commanded pose the controller
+            drives to.
+        """
+        if self.drives_differentially:
+            return DifferentialDriveBaseGoal(
+                diff_drive_connection=self.robot.drive,
+                goal_pose=target,
+                threshold=self.base_pose_threshold,
+            )
+        if self.writes_odometry:
+            return SetOdometry(
+                base_pose=target.homogeneous_matrix,
+                odom_connection=self.robot.root.parent_connection,
+            )
+        return CartesianPose(
+            root_link=self.world.root,
+            tip_link=self.robot.root,
+            goal_pose=target,
+        )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class NavigateAction(DrivesBase):
     """
     Navigates the Robot to a position.
     """
@@ -50,42 +105,12 @@ class NavigateAction(ActionDescription):
     x-axis.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(
-            MoveMotion(self.robot.mobile_base.pose_facing(self.target_location))
-        )
-
-    @staticmethod
-    def pre_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        The robot needs to have a drive and the target location needs to be free from
-        obstacles.
-        """
-        drive_variable = variable_from(context.robot.drive is not None)
-        return and_(
-            is_pose_free_for_robot(context.robot, variables["target_location"]),
-            drive_variable,
-        )
-
-    @staticmethod
-    def post_condition(
-        variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
-    ) -> ConditionType:
-        """
-        The robot needs to be within 3 cm of where the heading puts its base.
-        """
-        return allclose(
-            variable_from(context.robot.root).global_pose,
-            context.robot.mobile_base.pose_facing(kwargs["target_location"]),
-            atol=0.03,
-        )
+    def create_action_body(self) -> StatechartNode:
+        return self._drive_to(self.robot.mobile_base.pose_facing(self.target_location))
 
 
-@dataclass
-class LookAtAction(ActionDescription):
+@dataclass(eq=False, repr=False, kw_only=True)
+class LookAtAction(Action):
     """
     Lets the robot look at a position.
     """
@@ -100,16 +125,35 @@ class LookAtAction(ActionDescription):
     Camera that should be looking at the target.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    sideways_offset: float = 0.0
+    """
+    How far to the left of the target the robot looks instead, as seen from where its
+    base stands when the look starts; a negative offset looks to the right.
+    """
+
+    def create_action_body(self) -> StatechartNode:
         camera = self.camera or self.robot.get_default_camera()
-        return execute_single(LookingMotion(target=self.target, camera=camera))
+        pointing = PointingBeside(
+            root_link=self.robot.get_torso().root,
+            tip_link=camera.root,
+            goal_point=self.target.position,
+            pointing_axis=camera.forward_facing_axis,
+            viewpoint=self.robot.root,
+            sideways_offset=self.sideways_offset,
+        )
+        hold_base = self.keep_base_still()
+        if not hold_base:
+            return pointing
+        return Parallel(nodes=[pointing, *hold_base])
 
 
-@dataclass
-class FaceAtAction(ActionDescription):
+@dataclass(eq=False, repr=False, kw_only=True)
+class FaceAtAction(Action):
     """
     Turns the robot's base on the spot until its front faces a target.
+
+    The base keeps the position it has when the action starts, so the turn is towards
+    the target from wherever an earlier action left it.
     """
 
     target: Pose
@@ -117,13 +161,38 @@ class FaceAtAction(ActionDescription):
     What to face; only its horizontal position matters.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return execute_single(TurnMotion(self.target))
+    def create_action_body(self) -> StatechartNode:
+        return Parallel(
+            nodes=[
+                Pointing(
+                    root_link=self.world.root,
+                    tip_link=self.robot.root,
+                    goal_point=self._target_at_base_height(),
+                    pointing_axis=Vector3(
+                        *self.robot.mobile_base.forward_axis.to_np()[:3],
+                        reference_frame=self.robot.root,
+                    ),
+                ),
+                CartesianPosition(
+                    root_link=self.world.root,
+                    tip_link=self.robot.root,
+                    goal_point=Point3(reference_frame=self.robot.root),
+                ),
+            ]
+        )
+
+    def _target_at_base_height(self) -> Point3:
+        """
+        :return: :attr:`target` moved vertically to the height of the base, which can
+            only turn about the vertical and so can only point level.
+        """
+        root_P_target = self.world.transform(self.target, self.world.root).position
+        root_P_target.z = self.robot.root.global_pose.z
+        return root_P_target
 
 
-@dataclass
-class PathPlanningNavigateAction(ActionDescription):
+@dataclass(eq=False, repr=False, kw_only=True)
+class PathPlanningNavigateAction(DrivesBase):
     """
     Navigates the robot to a pose along a path through the environment's free space.
 
@@ -139,9 +208,8 @@ class PathPlanningNavigateAction(ActionDescription):
     Where the robot should stand at the end of the path, with its base.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential([MoveMotion(waypoint) for waypoint in self._path()])
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(nodes=[self._drive_to(waypoint) for waypoint in self._path()])
 
     @property
     def _floor(self) -> Floor:
@@ -245,8 +313,8 @@ class PathPlanningNavigateAction(ActionDescription):
         )
 
 
-@dataclass
-class ElevatorNavigation(ActionDescription):
+@dataclass(eq=False, repr=False, kw_only=True)
+class ElevatorNavigation(ReattachesBodies):
     """
     Navigates a robot to another level of a building using an elevator, the robot drives
     in the elevator and waits there until the doors open again and the elevator is at
@@ -263,39 +331,38 @@ class ElevatorNavigation(ActionDescription):
     Level of the building the robot should end up on.
     """
 
-    exit_clearance: float = field(default=0.5, kw_only=True)
+    exit_clearance: float = 0.5
     """
     Distance the robot keeps from the elevator's opening after driving out, on top of
     half the cabin's depth.
     """
 
-    arrival_threshold: float = field(default=0.01, kw_only=True)
+    arrival_threshold: float = 0.01
     """
     Position error within which the elevator's drive and doors count as having arrived.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        return sequential(
-            [
-                NavigateAction(self._pose_infront_of_elevator),
-                pause_until(
-                    [
-                        NavigateAction(
-                            Pose.from_xyz_rpy(
-                                z=self._height_in_cabin,
-                                reference_frame=self.elevator.root,
-                            )
-                        )
-                    ],
+    def create_action_body(self) -> StatechartNode:
+        return Sequence(
+            nodes=[
+                NavigateAction(target_location=self._pose_infront_of_elevator),
+                PausedUntilTrue(
                     monitor=self._elevator_open_at_floor(self._current_floor),
+                    monitored_node=NavigateAction(
+                        target_location=Pose.from_xyz_rpy(
+                            z=self._height_in_cabin,
+                            reference_frame=self.elevator.root,
+                        )
+                    ),
                 ),
-                ReAttachNode(body=self.robot.root, new_parent=self.elevator.root),
-                pause_until(
-                    [NavigateAction(self._pose_infront_of_elevator)],
+                *self.reattach(self.robot.root, self.elevator.root),
+                PausedUntilTrue(
                     monitor=self._elevator_open_at_floor(self.target_floor),
+                    monitored_node=NavigateAction(
+                        target_location=self._pose_infront_of_elevator
+                    ),
                 ),
-                ReAttachNode(body=self.robot.root, new_parent=self.world.root),
+                *self.reattach(self.robot.root, self.world.root),
             ]
         )
 
@@ -367,6 +434,6 @@ class ElevatorNavigation(ActionDescription):
             )
         )
         return Parallel(
-            nodes,
+            nodes=nodes,
             name="ElevatorOpenAtTargetFloor",
         )
