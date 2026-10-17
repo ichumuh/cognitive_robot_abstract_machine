@@ -96,4 +96,11 @@ has_applied raises it for that publisher. Tests in test_world_synchronizer.py
 (burst while receiver world locked; hand-fed gap). sdt test_ros 308 passed,
 giskardpy ros2 314 passed; stretch dir 4/4 pass (was 1/4). Possible
 pre-existing race: test_world_updates::test_a_state_update_reaches_the_running_motion
-failed 1/19. Pushed, PR body updated. Next: CI on a0f968864.
+failed 1/19. Pushed, PR body updated.
+(8) 25bd81a63 CI on a0f968864 failed test_integration_pr2::test_cancel_with_new_goal:
+has_applied raised; Giskard in fast sim publishes ~770 msg/s, test client
+applies 1 in 6 steadily. User chose "log only": loss is a warning throttled to
+1/s, has_applied no longer raises, WorldUpdatesLostError removed (ORM
+regenerated). Depth 1000 kept. Self-healing state (full state publishing) is
+future work. giskardpy ros2 315 passed, pr2 integration + synchronizer 113
+passed. Next: CI on 25bd81a63.
