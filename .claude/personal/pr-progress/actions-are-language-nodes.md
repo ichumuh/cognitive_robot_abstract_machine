@@ -45,8 +45,8 @@ locally at start).
 Next: confirm CI demos green; then the stretch ObjectIsNotHeld race.
 Side note for user: d570a2865 left executor.statechart.draw('/tmp/muh.pdf')
 in test/plan_running.py.
-(4) collision allowances as an action field (plan approved 2026-10-17,
-uncommitted): user chose a coraplex-only optimization, giskardpy untouched
+(4) 0b2b5ca5f collision allowances as an action field (approved 2026-10-17,
+user chose a coraplex-only optimization, giskardpy untouched
 (UpdateTemporaryCollisionRules, MoveGripper.allow_gripper_collision,
 Open.grasping_end_effector stay). Action.temporary_collision_rules (init=False,
 JSON-serialized, not in ORM) filled from create_temporary_collision_rules() in
@@ -60,5 +60,5 @@ anchor also looks at the action itself. bowl-and-cup 179 -> 142 nodes, depth 7.
 Test changes approved in the plan: 4 MoveManipulator/tool-center-point tests
 and the mixing allowance test; plus lifting_goal_of helper (lift is bare
 unless something accompanies it). coraplex 738 passed (only place_setting,
-local), cramph 829, giskardpy statechart+child choice 433. Uncommitted; commit
-only when asked.
+local), cramph 829, giskardpy statechart+child choice 433. Pushed, PR body
+updated (221 -> 142 nodes), still draft. Next: CI on 0b2b5ca5f.
