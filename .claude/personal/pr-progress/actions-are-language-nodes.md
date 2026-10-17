@@ -58,4 +58,7 @@ Parallel reverted (action rule covers MoveBranch; its tests pass unchanged).
 Mixing/Cutting steps flattened (trajectory+alignments directly), Justin torso
 anchor also looks at the action itself. bowl-and-cup 179 -> 142 nodes, depth 7.
 Test changes approved in the plan: 4 MoveManipulator/tool-center-point tests
-and the mixing allowance test. Full suites running; commit only when asked.
+and the mixing allowance test; plus lifting_goal_of helper (lift is bare
+unless something accompanies it). coraplex 738 passed (only place_setting,
+local), cramph 829, giskardpy statechart+child choice 433. Uncommitted; commit
+only when asked.
