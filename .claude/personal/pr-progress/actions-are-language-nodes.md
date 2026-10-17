@@ -69,4 +69,19 @@ PlaceAction._retract -> _retract_steps, both return lists spliced into
 create_steps; Sequence imports dropped. New tests (own_steps) in
 test_action_as_statechart_node.py; lifting_goal_of uses action.nodes[-1].
 bowl-and-cup 142 -> 138, depth 7. coraplex 740 passed (only place_setting,
-local). Next: CI on 90b9b294a.
+local). CI on 90b9b294a: only the stretch ObjectIsNotHeld race (2nd time).
+(6) 69202bf66 stretch race fixed (user: option 1, on this branch, not own PR):
+client chose PlaceAction before Giskard's MoveBranch reached its world (world
+sync vs action feedback unordered). Feedback now carries
+MotionStatechartPayloadKey.PUBLISHED_POSITION (OutgoingWorldUpdates, moved out
+of MotionServer, shared with ActionFeedbackPublisher); ChildChoiceClient
+(new required world_updates) returns [] until ClientWorldUpdates
+.has_applied_the_changes_reported_in, timeout -> GiskardWorldUpdateNotReceivedError.
+No blocking: feedback + world sync share the node's mutually exclusive
+callback group, so Giskard repeats feedback every child_request_repeat_period
+(0.1s) while a node waits for a child. Tests in test_child_choice_exchange.py.
+giskardpy test_ros2_stuff 266 passed (3 UR integration errors also on HEAD,
+local mock robot). Pushed, PR body updated. Separate local-only issue: the
+stretch dir run (both tests) sometimes fails also on HEAD: client world's base
+never leaves origin, pick-up trial stalls; single-test runs pass. Next: CI on
+69202bf66.
