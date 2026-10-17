@@ -61,4 +61,12 @@ Test changes approved in the plan: 4 MoveManipulator/tool-center-point tests
 and the mixing allowance test; plus lifting_goal_of helper (lift is bare
 unless something accompanies it). coraplex 738 passed (only place_setting,
 local), cramph 829, giskardpy statechart+child choice 433. Pushed, PR body
-updated (221 -> 142 nodes), still draft. Next: CI on 0b2b5ca5f.
+updated (221 -> 142 nodes), still draft. CI on 0b2b5ca5f green except the
+known flaky stretch test.
+(5) flatten nested sequences (user said go ahead 2026-10-17, NOT committed,
+user wants to review first): PickUpAction._grasp_attempt -> _grasp_steps,
+PlaceAction._retract -> _retract_steps, both return lists spliced into
+create_steps; Sequence imports dropped. New tests (own_steps) in
+test_action_as_statechart_node.py; lifting_goal_of uses action.nodes[-1].
+bowl-and-cup 142 -> 138, depth 7. coraplex 740 passed (only place_setting,
+local). Next: user review, then commit/push.
