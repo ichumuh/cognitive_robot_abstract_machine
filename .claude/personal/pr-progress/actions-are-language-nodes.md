@@ -83,5 +83,17 @@ callback group, so Giskard repeats feedback every child_request_repeat_period
 giskardpy test_ros2_stuff 266 passed (3 UR integration errors also on HEAD,
 local mock robot). Pushed, PR body updated. Separate local-only issue: the
 stretch dir run (both tests) sometimes fails also on HEAD: client world's base
-never leaves origin, pick-up trial stalls; single-test runs pass. Next: CI on
-69202bf66.
+never leaves origin, pick-up trial stalls; single-test runs pass. (Was a
+misreading: DOFs 29-35 are the cereal's 6DoF, not the base.)
+(7) a0f968864 world sync loses no updates (user: option 2 on this branch).
+CI also hit "PickUpAction ran out of actions" (run 39033659848). Cause: world
+sync qos depth 10; the client lags while applying a model change while Giskard
+publishes ~190 msg/s, so the message right after the place's MoveBranch (the
+cereal's pose under map) was lost; delta publishing never resends it.
+Synchronizer.message_queue_depth=1000 (ORM-mapped field; regenerated
+locally), gap detection logs WorldUpdatesLostError (adapters/ros/exceptions.py),
+has_applied raises it for that publisher. Tests in test_world_synchronizer.py
+(burst while receiver world locked; hand-fed gap). sdt test_ros 308 passed,
+giskardpy ros2 314 passed; stretch dir 4/4 pass (was 1/4). Possible
+pre-existing race: test_world_updates::test_a_state_update_reaches_the_running_motion
+failed 1/19. Pushed, PR body updated. Next: CI on a0f968864.
