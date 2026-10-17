@@ -33,4 +33,15 @@ step-transition ticks around the reattach. experiments: stretch
 process-boundary test hit ObjectIsNotHeld in the client-side PlaceAction trial
 (escapes ActionTrial, which only catches ExecutionFailure); passes locally (2
 passed), base green -> likely a race.
-Next: pin the culprit (CI bisect on scratch branches, needs user OK).
+Root cause found (user suspected d570a2865): MoveBranch in pick-up (close ->
+reattach -> lift) and place (open -> reattach -> retract) ran 1 tick without
+the gripper's collision allowance; old paused per-contact tasks observed 1
+tick late and hid it, the new single task cancels. Fixed in 744a986fd
+(reattach(..., holding_end_effector) runs MoveBranch in a Parallel with
+UpdateTemporaryCollisionRules), tests in test_reattaching_bodies.py, pushed,
+PR body updated. coraplex_test 730 passed; place_setting fails locally only
+(pure geometry check -> local apartment differs from CI, also why demos fail
+locally at start).
+Next: confirm CI demos green; then the stretch ObjectIsNotHeld race.
+Side note for user: d570a2865 left executor.statechart.draw('/tmp/muh.pdf')
+in test/plan_running.py.
