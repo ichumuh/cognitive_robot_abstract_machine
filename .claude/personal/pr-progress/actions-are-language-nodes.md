@@ -45,3 +45,17 @@ locally at start).
 Next: confirm CI demos green; then the stretch ObjectIsNotHeld race.
 Side note for user: d570a2865 left executor.statechart.draw('/tmp/muh.pdf')
 in test/plan_running.py.
+(4) collision allowances as an action field (plan approved 2026-10-17,
+uncommitted): user chose a coraplex-only optimization, giskardpy untouched
+(UpdateTemporaryCollisionRules, MoveGripper.allow_gripper_collision,
+Open.grasping_end_effector stay). Action.temporary_collision_rules (init=False,
+JSON-serialized, not in ORM) filled from create_temporary_collision_rules() in
+expand; put in force on_start, out on_end/on_reset. Overridden by Reach,
+Grasping, PickUp, Place (holding arm), MovesHandle, Pouring, ToolMotionAction,
+MoveManipulator (if allow_gripper_collision). allow_gripper_collision removed
+from tool_center_point_goal/gripper_goal; 744a986fd's holding_end_effector
+Parallel reverted (action rule covers MoveBranch; its tests pass unchanged).
+Mixing/Cutting steps flattened (trajectory+alignments directly), Justin torso
+anchor also looks at the action itself. bowl-and-cup 179 -> 142 nodes, depth 7.
+Test changes approved in the plan: 4 MoveManipulator/tool-center-point tests
+and the mixing allowance test. Full suites running; commit only when asked.
