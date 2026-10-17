@@ -22,4 +22,15 @@ must follow the action-derived bases (else dataclass mixins make actions
 unhashable / compare by value) [done]
 Tests: cramph 829, giskardpy statechart+child choice 433, coraplex 728 passed;
 only place_setting (PR2, local) fails. Not run: experiments_test, real robot.
-Next: nothing open; wait for review.
+CI on cb421620c (2026-10-17): red. bullet_world + garmi demos fail with
+CollisionViolatedError (fingertips vs drawer) on the real (not trial) pick-up
+of the spoon from its drawer, right after the grasp: no LossOfSupport, so the
+spoon never lifts. Trials identical to green base 0cdcda2a5. Culprit commit
+not pinned: both demos fail locally on base too (base_link vs cabinet2,
+0.0489 < 0.05), so local bisect is impossible. Suspects: d570a2865 (collision
+refactor; dropped the pause-while-no-data monitor) or Attempt removal changing
+step-transition ticks around the reattach. experiments: stretch
+process-boundary test hit ObjectIsNotHeld in the client-side PlaceAction trial
+(escapes ActionTrial, which only catches ExecutionFailure); passes locally (2
+passed), base green -> likely a race.
+Next: pin the culprit (CI bisect on scratch branches, needs user OK).
