@@ -30,6 +30,8 @@ Done (2026-10-19, uncommitted in working tree):
 - Kinematically/PhysicallySimulatedPlanExecutor are siblings under abstract
   SimulatedPlanExecutor (abstract create_qp_controller_config); demonstrations check
   SimulatedPlanExecutor for "simulated world"
+- giskardpy tests: kin_sim -> executor, msc -> statechart (+ msc_copy, executed_msc,
+  _build_msc, _compile_msc_and_run_until_end) in 21 files
 
 Next (proposed in replies, awaiting agreement):
 - cramph: compile() ignores _hold_still() answer; settle() raises at exactly the pass
