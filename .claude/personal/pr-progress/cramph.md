@@ -27,6 +27,9 @@ Done (2026-10-19, uncommitted in working tree):
 - tests run 2026-10-19: cramph 831 ok, giskardpy motion_statechart+qp 776 ok, coraplex
   all touched suites ok (after fixing 6 rename fallouts); mixing/cutting/wiping demos ok
 - replies posted on all of Luca's open threads + PR comment on findings 1/2
+- Kinematically/PhysicallySimulatedPlanExecutor are siblings under abstract
+  SimulatedPlanExecutor (abstract create_qp_controller_config); demonstrations check
+  SimulatedPlanExecutor for "simulated world"
 
 Next (proposed in replies, awaiting agreement):
 - cramph: compile() ignores _hold_still() answer; settle() raises at exactly the pass
