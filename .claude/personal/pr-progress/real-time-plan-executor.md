@@ -25,11 +25,24 @@ Done (2026-10-21, uncommitted, new files staged):
 - ControlLoop/profiler left unchanged: server tests mimic IncomingWorldUpdates, so the
   motion-time update check is duplicated in ForeignWorldUpdates.before_tick (5 lines).
 
-Open:
-- compare.py --trials 1 (2026-10-21): both placements fail against the stand-in robot.
-  Separate process: Giskard aborts CartesianPoseStraight (no progress for 5 s), then the
-  client hits GiskardWorldUpdateNotReceivedError; 403 overruns, longest 1.18 s.
-  Planning process: NavigateAction ran out of candidates; 2282 overruns, longest 3.0 s.
-  The e2e in-process test had failed with QP infeasible / the same stall before.
-  So the stand-in (or Stretch min-velocity raising 0.03 in closed loop) doesn't let the
-  demo finish yet; needs debugging before any comparison means something.
+Replaced the Stretch stand-in with a UR5e on ur_robot_driver mock hardware (user's call,
+2026-10-21): experiments/in_process_control/{mock_universal_robot,universal_robot_demonstration}.py,
+tutorial universal_robot_velocity.create_robot_control_setup(). Stretch stand-in, its e2e
+test and fixture refactor removed. Installed ur_robot_driver 3.9.0 > ur_controllers 3.8.0,
+so the driver's spawner never loads forward_velocity_controller; the mock launcher
+loads it (also why test_integration_universal_robot errors locally).
+
+Findings:
+- In-process overruns came from GIL starvation, not compute: tick CPU ~2 ms, wall up to
+  ~130 ms. Cause: RobotDemonstrationRosSession spun MultiThreadedExecutor.spin() and
+  handled /joint_states at 500 Hz (x2 subscriptions). GC ruled out (no gen2, gc.freeze
+  no change). Fix: session spins spin_once + callback_pause (1 ms), like giskard's rospy.
+- compare.py --trials 5 after fix: plan execution median 7.4 s in-process vs 7.3 s
+  separate, 0 overruns both. Setup (world from robot_description, connect,
+  WorldRosInterface) ~9 s in-process vs ~2.3 s fetching the world.
+- In-process 3/5: both failures = startup race in giskardpy controller discovery
+  (search_for_publisher_of_node_with_type: NodeNameNonExistentError, node not discovered
+  yet). Not fixed.
+
+Next: ask user whether to fix the discovery race (needs a failing test first), and
+whether the setup time matters; nothing committed.
