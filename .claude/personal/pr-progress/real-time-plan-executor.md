@@ -20,10 +20,16 @@ Done (2026-10-21, uncommitted, new files staged):
 - Tests: cramph pacer/executor, giskardpy test_robot_interface(.py/_config),
   coraplex test_real_time_plan_execution + demonstrations, e2e
   test_real_stretch_demo_in_process. User OK'd adapting the GiskardMimic harness.
-- cramph_test passes (825). giskardpy ros2 suite: running.
+- cramph_test passes (825). giskardpy ros2: all pass except 3 UR integration errors
+  (external mock UR driver never starts; not checked against a clean baseline).
+- ControlLoop/profiler left unchanged: server tests mimic IncomingWorldUpdates, so the
+  motion-time update check is duplicated in ForeignWorldUpdates.before_tick (5 lines).
 
 Open:
-- e2e in-process Stretch demo fails nondeterministically (QP infeasible once,
-  CartesianPoseStraight stall once), ~1200 overruns, longest ~2 s (machine was loaded).
-  Next: run compare.py 1 trial each to see if the server path also fails against the
-  stand-in (stand-in convention bug) or only in-process.
+- compare.py --trials 1 (2026-10-21): both placements fail against the stand-in robot.
+  Separate process: Giskard aborts CartesianPoseStraight (no progress for 5 s), then the
+  client hits GiskardWorldUpdateNotReceivedError; 403 overruns, longest 1.18 s.
+  Planning process: NavigateAction ran out of candidates; 2282 overruns, longest 3.0 s.
+  The e2e in-process test had failed with QP infeasible / the same stall before.
+  So the stand-in (or Stretch min-velocity raising 0.03 in closed loop) doesn't let the
+  demo finish yet; needs debugging before any comparison means something.
