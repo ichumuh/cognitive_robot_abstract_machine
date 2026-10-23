@@ -22,6 +22,10 @@ from semantic_digital_twin.datastructures.definitions import (
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.description_corrections import (
+    DescriptionCorrection,
+    ReplaceConnection,
+)
 from semantic_digital_twin.robots.robot_part_mixins import (
     HasLeftRightArm,
     HasMobileBase,
@@ -40,6 +44,9 @@ from semantic_digital_twin.robots.robot_parts import (
     Torso,
 )
 from semantic_digital_twin.spatial_types import Vector3
+from semantic_digital_twin.specifications.connections import (
+    FixedConnectionSpecification,
+)
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
@@ -159,7 +166,10 @@ class GarmiJoint(StrEnum):
 @dataclass(eq=False)
 class GarmiCamera(Camera):
     """
-    The head camera of the GARMI robot.
+    The Olive stereo camera on top of GARMI's head, which rides the head's pan and tilt.
+
+    Its frame lies on the board's front face midway between the two lenses, with x
+    forward along the optical axes.
     """
 
     def setup_hardware_interfaces(self):
@@ -185,10 +195,14 @@ class GarmiCamera(Camera):
         Sets up the default configuration for the camera.
         """
         return cls(
-            root=robot_root._world.get_body_in_branch_by_name(robot_root, "head"),
+            root=robot_root._world.get_body_in_branch_by_name(
+                robot_root, "olive_camera_link"
+            ),
             field_of_view=FieldOfView(horizontal_angle=0.99483, vertical_angle=0.75049),
-            minimal_height=0.75049,
-            maximal_height=0.99483,
+            # Above the ground, over the head's tilt range, with the lift where
+            # Garmi.description_corrections fixes it.
+            minimal_height=1.42,
+            maximal_height=1.53,
             default_camera=True,
         )
 
@@ -254,7 +268,7 @@ class GarmiLeftGripperLeftFinger(Finger):
                 robot_root, "left_fr3_hand"
             ),
             tip=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "left_fr3_leftfinger"
+                robot_root, "left_fr3_leftfinger_tip"
             ),
         )
 
@@ -288,7 +302,7 @@ class GarmiLeftGripperRightFinger(Finger):
                 robot_root, "left_fr3_hand"
             ),
             tip=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "left_fr3_rightfinger"
+                robot_root, "left_fr3_rightfinger_tip"
             ),
         )
 
@@ -322,7 +336,7 @@ class GarmiRightGripperLeftFinger(Finger):
                 robot_root, "right_fr3_hand"
             ),
             tip=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "right_fr3_leftfinger"
+                robot_root, "right_fr3_leftfinger_tip"
             ),
         )
 
@@ -356,7 +370,7 @@ class GarmiRightGripperRightFinger(Finger):
                 robot_root, "right_fr3_hand"
             ),
             tip=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "right_fr3_rightfinger"
+                robot_root, "right_fr3_rightfinger_tip"
             ),
         )
 
@@ -410,7 +424,7 @@ class GarmiLeftGripper(
         """
         return cls(
             root=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "left_fr3_hand"
+                robot_root, "left_fr3_link8"
             ),
             tool_frame=robot_root._world.get_body_in_branch_by_name(
                 robot_root, "left_fr3_hand_tcp"
@@ -457,7 +471,7 @@ class GarmiRightGripper(
 
     @property
     def closing_axis(self) -> Vector3:
-        return Vector3.Y(reference_frame=self.tool_frame)
+        return Vector3.NEGATIVE_Y(reference_frame=self.tool_frame)
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(
@@ -468,7 +482,7 @@ class GarmiRightGripper(
         """
         return cls(
             root=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "right_fr3_hand"
+                robot_root, "right_fr3_link8"
             ),
             tool_frame=robot_root._world.get_body_in_branch_by_name(
                 robot_root, "right_fr3_hand_tcp"
@@ -494,13 +508,13 @@ class GarmiLeftArm(Arm[GarmiLeftGripper]):
         Sets up the park configuration for the arm.
         """
         park_configuration = {
-            GarmiJoint.LEFT_ARM_1: 0.0,
-            GarmiJoint.LEFT_ARM_2: -1.6,
-            GarmiJoint.LEFT_ARM_3: -1.0,
-            GarmiJoint.LEFT_ARM_4: -2.356194490192345,
-            GarmiJoint.LEFT_ARM_5: 0.0,
-            GarmiJoint.LEFT_ARM_6: 1.5707963267948966,
-            GarmiJoint.LEFT_ARM_7: 0.7853981633974483,
+            GarmiJoint.LEFT_ARM_1: 0.3647,
+            GarmiJoint.LEFT_ARM_2: -1.3028,
+            GarmiJoint.LEFT_ARM_3: -0.6168,
+            GarmiJoint.LEFT_ARM_4: -1.5302,
+            GarmiJoint.LEFT_ARM_5: 0.8420,
+            GarmiJoint.LEFT_ARM_6: 2.4242,
+            GarmiJoint.LEFT_ARM_7: 0.6000,
         }
 
         arm_park = JointState.from_mapping(
@@ -548,13 +562,13 @@ class GarmiRightArm(Arm[GarmiRightGripper]):
         Sets up the park configuration for the arm.
         """
         park_configuration = {
-            GarmiJoint.RIGHT_ARM_1: 0.0,
-            GarmiJoint.RIGHT_ARM_2: -1.6,
-            GarmiJoint.RIGHT_ARM_3: 1.0,
-            GarmiJoint.RIGHT_ARM_4: -2.356194490192345,
-            GarmiJoint.RIGHT_ARM_5: 0.0,
-            GarmiJoint.RIGHT_ARM_6: 1.5707963267948966,
-            GarmiJoint.RIGHT_ARM_7: 0.7853981633974483,
+            GarmiJoint.RIGHT_ARM_1: -0.5866,
+            GarmiJoint.RIGHT_ARM_2: -1.1826,
+            GarmiJoint.RIGHT_ARM_3: 0.4083,
+            GarmiJoint.RIGHT_ARM_4: -1.4204,
+            GarmiJoint.RIGHT_ARM_5: 0.0297,
+            GarmiJoint.RIGHT_ARM_6: 2.3281,
+            GarmiJoint.RIGHT_ARM_7: 0.2854,
         }
 
         arm_park = JointState.from_mapping(
@@ -594,19 +608,19 @@ class GarmiTorso(
 
     def setup_hardware_interfaces(self):
         """
-        Sets up hardware interfaces for the lift joints.
+        Sets up hardware interfaces for the lift joints that can move.
         """
-        for joint_name in GarmiJoint.lift():
-            self._world.get_connection_by_name(joint_name).has_hardware_interface = True
+        for lift_joint in self.active_connections:
+            lift_joint.has_hardware_interface = True
 
     def setup_joint_states(self) -> List[JointState]:
         """
-        Sets up torso states (low, mid, high).
+        Sets up torso states (low, mid, high), unless the lift cannot move, see
+        :attr:`Garmi.description_corrections`.
         """
-        lift_joints = [
-            self._world.get_connection_by_name(joint_name)
-            for joint_name in GarmiJoint.lift()
-        ]
+        lift_joints = self.active_connections
+        if not lift_joints:
+            return []
         torso_states = (
             ("torso_low", [0.0, 0.0], TorsoState.LOW),
             ("torso_mid", [0.2, 0.2], TorsoState.MID),
@@ -672,7 +686,7 @@ class GarmiMobileBase(MobileBase[OmniDrive], HasTorso[GarmiTorso]):
             root=robot_root._world.get_body_in_branch_by_name(
                 robot_root, "chassis_link"
             ),
-            full_body_controlled=False,
+            full_body_controlled=True,
         )
 
 
@@ -691,6 +705,20 @@ class Garmi(AbstractRobot, HasMobileBase[GarmiMobileBase]):
             its real width do not collide.
         """
         return True
+
+    # @classproperty
+    # def description_corrections(cls) -> tuple[DescriptionCorrection, ...]:
+    #     """
+    #     :return: The lift joints made fixed, at the height the description starts them
+    #         at, since the real GARMI's lift is not wired up to be controlled.
+    #     """
+    #     return tuple(
+    #         ReplaceConnection(
+    #             connection_name=joint_name,
+    #             replacement=FixedConnectionSpecification(),
+    #         )
+    #         for joint_name in GarmiJoint.lift()
+    #     )
 
     @classmethod
     def get_ros_file_path(cls) -> str:

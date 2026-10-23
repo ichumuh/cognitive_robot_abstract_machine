@@ -1458,6 +1458,21 @@ class World(HasSimulatorProperties):
         ]
         return self._get_world_entity_by_name_from_iterable(name, bodies)
 
+    def get_connection_in_branch_by_name(
+        self, branch_root: KinematicStructureEntity, name: Union[str, PrefixedName]
+    ) -> Connection:
+        """
+        :param branch_root: The root of the branch to search.
+        :param name: The name of the connection, matched without its prefix if a plain
+            string.
+        :return: The connection below `branch_root` with that name.
+        :raises WorldEntityNotFoundError: If no connection of the branch has that name.
+        :raises DuplicateWorldEntityError: If several connections of the branch have it.
+        """
+        return self._get_world_entity_by_name_from_iterable(
+            name, self.get_connections_of_branch(branch_root)
+        )
+
     @memoize
     def get_degree_of_freedom_by_name(
         self, name: Union[str, PrefixedName]
@@ -1901,6 +1916,26 @@ class World(HasSimulatorProperties):
                 parent_T_connection_expression=new_parent_T_child,
             )
         )
+
+    def free_branch(self, branch_root: KinematicStructureEntity) -> None:
+        """
+        Replace the connection between a branch and its parent by a
+        :class:`Connection6DoF`, so the branch can be moved freely relative to the same
+        parent. The pose of the branch stays the same.
+
+        :param branch_root: The root of the branch to free.
+        """
+        old_connection = branch_root.parent_connection
+        if isinstance(old_connection, Connection6DoF):
+            return
+        parent_T_branch_root = old_connection.origin
+        with self.modify_world():
+            self.remove_connection(old_connection)
+            new_connection = Connection6DoF.create_with_dofs(
+                world=self, parent=old_connection.parent, child=branch_root
+            )
+            self.add_connection(new_connection)
+        new_connection.origin = parent_T_branch_root
 
     def get_connections_of_branch(
         self, root: KinematicStructureEntity
