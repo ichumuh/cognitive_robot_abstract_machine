@@ -1,29 +1,26 @@
 """
 Publish native CRAM world and plan state to the browser viewer.
 
-World callbacks publish geometry and poses. Plan callbacks and native motion histories
+World callbacks publish geometry and poses. Plan callbacks and statechart histories
 publish execution progress.
 """
 
 from __future__ import annotations
 
 import atexit
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from functools import partial
 
-from typing_extensions import Any, Callable, Optional, TYPE_CHECKING
+from typing_extensions import TYPE_CHECKING, Any, Callable, Optional
 
-from coraplex.plans.plan_callbacks import PlanCallback
-from coraplex.plans.plan_node import MotionNode, PlanNode
-from coraplex.visualization import PlanVisualization, VisualizationSession
-from giskardpy.motion_statechart.motion_statechart import (
-    StateHistoryObserver,
-)
+from coraplex.robot_plans.actions.base import Action
+from cramph.visualization import WorldVisualization
+from cramph.statechart import StateHistory, StateHistoryObserver, Statechart
 from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
 )
-from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import MeshFileStorage
 
 from cramera.live.bridge import Bridge
@@ -33,11 +30,11 @@ from cramera.live.recording_bundle import finalize_recording
 from cramera.live.ros_markers import RosMarkerListener
 from cramera.logging_setup import get_logger
 
-logger = get_logger(__name__)
-
 if TYPE_CHECKING:
-    from coraplex.plans.plan import Plan
-    from giskardpy.motion_statechart.motion_statechart import StateHistory
+    from cramph.executor import Executor
+    from semantic_digital_twin.world import World
+
+logger = get_logger(__name__)
 
 # %% world synchronization
 
@@ -92,72 +89,62 @@ class WorldModelSync(ModelChangeCallback):
 
 
 @dataclass
-class BridgePlanCallback(PlanCallback, StateHistoryObserver):
+class StatechartPublishing(StateHistoryObserver):
     """
-    Publish plan progress and changes recorded by its native motion histories.
+    Publish the progress of a statechart, and of the plan it runs.
     """
 
     bridge: Bridge = field(kw_only=True)
     """
-    The bridge the plan's execution is published to.
+    The bridge the execution is published to.
     """
 
-    _histories: list[StateHistory] = field(default_factory=list, init=False, repr=False)
+    _statechart: Statechart | None = field(default=None, init=False, repr=False)
     """
-    The motion histories subscribed to during this plan's execution.
+    The statechart being published, whose history this observes.
     """
 
-    def on_start(self, node: PlanNode) -> None:
+    def finish(self) -> None:
         """
-        Publish execution of the started node.
-
-        :param node: The plan node that started.
+        Publish the observed statechart as its run left it, and stop observing it.
         """
-        if isinstance(node, MotionNode):
-            self.bridge.observe_motion_started(node)
-            chart = node.motion_statechart
-            if chart is not None:
-                if not any(history is chart.history for history in self._histories):
-                    chart.history.add_observer(self)
-                    self._histories.append(chart.history)
-                self.bridge.observe_chart(chart)
-        self.bridge.snapshot_plan()
-
-    def on_end(self, node: PlanNode) -> None:
-        """
-        Publish the completed node's final status.
-
-        :param node: The plan node that completed.
-        """
-        plan_ended = self.plan is not None and node is self.plan.root
-        self.bridge.snapshot_plan()
-        if isinstance(node, MotionNode) and plan_ended:
-            self.bridge.observe_chart(node.motion_statechart)
-        if (
-            not isinstance(node, MotionNode) or plan_ended
-        ) and self.bridge.recording is not None:
+        self.bridge.observe_chart(self._statechart)
+        if self.bridge.recording is not None:
             self.bridge.recording.update_statechart(self.bridge.executing_statechart())
-        if plan_ended:
-            self.stop()
+        self.stop()
+
+    def observe(self, statechart: Statechart) -> None:
+        """
+        Publish the plan's trees and the statechart before its first node runs, and
+        follow its history from then on.
+
+        :param statechart: The statechart about to run.
+        """
+        self.stop()
+        self._statechart = statechart
+        statechart.state_history.add_observer(self)
+        self.bridge.begin_plan(statechart)
+        self.bridge.observe_chart(statechart)
 
     def on_state_change(self, history: StateHistory) -> None:
         """
-        Publish the chart and plan after a native history snapshot changes.
+        Publish the chart and the plan after a snapshot of the statechart changed,
+        naming the chart after the action that started last.
 
         :param history: The subscribed history containing the changed state.
         """
-        self.bridge.observe_chart(
-            history.history[-1].life_cycle_state.motion_statechart
-        )
+        for node in history.nodes_started_in_latest_item():
+            if isinstance(node, Action):
+                self.bridge.observe_action_started(node)
+        self.bridge.observe_chart(self._statechart)
         self.bridge.snapshot_plan()
 
     def stop(self) -> None:
         """
-        Remove this plan's motion history subscriptions.
+        Remove the subscription to the history of the published statechart.
         """
-        for history in self._histories:
-            history.remove_observer(self)
-        self._histories.clear()
+        if self._statechart is not None:
+            self._statechart.state_history.remove_observer(self)
 
 
 def _finalize_recording_at_exit(
@@ -167,10 +154,8 @@ def _finalize_recording_at_exit(
     Best-effort safety net: write the current recording to disk if the process is about
     to exit without the viewer ever sending ``/recording/stop``.
 
-    A demo run directly (rather than through ``cramera-live``, which stays up for
-    inspection after the demo finishes) has no long-lived process left for the browser
-    to ask, so the recording would otherwise be lost the moment the script's main body
-    returns.
+    A demo has no long-lived process left for the browser to ask once it finished, so
+    the recording would otherwise be lost the moment the script's main body returns.
 
     :param bridge: The bridge whose geometry belongs to the recording.
     :param recording: The session's capture, or the bridge's current capture.
@@ -191,14 +176,12 @@ def _finalize_recording_at_exit(
 
 
 @dataclass
-class LiveVisualization(PlanVisualization):
+class LiveVisualization(WorldVisualization):
     """
-    Serves a world to the cramera browser viewer while a demo runs.
-    """
+    Serves the world and the statechart of an executor to the cramera browser viewer
+    while the executor runs it, and keeps what a run left inspectable until stopped.
 
-    world: World
-    """
-    The world served to the viewer.
+    Every run of a later executor continues the same recording on the same server.
     """
 
     port: int = DEFAULT_PORT
@@ -211,24 +194,29 @@ class LiveVisualization(PlanVisualization):
     The bridge translating between the world and the viewer.
     """
 
-    state_sync: Optional[WorldStateSync] = field(init=False, default=None)
+    publishing: StatechartPublishing = field(init=False)
+    """
+    Publishes the progress of the statechart the executor runs.
+    """
+
+    state_sync: WorldStateSync | None = field(init=False, default=None)
     """
     The callback publishing state changes, while started.
     """
 
-    model_sync: Optional[WorldModelSync] = field(init=False, default=None)
+    model_sync: WorldModelSync | None = field(init=False, default=None)
     """
     The callback refreshing the catalogs on model changes, while started.
     """
 
-    marker_listener: Optional[RosMarkerListener] = field(init=False, default=None)
+    marker_listener: RosMarkerListener | None = field(init=False, default=None)
     """
     The ROS marker subscription feeding the debug overlay, when ROS is available.
     """
 
-    _recording: Optional[Recording] = field(init=False, default=None)
+    _recording: Recording | None = field(init=False, default=None)
     """
-    The capture owned by this visualization session.
+    The capture owned by this visualization while it runs.
     """
 
     _query_attachment: int | None = field(init=False, default=None, repr=False)
@@ -236,96 +224,165 @@ class LiveVisualization(PlanVisualization):
     Automatic queries owned by this visualization's world attachment.
     """
 
-    _exit_callback: Optional[Callable[[], None]] = field(init=False, default=None)
+    _exit_callback: Callable[[], None] | None = field(init=False, default=None)
     """
-    The registered finalizer for this session's capture.
+    The registered finalizer for the capture, in case the process exits before
+    :meth:`stop`.
     """
 
-    _plan_callbacks: list[BridgePlanCallback] = field(
-        default_factory=list, init=False, repr=False
+    _session_cleanup: ExitStack = field(
+        default_factory=ExitStack, init=False, repr=False
     )
     """
-    The callbacks whose history subscriptions belong to this session.
+    Releases the server and the recording, which outlive a run, in reverse acquisition
+    order.
     """
 
-    def start(self) -> LiveVisualization:
+    def __post_init__(self) -> None:
         """
-        Start serving the world and its default live queries to the viewer.
+        Publish the statecharts through :attr:`bridge`.
+        """
+        self.publishing = StatechartPublishing(bridge=self.bridge)
 
-        :return: This visualization.
+    @property
+    def is_rendering(self) -> bool:
+        return self.state_sync is not None
+
+    def _start(self, world: World, cleanup: ExitStack) -> None:
         """
-        if self.state_sync is not None:
-            return self
-        if self.bridge.recording is not None:
-            finalize_recording(self.bridge, self.bridge.recording)
-        try:
-            self._query_attachment = self.bridge.attach(self.world)
-            self._recording = Recording()
-            self.bridge.recording = self._recording
-            self._recording.start()
-            MeshFileStorage()
-            self._exit_callback = partial(
-                _finalize_recording_at_exit, self.bridge, self._recording
-            )
-            atexit.register(self._exit_callback)
-            self.bridge.snapshot()
-            self.state_sync = WorldStateSync(_world=self.world, bridge=self.bridge)
-            self.model_sync = WorldModelSync(_world=self.world, bridge=self.bridge)
-            self.marker_listener = RosMarkerListener.start_if_available(self.bridge)
-            self.bridge.marker_listener = self.marker_listener
+        Serve `world` and its default live queries to the viewer, starting the server
+        and a new recording unless they already run, and finalizing an earlier recording
+        of :attr:`bridge` first.
+
+        A failing start also releases the server and the recording it started.
+        """
+        with ExitStack() as session:
+            if self._recording is None:
+                self._start_recording(session)
+            self._show(world, cleanup)
             if self.bridge.live_server is None:
                 self.bridge.live_server = serve(self.bridge, self.port)
-        except BaseException:
-            self.stop()
-            raise
-        VisualizationSession.register(self.stop)
-        return self
+                session.callback(self._shut_down_server)
+            self._session_cleanup.push(session.pop_all())
 
-    def plan_callback(self, plan: Plan) -> BridgePlanCallback:
+    def _show(self, world: World, cleanup: ExitStack) -> None:
         """
-        The callback that publishes the plan's execution to the viewer.
+        Publish `world` and its default live queries through :attr:`bridge`.
 
-        Also publishes the plan's tree immediately, so the viewer shows it before the
-        first node runs.
-
-        :param plan: The plan about to be performed.
-        :return: The callback to append to the plan's ``node_callbacks``.
+        :param world: The world to show.
+        :param cleanup: Releases what showing `world` acquired.
         """
-        self.bridge.begin_plan(plan)
-        callback = BridgePlanCallback(bridge=self.bridge, plan=plan)
-        self._plan_callbacks.append(callback)
-        return callback
+        self._query_attachment = self.bridge.attach(world)
+        cleanup.callback(self._release_world_queries)
+        MeshFileStorage()
+        self.bridge.snapshot()
+        self.state_sync = WorldStateSync(_world=world, bridge=self.bridge)
+        cleanup.callback(self._stop_state_sync)
+        self.model_sync = WorldModelSync(_world=world, bridge=self.bridge)
+        cleanup.callback(self._stop_model_sync)
+        self.marker_listener = RosMarkerListener.start_if_available(self.bridge)
+        self.bridge.marker_listener = self.marker_listener
+        cleanup.callback(self._stop_marker_listener)
+
+    def _start_recording(self, session: ExitStack) -> None:
+        """
+        Start a new recording of :attr:`bridge`, finalizing an earlier one first.
+
+        :param session: Finalizes the recording.
+        """
+        if self.bridge.recording is not None:
+            finalize_recording(self.bridge, self.bridge.recording)
+        self._recording = Recording()
+        self.bridge.recording = self._recording
+        self._recording.start()
+        session.callback(self._finalize_recording)
+        self._exit_callback = partial(
+            _finalize_recording_at_exit, self.bridge, self._recording
+        )
+        atexit.register(self._exit_callback)
+        session.callback(self._unregister_exit_callback)
 
     def stop(self) -> None:
         """
-        Finalize the recording and release this session's callbacks, server and queries.
+        Differs from :meth:`~cramph.visualization.WorldVisualization.stop` in also
+        unsubscribing from the history of the published statechart, finalizing the
+        recording and closing the server of :attr:`bridge`.
         """
-        for callback in self._plan_callbacks:
-            callback.stop()
-        self._plan_callbacks.clear()
-        if self._exit_callback is not None:
-            atexit.unregister(self._exit_callback)
-            self._exit_callback = None
-        if self.state_sync is not None:
-            self.state_sync.stop()
-            self.state_sync = None
-        if self.model_sync is not None:
-            self.model_sync.stop()
-            self.model_sync = None
+        self.publishing.stop()
+        super().stop()
+        self._session_cleanup.close()
+
+    def after_compile(self, executor: Executor) -> None:
+        """
+        Differs from :meth:`~cramph.visualization.WorldVisualization.after_compile` in
+        switching to the world of `executor` if another one is shown, and in also
+        publishing the statechart `executor` compiled.
+        """
+        if self.is_rendering and self.bridge.world is not executor.context.world:
+            self._cleanup.close()
+        super().after_compile(executor)
+        self.publishing.observe(executor.statechart)
+
+    def after_run(self, executor: Executor) -> None:
+        """
+        Differs from :meth:`~cramph.visualization.WorldVisualization.after_run` in
+        publishing the statechart as the run left it and keeping the world, the server
+        and the recording until :meth:`stop`.
+        """
+        self.publishing.finish()
+
+    def _release_world_queries(self) -> None:
+        """
+        Remove the automatic queries of the world attachment.
+        """
+        self.bridge.release_world_queries(self._query_attachment)
+        self._query_attachment = None
+
+    def _finalize_recording(self) -> None:
+        """
+        Write the capture of the run to disk.
+        """
+        finalize_recording(self.bridge, self._recording)
+        self._recording = None
+        self.bridge.recording = None
+
+    def _unregister_exit_callback(self) -> None:
+        """
+        Withdraw the finalizer of the capture, which :meth:`_finalize_recording` takes
+        over.
+        """
+        atexit.unregister(self._exit_callback)
+        self._exit_callback = None
+
+    def _stop_state_sync(self) -> None:
+        """
+        Stop publishing state changes.
+        """
+        self.state_sync.stop()
+        self.state_sync = None
+
+    def _stop_model_sync(self) -> None:
+        """
+        Stop refreshing the catalogs on model changes.
+        """
+        self.model_sync.stop()
+        self.model_sync = None
+
+    def _stop_marker_listener(self) -> None:
+        """
+        Stop feeding ROS markers to the debug overlay, if they were.
+        """
         if self.marker_listener is not None:
             self.marker_listener.stop()
-            self.marker_listener = None
-            self.bridge.marker_listener = None
-        if self.bridge.live_server is not None:
-            self.bridge.live_server.shutdown()
-            self.bridge.live_server.server_close()
-            self.bridge.live_server = None
-        try:
-            if self._recording is not None:
-                finalize_recording(self.bridge, self._recording)
-                self._recording = None
-                self.bridge.recording = None
-        finally:
-            if self._query_attachment is not None:
-                self.bridge.release_world_queries(self._query_attachment)
-                self._query_attachment = None
+        self.marker_listener = None
+        self.bridge.marker_listener = None
+
+    def _shut_down_server(self) -> None:
+        """
+        Close the HTTP endpoints of :attr:`bridge`, if they are open.
+        """
+        if self.bridge.live_server is None:
+            return
+        self.bridge.live_server.shutdown()
+        self.bridge.live_server.server_close()
+        self.bridge.live_server = None

@@ -23,6 +23,7 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
 
+from .dataset.robots_on_a_drive import RobotOnADifferentialDrive, RobotOnAnOmniDrive
 from .living_worlds import (
     LivingWorlds,
 )
@@ -34,14 +35,16 @@ try:
 except ImportError:
     Garmi = None
 
-try:
-    from coraplex.datastructures.dataclasses import Context
-except ModuleNotFoundError:
-    # ROS dependencies.
-    Context = None
+from .sampling import SAMPLING_SEED
 
 try:
-    from giskardpy.middleware.ros2 import rospy
+    from .plan_running import robot_extensions
+except ModuleNotFoundError:
+    # ROS dependencies.
+    robot_extensions = None
+
+try:
+    from semantic_digital_twin.adapters.ros import rospy
 except ModuleNotFoundError:
     # ROS dependencies.
     rospy = None
@@ -171,17 +174,25 @@ The structure of fixtures in this conftest:
 """
 
 
-# %% repeatable location samples
-
-SAMPLING_SEED = 0
-"""
-The sampling seed of every plan context the tests build, so location samples repeat.
-"""
-
-
 LIVING_WORLDS = pytest.StashKey[LivingWorlds]()
 """
 Where a run keeps the record of which test created each world.
+"""
+
+
+PARKED_MARKER = "parked"
+"""
+The marker of tests set aside until a problem in :data:`FUTURE_PROBLEMS_FILE` is solved.
+"""
+
+FUTURE_PROBLEMS_FILE = "future_problems.md"
+"""
+The file at the repository root listing the problems parked tests wait for.
+"""
+
+PARKED_REASON = f"parked, see {FUTURE_PROBLEMS_FILE}"
+"""
+Why a parked test is skipped.
 """
 
 
@@ -224,6 +235,16 @@ def pytest_configure(config: pytest.Config) -> None:
     living_worlds = LivingWorlds(world_type=World)
     living_worlds.watch()
     config.stash[LIVING_WORLDS] = living_worlds
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """
+    Skip every test marked ``parked``, pointing at the list of problems it waits for.
+    """
+    skip = pytest.mark.skip(reason=PARKED_REASON)
+    for item in items:
+        if item.get_closest_marker(PARKED_MARKER) is not None:
+            item.add_marker(skip)
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
@@ -305,7 +326,7 @@ def cylinder_bot_world():
             collision=ShapeCollection(shapes=[Cylinder(width=0.1, height=0.5)]),
         )
         robot_world.add_body(robot)
-        MinimalRobot.from_world(robot_world)
+        RobotOnAnOmniDrive.from_world(robot_world)
     world = World()
     with world.modify_world():
         body = Body(
@@ -486,7 +507,7 @@ def cylinder_bot_diff_world():
             collision=ShapeCollection(shapes=[Cylinder(width=0.1, height=0.5)]),
         )
         robot_world.add_body(robot)
-        MinimalRobot.from_world(robot_world)
+        RobotOnADifferentialDrive.from_world(robot_world)
     world = World()
     with world.modify_world():
         body = Body(
@@ -580,9 +601,7 @@ def _hsr_world_setup():
 
 @pytest.fixture(scope="function")
 def hsr_world_copy(_hsr_world_setup):
-    result = deepcopy(_hsr_world_setup)
-    HSRB.from_world(result)
-    return result
+    return deepcopy(_hsr_world_setup)
 
 
 @pytest.fixture(scope="session")
@@ -614,6 +633,11 @@ def daisy_world():
     world_with_daisy = daisy_parser.parse()
     DAiSy.from_world(world_with_daisy)
     return world_with_daisy
+
+
+@pytest.fixture(scope="function")
+def daisy_world_copy(daisy_world):
+    return deepcopy(daisy_world)
 
 
 @pytest.fixture(scope="session")
@@ -797,11 +821,7 @@ def apartment_world_pr2_copy_with_context(_apartment_world_setup, _pr2_world_set
     return (
         result,
         result.get_semantic_annotations_by_type(AbstractRobot)[0],
-        Context(
-            result,
-            result.get_semantic_annotations_by_type(AbstractRobot)[0],
-            sampling_seed=SAMPLING_SEED,
-        ),
+        robot_extensions(result.get_semantic_annotations_by_type(AbstractRobot)[0]),
     )
 
 
@@ -1033,7 +1053,7 @@ def simple_pr2_world_setup(_pr2_world_setup, _simple_apartment_setup):
     return (
         pr2_copy,
         robot_view,
-        Context(pr2_copy, robot_view, sampling_seed=SAMPLING_SEED),
+        robot_extensions(robot_view),
     )
 
 
@@ -1050,7 +1070,7 @@ def hsr_apartment_world(_hsr_world_setup, _apartment_world_setup):
     return (
         apartment_copy,
         robot_view,
-        Context(apartment_copy, robot_view, sampling_seed=SAMPLING_SEED),
+        robot_extensions(robot_view),
     )
 
 

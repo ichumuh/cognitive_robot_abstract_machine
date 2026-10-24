@@ -4,6 +4,7 @@ PACKAGES = [
     "cognitive_robot_abstract_machine",
     "coraplex",
     "cramera",
+    "cramph",
     "experiments",
     "giskardpy",
     "krrood",

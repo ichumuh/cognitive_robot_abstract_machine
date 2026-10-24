@@ -7,7 +7,6 @@ import pytest
 from .test_live_http import bridge, server, post
 from .test_server import server as viewer_server, post as viewer_post
 
-
 # %% passive live endpoints
 
 
