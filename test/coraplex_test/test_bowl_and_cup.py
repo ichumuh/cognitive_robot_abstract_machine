@@ -38,7 +38,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
 )
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose, Pose2D
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Cylinder
@@ -204,13 +204,13 @@ def transport_plan(kitchen: KitchenWithFilledDrawer) -> Sequence:
         once.
     """
     world, robot = kitchen.world, kitchen.robot
-    in_front_of_the_closed_drawer = Pose.from_xyz_rpy(
+    in_front_of_the_closed_drawer = Pose2D.from_xy_yaw(
         x=0.4, y=0.7, reference_frame=world.root
     )
-    in_front_of_the_open_drawer = Pose.from_xyz_rpy(
+    in_front_of_the_open_drawer = Pose2D.from_xy_yaw(
         x=0.3, y=0.89, reference_frame=world.root
     )
-    facing_the_kitchen_island = Pose.from_xyz_rpy(
+    facing_the_kitchen_island = Pose2D.from_xy_yaw(
         x=-0.25, y=1.85, yaw=np.pi, reference_frame=world.root
     )
     return Sequence(

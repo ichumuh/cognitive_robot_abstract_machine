@@ -108,7 +108,7 @@ The plan will consist of the following steps:
 ```python
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose, Pose2D
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from coraplex.plans.context_extensions import RobotAccess
 from cramph.context import StatechartContext
@@ -136,14 +136,14 @@ plan = Sequence(
         ParkArmsAction(arms=pr2.all_arms),
         MoveTorsoAction(torso_state=TorsoState.HIGH),
         NavigateAction(
-            target_location=Pose.from_xyz_rpy(2.0, 2.0, 0.0, reference_frame=world.root)
+            target_location=Pose2D.from_xy_yaw(x=2.0, y=2.0, reference_frame=world.root)
         ),
         PickUpAction(
             grasp=milk.grasp_candidates()[0],
             arm=pr2.right_arm,
         ),
         NavigateAction(
-            target_location=Pose.from_xyz_rpy(4.0, 4.0, 0.0, reference_frame=world.root)
+            target_location=Pose2D.from_xy_yaw(x=4.0, y=4.0, reference_frame=world.root)
         ),
         PlaceAction(
             object_designator=milk,

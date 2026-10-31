@@ -99,7 +99,7 @@ def test_a_place_runs_the_grasp_backwards(pr2_holding_milk):
         grasp.moved_to(target), robot.left_arm.end_effector, grasp
     )
 
-    tool_goals = [goal.goal_pose for goal in _tool_goals_of(place)]
+    tool_goals = [goal.goal for goal in _tool_goals_of(place)]
 
     # The grasp pose is commanded twice: to come down onto the target, and to stay there
     # while the gripper opens.

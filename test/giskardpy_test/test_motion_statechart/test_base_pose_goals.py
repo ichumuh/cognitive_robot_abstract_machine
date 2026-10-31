@@ -50,7 +50,7 @@ def test_a_holonomic_base_goal_moves_the_root_of_the_robot(
     goal = HolonomicBaseGoal.moving_base_of(robot, target, threshold=0.05)
 
     assert goal.mobile_base is robot.mobile_base
-    assert goal.goal_pose is target
+    assert goal.goal is target
     assert goal.threshold == 0.05
 
 
@@ -63,7 +63,7 @@ def test_a_differential_drive_goal_drives_the_drive_of_the_robot(
     goal = DifferentialDriveBaseGoal.moving_base_of(robot, target, threshold=0.05)
 
     assert goal.mobile_base is robot.mobile_base
-    assert goal.goal_pose is target
+    assert goal.goal is target
     assert goal.threshold == 0.05
 
 
@@ -138,7 +138,7 @@ def test_a_differential_drive_goal_constrains_only_x_y_and_yaw(
         mobile_base=cylinder_bot_diff_world.get_semantic_annotations_by_type(
             MobileBase
         )[0],
-        goal_pose=_target(cylinder_bot_diff_world),
+        goal=_target(cylinder_bot_diff_world),
     )
 
     _compiled(cylinder_bot_diff_world, goal)

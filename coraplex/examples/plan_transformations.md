@@ -86,7 +86,7 @@ def show(node, depth=0):
 from cramph.composites import Sequence
 from coraplex.robot_plans.actions.core.pick_up import ReachAction
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose2D
 
 milk = world.get_semantic_annotations_by_type(Milk)[0]
 grasp = milk.grasp_candidates()[0]
@@ -261,7 +261,7 @@ plan_transformations = [ParkArmsBeforeNavigating()]
 
 navigate = expand(
     Sequence(
-        nodes=[NavigateAction(target_location=Pose.from_xyz_rpy(1.5, 2.4, 0.0, reference_frame=world.root))]
+        nodes=[NavigateAction(target_location=Pose2D.from_xy_yaw(x=1.5, y=2.4, reference_frame=world.root))]
     )
 )
 
@@ -272,7 +272,7 @@ The parking is part of the plan like any other action, so it is performed with i
 
 ```python
 navigate = Sequence(
-    nodes=[NavigateAction(target_location=Pose.from_xyz_rpy(1.5, 2.4, 0.0, reference_frame=world.root))]
+    nodes=[NavigateAction(target_location=Pose2D.from_xy_yaw(x=1.5, y=2.4, reference_frame=world.root))]
 )
 
 executor, statechart = statechart_for(navigate)
@@ -306,7 +306,7 @@ plan_transformations = [ParkArmsAfterNavigating()]
 
 navigate = expand(
     Sequence(
-        nodes=[NavigateAction(target_location=Pose.from_xyz_rpy(1.5, 2.4, 0.0, reference_frame=world.root))]
+        nodes=[NavigateAction(target_location=Pose2D.from_xy_yaw(x=1.5, y=2.4, reference_frame=world.root))]
     )
 )
 
@@ -342,7 +342,7 @@ plan_transformations = [LookAtTheGoalWhileNavigating()]
 
 navigate = expand(
     Sequence(
-        nodes=[NavigateAction(target_location=Pose.from_xyz_rpy(1.5, 2.4, 0.0, reference_frame=world.root))]
+        nodes=[NavigateAction(target_location=Pose2D.from_xy_yaw(x=1.5, y=2.4, reference_frame=world.root))]
     )
 )
 
@@ -378,7 +378,7 @@ class ParkArmsBeforeLongDrives(ParkArmsBeforeNavigating):
 ```python
 plan_transformations = [ParkArmsBeforeLongDrives()]
 
-navigate = expand(Sequence(nodes=[NavigateAction(target_location=pr2.root.global_pose)]))
+navigate = expand(Sequence(nodes=[NavigateAction(target_location=Pose2D.from_pose(pr2.root.global_pose))]))
 
 show(navigate)
 ```

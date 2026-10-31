@@ -24,7 +24,7 @@ from semantic_digital_twin.grasping.surface_grasp import (
     SurfaceGrasp,
     draw_surface_grasps,
 )
-from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+from semantic_digital_twin.semantic_annotations.mixins import CanBeGrasped
 
 # %% performing a grasp
 
@@ -52,7 +52,7 @@ class GraspTrialRecord:
     One tried grasp as it is recorded.
     """
 
-    grasped_part: HasGraspCandidates
+    grasped_part: CanBeGrasped
     """
     The part the grasp was placed on.
     """
@@ -72,7 +72,7 @@ class GraspTrials:
     The grasps are placed on the object's grasped part: its handle when it has one.
     """
 
-    graspable: HasGraspCandidates
+    graspable: CanBeGrasped
     """
     The object to grasp.
     """
@@ -99,7 +99,7 @@ class GraspTrials:
     """
 
     @property
-    def grasped_part(self) -> HasGraspCandidates:
+    def grasped_part(self) -> CanBeGrasped:
         """
         :return: The part of the object the grasps are placed on.
         """

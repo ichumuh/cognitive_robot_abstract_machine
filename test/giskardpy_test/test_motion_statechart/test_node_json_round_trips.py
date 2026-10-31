@@ -200,9 +200,7 @@ def _orientation(world: World) -> RotationMatrix:
 
 
 def _joint_goal(world: World) -> JointPositionList:
-    return JointPositionList(
-        goal_state=JointState.from_mapping({_connection(world): 0.5})
-    )
+    return JointPositionList(goal=JointState.from_mapping({_connection(world): 0.5}))
 
 
 def _driven_base_node(node_type: type[DrivenBaseTask], world: World) -> DrivenBaseTask:
@@ -211,8 +209,8 @@ def _driven_base_node(node_type: type[DrivenBaseTask], world: World) -> DrivenBa
         to a pose given in the drive's parent.
     """
     return node_type(
-        base=world.get_connections_by_type(DifferentialDrive)[0].child,
-        goal_pose=_pose(world),
+        driven_body=world.get_connections_by_type(DifferentialDrive)[0].child,
+        goal=_pose(world),
         parent_T_goal_reference_frame=HomogeneousTransformationMatrix(
             reference_frame=_root(world)
         ),
@@ -255,7 +253,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
             CartesianPose,
             lambda world: [
                 CartesianPose(
-                    root_link=_root(world), tip_link=_tip(world), goal_pose=_pose(world)
+                    root_link=_root(world), tip_link=_tip(world), goal=_pose(world)
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -265,7 +263,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 HolonomicBaseGoal(
                     mobile_base=world.get_semantic_annotations_by_type(MobileBase)[0],
-                    goal_pose=_pose(world),
+                    goal=_pose(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -274,7 +272,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
             CartesianPoseStraight,
             lambda world: [
                 CartesianPoseStraight(
-                    root_link=_root(world), tip_link=_tip(world), goal_pose=_pose(world)
+                    root_link=_root(world), tip_link=_tip(world), goal=_pose(world)
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -295,7 +293,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 CartesianPosition(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_point=_point(world),
+                    goal=_point(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -305,8 +303,8 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 DistanceAlongAxis(
                     root_link=_root(world),
-                    reference_point=_point(world),
-                    tip_point=_tip_point(world),
+                    reference_feature=_point(world),
+                    controlled_feature=_tip_point(world),
                     axis=_root_axis(world),
                     distance=0.1,
                 )
@@ -319,7 +317,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 CartesianPositionStraight(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_point=_point(world),
+                    goal=_point(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -330,7 +328,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 CartesianPositionTrajectory(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_points=[_point(world), _point(world)],
+                    goal=[_point(world), _point(world)],
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -341,7 +339,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 CartesianOrientation(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_orientation=_orientation(world),
+                    goal=_orientation(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -376,7 +374,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 DifferentialDriveBaseGoal(
                     mobile_base=world.get_semantic_annotations_by_type(MobileBase)[0],
-                    goal_pose=_pose(world),
+                    goal=_pose(world),
                 )
             ],
             WorldFixture.CYLINDER_BOT_DIFF_WORLD,
@@ -402,8 +400,8 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 AlignPlanes(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_normal=_root_axis(world),
-                    tip_normal=_tip_axis(world),
+                    reference_feature=_root_axis(world),
+                    controlled_feature=_tip_axis(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -414,7 +412,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 Pointing(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_point=_point(world),
+                    goal=_point(world),
                     pointing_axis=_tip_axis(world),
                 )
             ],
@@ -426,7 +424,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 PointingCone(
                     root_link=_root(world),
                     tip_link=_tip(world),
-                    goal_point=_point(world),
+                    goal=_point(world),
                     pointing_axis=_tip_axis(world),
                 )
             ],
@@ -465,7 +463,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                     tip_P_tool=_tip_point(world),
                     hole_point=_point(world),
                     tip_V_axis=_tip_axis(world),
-                    up_axis=_root_axis(world),
+                    hole_normal=_root_axis(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -496,7 +494,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 ArticulateGraspedMechanism(
                     environment_link=world.get_body_by_name("robot"),
                     tip_link=world.get_body_by_name("robot2"),
-                    goal_joint_state=0.0,
+                    goal=0.0,
                 )
             ],
             WorldFixture.PRISMATIC_BOT2,
@@ -511,8 +509,8 @@ def _feature_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 AlignPerpendicular(
                     **_feature_fields(world),
-                    tip_normal=_tip_axis(world),
-                    reference_normal=_root_axis(world),
+                    controlled_feature=_tip_axis(world),
+                    reference_feature=_root_axis(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -522,8 +520,8 @@ def _feature_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 AngleGoal(
                     **_feature_fields(world),
-                    tip_vector=_tip_axis(world),
-                    reference_vector=_root_axis(world),
+                    controlled_feature=_tip_axis(world),
+                    reference_feature=_root_axis(world),
                     lower_angle=0.1,
                     upper_angle=0.2,
                 )
@@ -535,8 +533,8 @@ def _feature_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 DistanceGoal(
                     **_feature_fields(world),
-                    tip_point=_tip_point(world),
-                    reference_point=_point(world),
+                    controlled_feature=_tip_point(world),
+                    reference_feature=_point(world),
                     lower_limit=0.1,
                     upper_limit=0.2,
                 )
@@ -548,8 +546,8 @@ def _feature_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 HeightGoal(
                     **_feature_fields(world),
-                    tip_point=_tip_point(world),
-                    reference_point=_point(world),
+                    controlled_feature=_tip_point(world),
+                    reference_feature=_point(world),
                     lower_limit=0.1,
                     upper_limit=0.2,
                 )
@@ -561,8 +559,8 @@ def _feature_cases() -> list[NodeRoundTripCase]:
             lambda world: [
                 ReachPoint(
                     **_feature_fields(world),
-                    tip_point=_tip_point(world),
-                    reference_point=_point(world),
+                    controlled_feature=_tip_point(world),
+                    reference_feature=_point(world),
                 )
             ],
             WorldFixture.PR2_WORLD,
@@ -789,7 +787,7 @@ def _joint_and_base_cases() -> list[NodeRoundTripCase]:
             MoveFingersToJointState,
             lambda world: [
                 MoveFingersToJointState(
-                    goal_state=world.get_semantic_annotations_by_type(EndEffector)[
+                    goal=world.get_semantic_annotations_by_type(EndEffector)[
                         0
                     ].get_joint_state_by_type(GripperState.CLOSE),
                 )
@@ -821,7 +819,7 @@ def _collision_cases() -> list[NodeRoundTripCase]:
             ExternalCollisionDistanceMonitor,
             lambda world: [
                 ExternalCollisionDistanceMonitor(
-                    body=_robot(world).root, threshold=0.05
+                    body=_robot(world).root, distance_threshold=0.05
                 )
             ],
             WorldFixture.CYLINDER_BOT_WORLD,
@@ -832,7 +830,7 @@ def _collision_cases() -> list[NodeRoundTripCase]:
                 SelfCollisionDistanceMonitor(
                     body_a=world.get_kinematic_structure_entity_by_name("l_thumb"),
                     body_b=world.get_kinematic_structure_entity_by_name("r_thumb"),
-                    threshold=0.05,
+                    distance_threshold=0.05,
                 )
             ],
             WorldFixture.SELF_COLLISION_BOT_WORLD,

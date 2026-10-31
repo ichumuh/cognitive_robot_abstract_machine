@@ -17,7 +17,7 @@ from semantic_digital_twin.exceptions import (
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
 if TYPE_CHECKING:
-    from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+    from semantic_digital_twin.semantic_annotations.mixins import CanBeGrasped
 
 # %% grasp candidates
 
@@ -35,7 +35,7 @@ class GraspCandidate:
     how a grasp stays independent of the robot performing it.
     """
 
-    graspable: HasGraspCandidates
+    graspable: CanBeGrasped
     """
     The annotation of the object offering this grasp.
     """
@@ -57,7 +57,7 @@ class GraspCandidate:
             )
 
     @classmethod
-    def from_body_origin(cls, graspable: HasGraspCandidates) -> GraspCandidate:
+    def from_body_origin(cls, graspable: CanBeGrasped) -> GraspCandidate:
         """
         The grasp that takes an object at the origin of its own body.
 

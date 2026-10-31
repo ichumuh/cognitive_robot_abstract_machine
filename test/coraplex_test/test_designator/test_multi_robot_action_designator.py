@@ -358,8 +358,8 @@ def test_navigate_multi(multiple_robot_apartment_context, rclpy_node):
     target_position = [5, 2, 0]
 
     plan = NavigateAction(
-        target_location=Pose(
-            Point3.from_iterable(target_position), reference_frame=world.root
+        target_location=Pose2D.from_xy_yaw(
+            *target_position[:2], reference_frame=world.root
         )
     )
 
@@ -686,10 +686,12 @@ def test_open(multiple_robot_apartment_context):
             MoveTorsoAction(torso_state=TorsoState.HIGH),
             ParkArmsAction(arms=robot.all_arms),
             NavigateAction(
-                target_location=Pose(
-                    Point3.from_iterable([1.6, 1.9, 0]),
-                    Quaternion.from_iterable([0, 0, 0.3, 1]),
-                    reference_frame=world.root,
+                target_location=Pose2D.from_pose(
+                    Pose(
+                        Point3.from_iterable([1.6, 1.9, 0]),
+                        Quaternion.from_iterable([0, 0, 0.3, 1]),
+                        reference_frame=world.root,
+                    )
                 )
             ),
             OpenAction.from_handle(
@@ -720,10 +722,12 @@ def test_close(multiple_robot_apartment_context, rclpy_node):
             MoveTorsoAction(torso_state=TorsoState.HIGH),
             ParkArmsAction(arms=robot.all_arms),
             NavigateAction(
-                target_location=heading_towards(
-                    navigate_position,
-                    handle.root.global_pose.position.to_np(),
-                    world,
+                target_location=Pose2D.from_pose(
+                    heading_towards(
+                        navigate_position,
+                        handle.root.global_pose.position.to_np(),
+                        world,
+                    )
                 )
             ),
             CloseAction.from_handle(handle, left_or_only_arm(robot)),
@@ -834,7 +838,7 @@ def test_multi_robot_gcs_navigation(multiple_robot_apartment_context, rclpy_node
     target_position = [5, 1]
 
     plan = PathPlanningNavigateAction(
-        target=Pose.from_xyz_rpy(*target_position, 0, reference_frame=world.root)
+        target_location=Pose2D.from_xy_yaw(*target_position, reference_frame=world.root)
     )
 
     run_plan(plan, extensions)
@@ -853,7 +857,7 @@ def test_gcs_navigation_arrives_at_each_waypoint_facing_the_next_one(
     world, robot, extensions = multiple_robot_apartment_context
 
     action = PathPlanningNavigateAction(
-        target=Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+        target_location=Pose2D.from_xy_yaw(x=5, y=1, reference_frame=world.root)
     )
     attach_to_statechart(action, extensions)
 
@@ -886,7 +890,7 @@ def test_gcs_navigation_plans_on_the_floor_the_robot_stands_on(
     world, robot, extensions = multiple_robot_apartment_context
 
     action = PathPlanningNavigateAction(
-        target=Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+        target_location=Pose2D.from_xy_yaw(x=5, y=1, reference_frame=world.root)
     )
     attach_to_statechart(action, extensions)
 
@@ -899,12 +903,13 @@ def test_gcs_navigation_plans_on_the_floor_the_robot_stands_on(
     ).bounding_box()
     assert floor_box.min_x <= float(base_pose.x) <= floor_box.max_x
     assert floor_box.min_y <= float(base_pose.y) <= floor_box.max_y
-    assert floor_box.max_z == pytest.approx(float(base_pose.z))
+    # Mesh files store positions as 32-bit floats.
+    assert floor_box.max_z == pytest.approx(float(base_pose.z), abs=1e-6)
 
     waypoints = action._waypoints()
-    assert [waypoint.reference_frame for waypoint in waypoints] == [floor.root] * len(
-        waypoints
-    )
+    assert [waypoint.reference_frame for waypoint in waypoints] == [
+        floor.supporting_surface
+    ] * len(waypoints)
 
 
 def test_gcs_navigation_takes_a_waypoints_height_from_that_waypoints_frame(
@@ -917,7 +922,7 @@ def test_gcs_navigation_takes_a_waypoints_height_from_that_waypoints_frame(
     world, robot, extensions = multiple_robot_apartment_context
 
     action = PathPlanningNavigateAction(
-        target=Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+        target_location=Pose2D.from_xy_yaw(x=5, y=1, reference_frame=world.root)
     )
     attach_to_statechart(action, extensions)
 
@@ -926,7 +931,9 @@ def test_gcs_navigation_takes_a_waypoints_height_from_that_waypoints_frame(
         base_in_pose_frame = world.transform(
             robot.root.global_transform, pose.reference_frame
         )
-        assert float(pose.z) == pytest.approx(float(base_in_pose_frame.z))
+        assert float(pose.reference_frame.global_pose.z) == pytest.approx(
+            float(base_in_pose_frame.reference_frame.global_pose.z)
+        )
 
 
 def test_gcs_navigation_needs_a_floor_below_the_robot(
@@ -943,7 +950,7 @@ def test_gcs_navigation_needs_a_floor_below_the_robot(
     world.notify_state_change()
 
     action = PathPlanningNavigateAction(
-        target=Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+        target_location=Pose2D.from_xy_yaw(x=5, y=1, reference_frame=world.root)
     )
 
     with pytest.raises(NoFloorBelowRobot) as raised:
@@ -1205,7 +1212,9 @@ def test_a_search_tries_the_looks_it_is_given_in_turn(
         ),
     )
     search = SearchAction(
-        navigate=NavigateAction(target_location=robot.root.global_pose),
+        navigate=NavigateAction(
+            target_location=Pose2D.from_pose(robot.root.global_pose)
+        ),
         looks=[look_up],
     )
 
@@ -1230,9 +1239,7 @@ def test_move_torso_runs_the_joint_goal_of_the_requested_state(
     expand(action, extensions)
 
     [joint_goal] = nodes_of_type(action, JointPositionList)
-    assert joint_goal.goal_state == robot.get_torso().get_joint_state_by_type(
-        TorsoState.HIGH
-    )
+    assert joint_goal.goal == robot.get_torso().get_joint_state_by_type(TorsoState.HIGH)
 
 
 def test_set_gripper_drives_the_gripper_it_names(multiple_robot_apartment_context):
@@ -1266,7 +1273,7 @@ def test_park_arms_caps_joint_velocity_only_when_asked(
     expand(uncapped, extensions)
 
     [limit] = nodes_of_type(capped, JointVelocityLimit)
-    assert limit.max_velocity == capped.max_joint_velocity
+    assert limit.max_joint_velocity == capped.max_joint_velocity
     assert limit in capped.nodes
     assert nodes_of_type(uncapped, JointVelocityLimit) == []
 
@@ -1285,7 +1292,7 @@ def test_closing_drives_the_mechanism_to_the_closed_joint_position(
     expand(action, extensions)
 
     [closing] = nodes_of_type(action, ArticulateGraspedMechanism)
-    assert closing.goal_joint_state == action.closed_joint_position
+    assert closing.goal == action.closed_joint_position
 
 
 def test_opening_drives_the_mechanism_to_its_upper_limit(
@@ -1302,7 +1309,7 @@ def test_opening_drives_the_mechanism_to_its_upper_limit(
 
     [opening] = nodes_of_type(action, ArticulateGraspedMechanism)
     mechanism = handle.root.get_first_parent_connection_of_type(ActiveConnection1DOF)
-    assert opening.goal_joint_state == mechanism.dof.limits.upper.position
+    assert opening.goal == mechanism.dof.limits.upper.position
 
 
 def test_look_at_points_the_default_camera(multiple_robot_apartment_context):
@@ -1450,7 +1457,7 @@ def test_navigating_drives_the_base_towards_what_it_should_face(
     Navigating commands the base pose, and runs nothing else.
     """
     _, robot, extensions = robot_without_differential_drive_context
-    action = NavigateAction(target_location=Pose())
+    action = NavigateAction(target_location=Pose2D())
 
     statechart_of(robot_executor(extensions), action)
 
@@ -1465,7 +1472,7 @@ def test_navigating_writes_the_odometry_when_simulated(
     A simulated run has no drive to follow a pose, so it sets the odometry itself.
     """
     _, _, extensions = robot_without_differential_drive_context
-    action = NavigateAction(target_location=Pose())
+    action = NavigateAction(target_location=Pose2D())
 
     expand(action, extensions)
 
@@ -1481,7 +1488,7 @@ def test_navigating_drives_the_base_when_physically_simulated(
     why performing in physics is told apart from performing kinematically.
     """
     _, robot, extensions = robot_without_differential_drive_context
-    action = NavigateAction(target_location=Pose())
+    action = NavigateAction(target_location=Pose2D())
 
     statechart_of(physically_simulated_executor(extensions), action)
 
@@ -1820,7 +1827,7 @@ def drive_ahead(robot: AbstractRobot) -> NavigateAction:
     :return: The drive moving `robot` a short way.
     """
     return NavigateAction(
-        target_location=Pose.from_xyz_rpy(x=0.3, reference_frame=robot.root)
+        target_location=Pose2D.from_xy_yaw(x=0.3, reference_frame=robot.root)
     )
 
 

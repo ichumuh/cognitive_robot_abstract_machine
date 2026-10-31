@@ -183,7 +183,7 @@ def _whole_scene(world: World) -> VolumetricBoundingBox:
 
 
 def _navigate(world: World) -> NavigateAction:
-    return NavigateAction(target_location=_pose(world))
+    return NavigateAction(target_location=Pose2D.from_pose(_pose(world)))
 
 
 def _face_and_look_at(world: World) -> FaceAndLookAtAction:
@@ -315,7 +315,11 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
         ),
         ActionRoundTripCase(
             PathPlanningNavigateAction,
-            lambda world: [PathPlanningNavigateAction(target=_pose(world))],
+            lambda world: [
+                PathPlanningNavigateAction(
+                    target_location=Pose2D.from_pose(_pose(world))
+                )
+            ],
         ),
         ActionRoundTripCase(
             LookAtAction, lambda world: [LookAtAction(target=_pose(world))]

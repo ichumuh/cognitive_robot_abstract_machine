@@ -24,7 +24,7 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.spatial_types import AxisAngle, Quaternion
 
 if TYPE_CHECKING:
-    from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+    from semantic_digital_twin.semantic_annotations.mixins import CanBeGrasped
 
 # %% the result of trying a grasp
 
@@ -128,7 +128,7 @@ class SurfaceGrasp:
     What happened when the grasp was tried; ``None`` while it has not been.
     """
 
-    def grasp_candidate(self, graspable: HasGraspCandidates) -> GraspCandidate:
+    def grasp_candidate(self, graspable: CanBeGrasped) -> GraspCandidate:
         """
         :param graspable: The object to take hold of.
         :return: This grasp as a grasp frame on the object's root body, its x-axis
@@ -155,7 +155,7 @@ class SurfaceGrasp:
             ).pose,
         )
 
-    def reaches_surface_of(self, graspable: HasGraspCandidates) -> bool:
+    def reaches_surface_of(self, graspable: CanBeGrasped) -> bool:
         """
         :param graspable: The object to take hold of.
         :return: Whether the object's grasp surface reaches the point this grasp names.
@@ -169,7 +169,7 @@ class SurfaceGrasp:
         return np.array([math.cos(self.azimuth), math.sin(self.azimuth), 0.0])
 
     def _surface_point(
-        self, graspable: HasGraspCandidates, outward: NDArray[np.float64]
+        self, graspable: CanBeGrasped, outward: NDArray[np.float64]
     ) -> NDArray[np.float64] | None:
         """
         Cast a horizontal ray from outside the object towards its vertical axis.

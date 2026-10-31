@@ -17,12 +17,14 @@ from coraplex.robot_plans.actions.base import SequentialAction
 from cramph.composites import Parallel
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.mixins import (
-    ReattachesBranches,
-    HasApproachesGraspPoses,
-    HasGraspDetectionThreshold,
+    HasGraspableObjectParameter,
+    HasGraspApproachParameters,
+    HasGraspDetectionThresholdParameter,
+    HasPlaceTuningParameters,
+    HasPlacementTargetParameter,
     MovesToolCenterPoint,
     OperatesGripper,
-    PlaceTuningParameters,
+    ReattachesBranches,
 )
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import (
@@ -32,7 +34,6 @@ from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
 from semantic_digital_twin.robots.robot_parts import Arm
-from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 
 
@@ -42,22 +43,14 @@ class PlaceAction(
     OperatesGripper,
     ReattachesBranches,
     SequentialAction,
-    HasApproachesGraspPoses,
-    PlaceTuningParameters,
-    HasGraspDetectionThreshold,
+    HasGraspableObjectParameter,
+    HasPlacementTargetParameter,
+    HasGraspApproachParameters,
+    HasPlaceTuningParameters,
+    HasGraspDetectionThresholdParameter,
 ):
     """
     Places an object at a position with the arm that holds it.
-    """
-
-    object_designator: HasGraspCandidates
-    """
-    The annotation of the object that should be placed.
-    """
-
-    target_location: Pose
-    """
-    Pose in the world at which the object should be placed.
     """
 
     grasp_release_threshold: float = 0.1

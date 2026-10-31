@@ -17,7 +17,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Whisk,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose2D
 
 from coraplex.robot_plans.actions.composite.tool_based import MixingAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
@@ -68,8 +68,8 @@ def main() -> None:
             ParkArmsAction(arms=pr2.all_arms),
             MoveTorsoAction(torso_state=TorsoState.HIGH),
             NavigateAction(
-                target_location=Pose.from_xyz_rpy(
-                    *BASE_POSITION_XYZ, reference_frame=world.root
+                target_location=Pose2D.from_xy_yaw(
+                    *BASE_POSITION_XYZ[:2], reference_frame=world.root
                 )
             ),
             MixingAction(container=bowl_body, arm=pr2.right_arm, tool=whisk),

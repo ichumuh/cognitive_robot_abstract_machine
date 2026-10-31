@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from coraplex.robot_plans.actions.base import Action
     from cramph.node import StatechartNode
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
-    from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+    from semantic_digital_twin.semantic_annotations.mixins import CanBeGrasped
     from semantic_digital_twin.world_description.world_entity import (
         SemanticAnnotation,
     )
@@ -237,7 +237,7 @@ class ObjectIsNotHeld(DataclassException):
     it is going to take.
     """
 
-    object_designator: HasGraspCandidates
+    object_designator: CanBeGrasped
     """
     The object that was to be placed.
     """

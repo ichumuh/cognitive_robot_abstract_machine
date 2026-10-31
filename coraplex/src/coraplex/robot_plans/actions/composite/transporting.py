@@ -10,7 +10,7 @@ from coraplex.locations.locations import ReachabilityLocation
 from cramph.context import StatechartContext
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import SequentialAction
-from coraplex.robot_plans.mixins import HasApproachesGraspPoses
+from coraplex.robot_plans.mixins import HasGraspApproachParameters
 from coraplex.robot_plans.actions.composite.carrying import CarryAction
 from coraplex.robot_plans.actions.composite.facing import FaceAndLookAtAction
 from coraplex.robot_plans.actions.core.container import OpenAction
@@ -26,9 +26,9 @@ from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from krrood.entity_query_language.query.match import Match
 from semantic_digital_twin.robots.robot_parts import Arm
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
-from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+from semantic_digital_twin.semantic_annotations.mixins import CanBeGrasped
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose, Pose2D
 
 # %% actions running other actions as their steps
 
@@ -52,7 +52,7 @@ class TransportAction(SequentialAction):
     @classmethod
     def from_graspable_by_closest_grasps(
         cls,
-        graspable: HasGraspCandidates,
+        graspable: CanBeGrasped,
         target_location: Pose,
         arm: Arm,
         context: StatechartContext,
@@ -84,7 +84,7 @@ class TransportAction(SequentialAction):
                 carry=a(CarryAction)(
                     navigate=a(NavigateAction)(
                         target_location=variable(
-                            Pose,
+                            Pose2D,
                             domain=ReachabilityLocation(
                                 target_pose=target_location,
                                 arm=arm,
@@ -162,9 +162,9 @@ class MoveAndPlaceAction(SequentialAction):
     @classmethod
     def from_standing_position(
         cls,
-        standing_position: Pose,
+        standing_position: Pose2D,
         target_location: Pose,
-        object_designator: HasGraspCandidates,
+        object_designator: CanBeGrasped,
     ) -> Self:
         """
         :param standing_position: Where the robot stands while placing.
@@ -217,11 +217,11 @@ class MoveAndPickUpAction(SequentialAction):
     @classmethod
     def from_standing_position(
         cls,
-        standing_position: Pose,
+        standing_position: Pose2D,
         grasp: GraspCandidate,
         arm: Arm,
-        approach_clearance: float = HasApproachesGraspPoses.approach_clearance,
-        retreat_distance: float = HasApproachesGraspPoses.retreat_distance,
+        approach_clearance: float = HasGraspApproachParameters.approach_clearance,
+        retreat_distance: float = HasGraspApproachParameters.retreat_distance,
     ) -> Self:
         """
         :param standing_position: Where the robot stands while picking up.
@@ -249,7 +249,7 @@ class MoveAndPickUpAction(SequentialAction):
     @classmethod
     def from_graspable_by_closest_grasps(
         cls,
-        graspable: HasGraspCandidates,
+        graspable: CanBeGrasped,
         arm: Arm,
         context: StatechartContext,
         number_of_grasps: int = GraspsByCloseness.number_of_grasps,
@@ -268,7 +268,7 @@ class MoveAndPickUpAction(SequentialAction):
         """
         object_pose = Pose(reference_frame=graspable.root)
         standing_position = variable(
-            Pose,
+            Pose2D,
             domain=ReachabilityLocation(
                 target_pose=object_pose, arm=arm, context=context
             ),
@@ -318,7 +318,7 @@ class MoveAndOpenAction(SequentialAction):
 
     @classmethod
     def from_standing_position(
-        cls, standing_position: Pose, grasp: GraspCandidate, arm: Arm
+        cls, standing_position: Pose2D, grasp: GraspCandidate, arm: Arm
     ) -> Self:
         """
         :param standing_position: Where the robot stands while opening.
@@ -359,7 +359,7 @@ class MoveAndOpenAction(SequentialAction):
         """
         handle_pose = Pose(reference_frame=handle.root)
         standing_position = variable(
-            Pose,
+            Pose2D,
             domain=ReachabilityLocation(
                 target_pose=handle_pose,
                 arm=arm,
