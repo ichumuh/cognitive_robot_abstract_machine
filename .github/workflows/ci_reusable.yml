@@ -14,10 +14,15 @@ on:
         description: "Lowercase repository name with tag"
         required: true
         type: string
+      runner:
+        description: "Runner image the job runs on"
+        required: false
+        default: ubuntu-latest
+        type: string
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     # Fails a job that is still running after an hour. A runner that runs out of disk or memory
     # stops responding, and its job would otherwise only end at GitHub's six-hour limit.
     timeout-minutes: 60
@@ -143,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tick-traces-${{ strategy.job-index }}-${{ github.run_attempt }}
+          name: tick-traces-${{ inputs.runner }}-${{ runner.name }}-${{ github.run_attempt }}
           path: tick_traces
           if-no-files-found: warn
 
