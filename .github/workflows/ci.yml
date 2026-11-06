@@ -7,6 +7,7 @@ on:
   push:
     branches:
     - main
+    - debug-go-around-corner-in-ci
   pull_request:
   workflow_run:
     workflows: [ "update_docker" ]
@@ -34,21 +35,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - lib: giskardpy
-          - lib: cramph
-          - lib: krrood
-          - lib: semantic_digital_twin
-          - lib: coraplex
-          - lib: random_events
-          - lib: probabilistic_model
-          - lib: physics_simulators
-          - lib: robokudo
-          - lib: segmind
-          - lib: experiments
-          - lib: krrood_spatial_math
-          - lib: version
-          - lib: cognitive_robot_abstract_machine
+        lib: [giskardpy]
+        attempt: [1, 2, 3, 4]
     uses: ./.github/workflows/ci_reusable.yml
     with:
       lib: ${{ matrix.lib }}

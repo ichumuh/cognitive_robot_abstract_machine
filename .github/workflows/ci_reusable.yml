@@ -132,7 +132,20 @@ jobs:
           if [[ "${{ inputs.lib }}" == "semantic_digital_twin" ]]; then
             export MUJOCO_GL=egl
           fi
-          python -m pytest -n auto cognitive_robot_abstract_machine/test/${{ inputs.lib }}_test
+          export PYTHONPATH="$PWD/cognitive_robot_abstract_machine/scripts/ci_debug:$PYTHONPATH"
+          export TICK_TRACE_DIR="$PWD/tick_traces" TICK_TRACE_FILTER=go_around_corner
+          lscpu | grep -E 'Model name|Flags' | cut -c1-400
+          python -c "import piqp, numpy; print(piqp.__version__, [n for n in dir(piqp) if n.startswith('piqp_python')], piqp.instruction_set.avx512f, piqp.instruction_set.avx2); numpy.show_config()"
+          python -m pytest -p trace_ticks -s -q cognitive_robot_abstract_machine/test/giskardpy_test/test_motion_statechart/test_collision_avoidance_tasks.py::test_avoid_collision_go_around_corner || true
+          python -m pytest -p trace_ticks -n auto cognitive_robot_abstract_machine/test/${{ inputs.lib }}_test
+
+      - name: Upload tick traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tick-traces-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: tick_traces
+          if-no-files-found: warn
 
       - name: Show runner resources after the job
         # Runs after a failure too, so a job that ran out of disk shows what filled it.
