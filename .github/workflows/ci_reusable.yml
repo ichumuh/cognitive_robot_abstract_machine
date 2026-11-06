@@ -52,6 +52,23 @@ jobs:
       - name: Show runner resources
         run: cognitive_robot_abstract_machine/scripts/show_runner_resources.sh
 
+      - name: Dump the image contents
+        run: |
+          mkdir -p image_contents
+          echo "${{ inputs.repo_lowercase }}" > image_contents/image.txt
+          dpkg-query -W -f='${Package} ${Version}\n' | sort > image_contents/dpkg.txt
+          /opt/ros/cram-env/bin/python -m pip freeze 2>/dev/null | sort > image_contents/cram_env_pip_freeze.txt || true
+          find /opt/ros/overlay_ws/install /opt/ros/overlay_ws/src -type f \( -name '*.urdf' -o -name '*.xacro' -o -name '*.stl' -o -name '*.STL' -o -name '*.dae' -o -name '*.obj' -o -name '*.so' -o -name '*.py' \) -print0 2>/dev/null | sort -z | xargs -0 md5sum > image_contents/overlay_md5.txt || true
+          for d in /opt/ros/overlay_ws/src/*/; do echo "$d $(git -C $d rev-parse HEAD 2>/dev/null)"; done > image_contents/overlay_git_heads.txt
+          ls -la /opt/ros/ > image_contents/opt_ros.txt
+          wc -l image_contents/*
+
+      - name: Upload the image contents
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-contents-${{ runner.name }}-${{ github.run_attempt }}
+          path: image_contents
+
       - name: Install dependencies
         env:
           # Keep uv's cache on the same filesystem as the target venv (/opt/ros/cram-env) so uv can
