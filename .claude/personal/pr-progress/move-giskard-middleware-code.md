@@ -1,15 +1,12 @@
-Branch move-giskard-middleware-code on cram/main 8574ddfd0a; PR base: main. Moves committed as 230c3338fc; not pushed.
+Branch move-giskard-middleware-code on cram/main 8574ddfd0a; draft PR cram2#916 against main, pushed at 018a8a8419.
 
 Plan:
 - Move misplaced code out of giskardpy/middleware/ros2 and simplify what moved.
 
 Done:
-- ros2_interface -> SDT adapters/ros; every function takes the node; topic/message exceptions.
-- MyActionClient -> action_client.py; GiskardTester -> giskard_tester.py; StretchTester into its test.
-- Deleted: utils.py, pose_comparisons, expand_xacro/load_xacro, CI override in GiskardServerConfig.
-- Giskard.launch passes its node to create_giskard(node).
-- Tests green except the 3 local UR mock-robot errors.
-- MyActionClient -> GiskardActionClient (staged, uncommitted).
+- 230c3338fc: ros2_interface -> SDT with node parameter, action_client/giskard_tester split, deletions, launch passes the node.
+- 018a8a8419: MyActionClient -> GiskardActionClient.
+- Draft PR #916 opened (labels Giskard, semDT, Refactor, api-break).
 
 Next:
-- User reviews; commit, push and open a draft PR against main only when asked.
+- Handle CI or review feedback when the user asks.
