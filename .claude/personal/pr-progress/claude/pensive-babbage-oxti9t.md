@@ -4,10 +4,10 @@
 - `SpatialTypePublisher(node=…, _world=…)`: builds its evaluated publisher from its node, compiles once via `CompiledFunctionWithViews`, passes copies
 
 ## Done
-- Implemented with tests (55 passed locally with ROS message stand-ins); `krrood check` clean
-- Review: renamed `SpatialTypeMarkerPublisher` to `EvaluatedSpatialTypePublisher`; publisher built inside, not injected (shared publishers would delete each other's markers)
+- Implemented with tests; `krrood check` clean
+- Real ROS 2 Jazzy run in the cram CI image at d7a1ff06: 55 passed (affected tests), 233 passed (SDT `test_ros` without `test_world_synchronizer.py`)
 - PR description and labels (`api-break`, `maintenance`) current
 
 ## Next
-- CI on the ROS image
+- `test_world_synchronizer.py` not run: ORM regeneration fails (`CouldNotResolveType: MetaData`, untouched `exceptions.py`) - ask the developer
 - Bootstrap commit carries an assistant co-author trailer; squash on merge or rewrite with the user's OK
