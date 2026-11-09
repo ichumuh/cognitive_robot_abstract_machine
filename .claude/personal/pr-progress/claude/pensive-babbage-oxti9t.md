@@ -6,9 +6,8 @@
 ## Done
 - Implemented with tests; `krrood check` clean
 - Review round 1 (e4f9658a): lock removed, `renderer_for` renamed; both threads answered and resolved
-- Real ROS 2 Jazzy in the cram CI image: 55 passed at e4f9658a; 233 passed (SDT `test_ros` without `test_world_synchronizer.py`) at d7a1ff06
-- PR description and labels (`api-break`, `maintenance`) current
+- Real ROS 2 Jazzy in the cram CI image: 55 passed at e4f9658a; `test_world_synchronizer.py` 105 passed, 1 skipped at e4f9658a; rest of SDT `test_ros` 233 passed at d7a1ff06
+- ORM `MetaData` failure explained: my `PYTHONPATH=/work` hid the ROS overlay; not this PR
 
 ## Next
-- `test_world_synchronizer.py` not run: ORM regeneration fails (`CouldNotResolveType: MetaData`, untouched `exceptions.py`) - ask the developer
 - Bootstrap commit carries an assistant co-author trailer; squash on merge or rewrite with the user's OK
