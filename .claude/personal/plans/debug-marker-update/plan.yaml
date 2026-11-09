@@ -37,7 +37,10 @@ items:
   - id: giskard-running-node-markers
     title: Publish debug markers of running nodes off the control loop
     track: debug-markers
-    status: not started
+    status: in progress
+    branch: claude/giskard-running-node-markers
+    pull_request_number: 48
+    session: https://claude.ai/code/session_01H8rThdpWuQfGUQALE2CAEh
     depends_on: [sdt-render-from-values]
     notes: >-
       Rewrite DebugExpressionPublishing: after_compile/after_recompile collect spatial
