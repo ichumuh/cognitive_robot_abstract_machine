@@ -7,5 +7,5 @@ Done
 - cram2#910 opened for a planar localization connection.
 
 Next
-- Read CI on d7d3306713; mark #851 ready again only when told to.
+- Read CI on d7d3306713.
 - Split test_specifications.py by module in a follow-up maintenance PR.
