@@ -4,9 +4,10 @@
 - GiskardServerConfig.publish_debug_expressions + Giskard.create_debug_extensions
 
 ### Done
-- Implemented and pushed at c8eeb729; draft PR #48 description current
-- Local tests green: debug publisher 17, sdt publisher/renderer/node 48, launching + interface config 29
+- Implemented and pushed at 2e00c267; draft PR #48 description current
+- Bowl and cup benchmark: ~0.9 % of tick time in the extension, real-time run 91.1 s vs 91.2 s
+- Marker namespaces made unique per node (CartesianPose nodes collided)
 
 ### Next
-- Wait for CI on #48 and review; rebase onto main once #47 lands
-- Integration check with a real Giskard goal in RViz (not done)
+- Decide on rotations drawn at the frame origin (CartesianPose orientation, AlignPlanes normals) - #47 / node side
+- Wait for CI and review; rebase onto main once #47 lands
