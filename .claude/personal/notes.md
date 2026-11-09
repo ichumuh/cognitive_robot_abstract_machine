@@ -8,11 +8,6 @@ replace any of it: ask Claude to "edit my personal notes" in any session.
 
 ## Pull requests
 
-- Always open pull requests as **drafts**. Never open a PR as ready-for-review
-  by default; mark it ready only when explicitly told to.
-- Always convert a PR back to **draft** after pushing any commit to it or
-  otherwise modifying it, even if it was previously marked ready for review.
-  Mark it ready again only when explicitly told to.
 - Bug-fix PRs must always carry the **`bug`** label.
 - Keep bug-fix PRs focused: one root cause per PR, based off the default
   branch, no unrelated cleanup bundled in.
