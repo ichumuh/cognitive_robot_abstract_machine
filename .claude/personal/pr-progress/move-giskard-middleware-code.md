@@ -1,9 +1,9 @@
-Branch move-giskard-middleware-code, stacked on remove-dead-giskard-middleware-code (#908).
+Branch move-giskard-middleware-code on cram/main 8574ddfd0a (#908 merged 2026-11-09).
 Moves misplaced code out of giskardpy/middleware/ros2. User: don't commit or push yet.
 
 Plan:
-- Moves done; cram/main (8574ddfd0a, WorldSpecification replaces world configs) merged in
-  as a merge commit on this branch; the moves were re-applied on top (uncommitted, all staged).
+- Moves done; fast-forwarded to cram/main 8574ddfd0a (WorldSpecification replaces world
+  configs) and re-applied the moves on top (uncommitted, all staged). PR base: main.
 
 Done:
 - ros2_interface generic helpers -> semantic_digital_twin/adapters/ros/ros2_interface.py,
@@ -17,4 +17,3 @@ Done:
 
 Next:
 - Confirm post-merge test run; then user reviews; commit/push/draft PR only when asked.
-- #908's branch does not contain the cram/main merge; this branch does.
