@@ -9,7 +9,7 @@ Done:
 - ros2_interface generic helpers -> semantic_digital_twin/adapters/ros/ros2_interface.py,
   ServiceUnavailableError -> SDT ros exceptions; MyActionClient -> middleware/ros2/action_client.py.
 - utils_for_tests split: GiskardTester -> middleware/ros2/giskard_tester.py,
-  compare_* -> test_ros2_stuff/pose_comparisons.py, StretchTester -> test_integration_stretch.py
+  compare_* deleted (daisy/PR2 tests use np.allclose on to_np(), like the statechart tests), StretchTester -> test_integration_stretch.py
   (ported to WorldSpecification after the merge).
 - load_xacro removed (URDFParser.from_file handles xacro; GiskardTester.add_urdf_to_world now takes
   a file_path; urdf.py identical to upstream). is_in_github_workflow removed: GiskardServerConfig no
