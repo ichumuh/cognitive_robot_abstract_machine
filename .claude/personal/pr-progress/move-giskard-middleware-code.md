@@ -1,28 +1,14 @@
-Branch move-giskard-middleware-code on cram/main 8574ddfd0a (#908 merged 2026-11-09).
-Moves misplaced code out of giskardpy/middleware/ros2. User: don't commit or push yet.
+Branch move-giskard-middleware-code on cram/main 8574ddfd0a; PR base: main. Uncommitted, all staged.
 
 Plan:
-- Moves done; fast-forwarded to cram/main 8574ddfd0a (WorldSpecification replaces world
-  configs) and re-applied the moves on top (uncommitted, all staged). PR base: main.
+- Move misplaced code out of giskardpy/middleware/ros2 and simplify what moved.
 
 Done:
-- ros2_interface generic helpers -> semantic_digital_twin/adapters/ros/ros2_interface.py,
-  ServiceUnavailableError -> SDT ros exceptions; MyActionClient -> middleware/ros2/action_client.py.
-- utils_for_tests split: GiskardTester -> middleware/ros2/giskard_tester.py,
-  compare_* deleted (daisy/PR2 tests use np.allclose on to_np(), like the statechart tests), StretchTester -> test_integration_stretch.py
-  (ported to WorldSpecification after the merge).
-- load_xacro removed (URDFParser.from_file handles xacro; GiskardTester.add_urdf_to_world now takes
-  a file_path; urdf.py identical to upstream). is_in_github_workflow removed: GiskardServerConfig no
-  longer overrides debug_mode; HSR/DAiSy/PR2 testers use test/pytest_environment.runs_in_continuous_integration.
-- franka_gripper_tasks move reverted (round-trip package scan, optional franka_msgs).
-- ros2_interface: every function takes the node first (SDT convention, like WorldSynchronizer);
-  call_service uses client.call; asserts/AttributeError -> TopicNotFoundError, AmbiguousTopicError;
-  wait_for_message returns the message or raises NoMessageReceivedError; get_parameters has no
-  controller_manager default; ControllerManager got node field (kw_only). Tests added.
-- Merge conflicts resolved: took upstream's WorldSpecification side, kept new import paths.
-- Dropped redundant URDF loading (garmi_standalone/velocity, HSR/PR2/DAiSy testers):
-  specify_real_robot reads get_ros_file_path itself.
+- ros2_interface -> SDT adapters/ros; every function takes the node; topic/message exceptions.
+- MyActionClient -> action_client.py; GiskardTester -> giskard_tester.py; StretchTester into its test.
+- Deleted: utils.py, pose_comparisons, expand_xacro/load_xacro, CI override in GiskardServerConfig.
+- Giskard.launch passes its node to create_giskard(node).
+- Tests green except the 3 local UR mock-robot errors.
 
 Next:
-- Post-merge tests: 385 passed, only the 3 known UR mock-robot errors. User reviews;
-  commit/push/draft PR (base: main) only when asked.
+- User reviews; commit, push and open a draft PR against main only when asked.
