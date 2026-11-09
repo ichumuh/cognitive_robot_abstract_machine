@@ -9,4 +9,5 @@ Done:
 - Draft PR #916 opened (labels Giskard, semDT, Refactor, api-break).
 
 Next:
+- Merge of cram/main d3f5894e6a resolved and staged, tests green except UR; conclude the merge commit and push when asked.
 - Handle CI or review feedback when the user asks.
