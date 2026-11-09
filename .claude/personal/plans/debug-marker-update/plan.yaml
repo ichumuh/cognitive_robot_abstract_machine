@@ -22,7 +22,10 @@ items:
   - id: sdt-render-from-values
     title: Render spatial type markers from evaluated values
     track: debug-markers
-    status: not started
+    status: in progress
+    branch: claude/pensive-babbage-oxti9t
+    pull_request_number: 47
+    session: https://claude.ai/code/session_01H8rThfrzXr7UVUbR59y7nW
     notes: >-
       semantic_digital_twin adapters/ros/visualization. Each SpatialTypeMarkerRenderer
       declares the symbolic vector it needs (point: position, vector: components,
