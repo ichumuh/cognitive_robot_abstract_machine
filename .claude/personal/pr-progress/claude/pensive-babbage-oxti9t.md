@@ -10,4 +10,5 @@
 - ORM `MetaData` failure explained: my `PYTHONPATH=/work` hid the ROS overlay; not this PR
 
 ## Next
+- Plan site not rebuilt: ichumuh/plans attached, but the build dispatch is refused (403, Claude GitHub App not installed on it)
 - Bootstrap commit carries an assistant co-author trailer; squash on merge or rewrite with the user's OK
