@@ -11,7 +11,8 @@ Done:
 - utils_for_tests split: GiskardTester -> middleware/ros2/giskard_tester.py,
   compare_* -> test_ros2_stuff/pose_comparisons.py, StretchTester -> test_integration_stretch.py
   (ported to WorldSpecification after the merge).
-- load_xacro -> URDFParser.expand_xacro; is_in_github_workflow inlined into GiskardServerConfig.
+- load_xacro -> URDFParser.expand_xacro. is_in_github_workflow removed: GiskardServerConfig no
+  longer overrides debug_mode; HSR/DAiSy/PR2 testers use test/pytest_environment.runs_in_continuous_integration.
 - franka_gripper_tasks move reverted (round-trip package scan, optional franka_msgs).
 - Merge conflicts resolved: took upstream's WorldSpecification side, kept new import paths.
 - Dropped redundant URDF loading (garmi_standalone/velocity, HSR/PR2/DAiSy testers):
