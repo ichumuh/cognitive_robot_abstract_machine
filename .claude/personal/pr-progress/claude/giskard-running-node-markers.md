@@ -1,11 +1,12 @@
 ### Plan
-- Tests first in test_debug_expression_publisher.py: per-node collection, only RUNNING shown, recompile only on shown-set change, publish rate, copies handed over, markers deleted after run, Giskard adds the extension only with debug_mode + publish_debug_expressions
-- Rewrite DebugExpressionPublishing (collect per node, after_tick evaluate at publish_frequency, worker thread publishes newest values)
-- Remove DebugExpressionPublisher; add GiskardServerConfig.publish_debug_expressions and wire it in Giskard.setup
-- Run giskardpy debug publisher + launching tests in ROS env; krrood format/check
+- DebugExpressionPublishing evaluates RUNNING nodes' debug expressions at publish_frequency; BackgroundMarkerPublisher thread renders/publishes
+- CompiledSpatialTypeVisualizations shared with SpatialTypePublisher (sdt)
+- GiskardServerConfig.publish_debug_expressions + Giskard.create_debug_extensions
 
 ### Done
-- Branch + draft PR #48 stacked on #47
+- Implemented and pushed at c8eeb729; draft PR #48 description current
+- Local tests green: debug publisher 17, sdt publisher/renderer/node 48, launching + interface config 29
 
 ### Next
-- Write the failing tests
+- Wait for CI on #48 and review; rebase onto main once #47 lands
+- Integration check with a real Giskard goal in RViz (not done)
