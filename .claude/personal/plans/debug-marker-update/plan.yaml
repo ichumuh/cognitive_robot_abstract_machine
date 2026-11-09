@@ -1,0 +1,58 @@
+schema_version: 1
+id: debug-marker-update
+title: Debug expression markers after the cramph refactor
+description: >-
+  Giskard's debug expressions are registered by motion nodes but nothing publishes
+  them since the cramph refactor, and the old publisher drew every node and recompiled
+  each expression per world-state change. Giskard evaluates the compiled debug
+  expressions of the running (or inspector-selected) nodes and publishes them as RViz
+  markers from a background thread.
+default_repository: ichumuh/cognitive_robot_abstract_machine
+
+waves:
+  - id: wave-1
+    name: "Wave 1: Debug markers"
+
+tracks:
+  - id: debug-markers
+    name: Debug markers
+    wave: wave-1
+
+items:
+  - id: sdt-render-from-values
+    title: Render spatial type markers from evaluated values
+    track: debug-markers
+    status: not started
+    notes: >-
+      semantic_digital_twin adapters/ros/visualization. Each SpatialTypeMarkerRenderer
+      declares the symbolic vector it needs (point: position, vector: components,
+      pose-like: position + quaternion); render_markers takes the evaluated ndarray.
+      Split SpatialTypePublisher: a marker publisher for requests + values (keeps
+      stale-marker deletion, no CasADi, thread-safe), and SpatialTypePublisher compiling
+      its requests once via CompiledFunctionWithViews. Labels: api-break, maintenance.
+
+  - id: giskard-running-node-markers
+    title: Publish debug markers of running nodes off the control loop
+    track: debug-markers
+    status: not started
+    depends_on: [sdt-render-from-values]
+    notes: >-
+      Rewrite DebugExpressionPublishing: after_compile/after_recompile collect spatial
+      debug expressions per node; after_tick recompiles one function when the shown set
+      (RUNNING nodes) changes, evaluates at publish_frequency (default 10 Hz), copies
+      the output buffer to a worker thread that renders and publishes. Remove
+      DebugExpressionPublisher. GiskardServerConfig.publish_debug_expressions requires
+      debug_mode; Giskard.setup adds the extension. Labels: api-break, new-feature.
+
+  - id: inspector-node-selection
+    title: Choose the shown debug markers by clicking nodes in the inspector
+    track: debug-markers
+    status: not started
+    depends_on: [giskard-running-node-markers]
+    notes: >-
+      cramph: NodeSelection message (goal id, node indices) and its topic in a ROS-free
+      module; StatechartGraphviz gives SVG node ids and highlights selected nodes;
+      inspector hit-tests clicks with QSvgRenderer.boundsOnElement (ctrl toggles, Esc
+      clears). giskardpy: Giskard subscribes; a non-empty selection for the running
+      goal replaces the running nodes, composites expand to descendants, reset per
+      goal. Label: new-feature.
