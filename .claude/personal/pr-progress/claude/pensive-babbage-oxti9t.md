@@ -1,12 +1,13 @@
 ## Plan
-- Renderers declare `rendered_expression(spatial_type)` (point: position, vector: components, pose-like: position + quaternion); `render_markers` takes the evaluated ndarray
-- `SpatialTypeMarkerPublisher` (HasROS2Node): publishes evaluated visualizations, stale-marker deletion, lock, no CasADi
-- `SpatialTypeVisualizationEvaluator`: compiles requests once via `CompiledFunctionWithViews`, evaluates once per publish, returns copies
-- `SpatialTypePublisher` (StateChangeCallback): evaluator + marker publisher; `publish_once` keeps its signature
-- Update giskardpy `DebugExpressionPublisher` and the tests
+- Renderers declare `rendered_expression`; `render_markers` takes the evaluated ndarray
+- `SpatialTypeMarkerPublisher`: evaluated values in, stale-marker deletion, lock, no CasADi
+- `SpatialTypePublisher`: injected marker publisher, compiles once via `CompiledFunctionWithViews`, passes copies
 
 ## Done
-- Bootstrap, draft PR
+- Implemented, plus tests (53 passed locally with ROS message stand-ins); `krrood check` clean
+- PR description and labels (`api-break`, `maintenance`) set
+- Decided: composition over inheritance; variables read via `resolve()`; compiled state kept in `SpatialTypePublisher`
 
 ## Next
-- Tests first, then the renderer, evaluator and publishers
+- Watch CI on the ROS image
+- Bootstrap commit carries an assistant co-author trailer; squash on merge or rewrite with the user's OK
