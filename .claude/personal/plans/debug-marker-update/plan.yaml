@@ -5,8 +5,8 @@ description: >-
   Giskard's debug expressions are registered by motion nodes but nothing publishes
   them since the cramph refactor, and the old publisher drew every node and recompiled
   each expression per world-state change. Giskard evaluates the compiled debug
-  expressions of the running (or inspector-selected) nodes and publishes them as RViz
-  markers from a background thread.
+  expressions of the running nodes and publishes them as RViz markers from a background
+  thread.
 default_repository: ichumuh/cognitive_robot_abstract_machine
 
 waves:
@@ -51,16 +51,3 @@ items:
       GiskardClientExecutor.execute flag); Giskard always installs the extension switched
       off. debug_mode and the plot switches are removed; plotters reworked in issue #49.
       Labels: api-break, new-feature.
-
-  - id: inspector-node-selection
-    title: Choose the shown debug markers by clicking nodes in the inspector
-    track: debug-markers
-    status: not started
-    depends_on: [giskard-running-node-markers]
-    notes: >-
-      cramph: NodeSelection message (goal id, node indices) and its topic in a ROS-free
-      module; StatechartGraphviz gives SVG node ids and highlights selected nodes;
-      inspector hit-tests clicks with QSvgRenderer.boundsOnElement (ctrl toggles, Esc
-      clears). giskardpy: Giskard subscribes; a non-empty selection for the running
-      goal replaces the running nodes (only for goals that publish debug expressions),
-      composites expand to descendants, reset per goal. Label: new-feature.
