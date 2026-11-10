@@ -47,8 +47,10 @@ items:
       debug expressions per node; after_tick recompiles one function when the shown set
       (RUNNING nodes) changes, evaluates at publish_frequency (default 10 Hz), copies
       the output buffer to a worker thread that renders and publishes. Remove
-      DebugExpressionPublisher. GiskardServerConfig.publish_debug_expressions requires
-      debug_mode; Giskard.setup adds the extension. Labels: api-break, new-feature.
+      DebugExpressionPublisher. Each goal opts in (MotionGoal.publishes_debug_expressions,
+      GiskardClientExecutor.execute flag); Giskard always installs the extension switched
+      off. debug_mode and the plot switches are removed; plotters reworked in issue #49.
+      Labels: api-break, new-feature.
 
   - id: inspector-node-selection
     title: Choose the shown debug markers by clicking nodes in the inspector
@@ -60,5 +62,5 @@ items:
       module; StatechartGraphviz gives SVG node ids and highlights selected nodes;
       inspector hit-tests clicks with QSvgRenderer.boundsOnElement (ctrl toggles, Esc
       clears). giskardpy: Giskard subscribes; a non-empty selection for the running
-      goal replaces the running nodes, composites expand to descendants, reset per
-      goal. Label: new-feature.
+      goal replaces the running nodes (only for goals that publish debug expressions),
+      composites expand to descendants, reset per goal. Label: new-feature.
