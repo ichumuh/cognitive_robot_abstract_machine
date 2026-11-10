@@ -7,6 +7,8 @@ Done:
 - Moves, rename to GiskardActionClient, merge of cram/main.
 - aee83b2a1c: LucaKro's review - ros2_interface -> ros_graph.RosGraph (defaults to registered node), rospy lifecycle only, inbox instead of nested callback, TopicNamesAndTypes. Threads replied and resolved; tests 654 passed at aee83b2a1c (UR errors local only).
 
+- rospy -> ros_runtime (pure rename, fixture init_ros_runtime), staged, uncommitted; tests 654 passed.
+
 Next:
-- Follow-up PR: rename rospy to a lifecycle class, replace rospy.get_node() calls.
+- Commit and push the rename when asked; update PR description and the rospy thread reply.
 - Re-review by LucaKro; handle CI or comments when the user asks.
