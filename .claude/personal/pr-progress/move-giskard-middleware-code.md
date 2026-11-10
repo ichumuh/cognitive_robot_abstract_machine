@@ -1,13 +1,12 @@
-Branch move-giskard-middleware-code on cram/main 8574ddfd0a; draft PR cram2#916 against main, pushed at 018a8a8419.
+Branch move-giskard-middleware-code; draft PR cram2#916 against main, pushed at aee83b2a1c.
 
 Plan:
 - Move misplaced code out of giskardpy/middleware/ros2 and simplify what moved.
 
 Done:
-- 230c3338fc: ros2_interface -> SDT with node parameter, action_client/giskard_tester split, deletions, launch passes the node.
-- 018a8a8419: MyActionClient -> GiskardActionClient.
-- Draft PR #916 opened (labels Giskard, semDT, Refactor, api-break).
+- Moves, rename to GiskardActionClient, merge of cram/main.
+- aee83b2a1c: LucaKro's review - ros2_interface -> ros_graph.RosGraph (defaults to registered node), rospy lifecycle only, inbox instead of nested callback, TopicNamesAndTypes. Threads replied and resolved; tests 654 passed at aee83b2a1c (UR errors local only).
 
 Next:
-- Merge of cram/main d3f5894e6a resolved and staged, tests green except UR; conclude the merge commit and push when asked.
-- Handle CI or review feedback when the user asks.
+- Follow-up PR: rename rospy to a lifecycle class, replace rospy.get_node() calls.
+- Re-review by LucaKro; handle CI or comments when the user asks.
