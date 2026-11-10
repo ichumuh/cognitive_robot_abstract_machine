@@ -1,14 +1,14 @@
 ### Plan
 - DebugExpressionPublishing evaluates RUNNING nodes' debug expressions at publish_frequency; BackgroundMarkerPublisher thread renders/publishes
 - CompiledSpatialTypeVisualizations shared with SpatialTypePublisher (sdt)
-- GiskardServerConfig.publish_debug_expressions + Giskard.create_debug_extensions
-- Orientations and normals drawn at the tip (CartesianOrientation, AlignPlanes, FeatureFunctionGoal)
+- Each goal decides: MotionGoal.publishes_debug_expressions / GiskardClientExecutor field; Giskard always installs the extension switched off
+- debug_mode and plot_* removed from GiskardServerConfig; PlotterMode removed from the benchmark; follow-up issue #49
 
 ### Done
-- Implemented and pushed at bb756191; draft PR #48 description current
-- Bowl and cup benchmark: ~0.9 % of tick time in the extension, real-time run 91.1 s vs 91.2 s
-- Marker namespaces unique per node; orientation/normal markers start at the tip (test + RViz finding fixed)
+- Pushed at bb756191 (running-node markers, tip anchoring); draft PR #48 description matches that commit
+- Per-goal flag + debug_mode removal implemented and tested locally, *not committed* (user asked to hold the commit)
 
 ### Next
-- Wait for CI and review; rebase onto main once #47 lands
+- User reviews the uncommitted change, then commit + push, update PR description (migration: debug_mode/plot_*/publish_debug_expressions gone) and the plan item notes
+- Ask whether is_in_github_workflow (now unused) can be removed
 - Before review: discuss the api-break with code owners / Cramgineers
