@@ -1,7 +1,7 @@
 ### Plan
 - DebugExpressionPublishing evaluates RUNNING nodes' debug expressions at publish_frequency; BackgroundMarkerPublisher thread renders/publishes
 - CompiledSpatialTypeVisualizations shared with SpatialTypePublisher (sdt)
-- Each goal decides: MotionGoal.publishes_debug_expressions / GiskardClientExecutor field; Giskard always installs the extension switched off
+- Each goal decides: MotionGoal.publishes_debug_expressions, GiskardClientExecutor.execute(publishes_debug_expressions=...); Giskard always installs the extension switched off
 - debug_mode and plot_* removed from GiskardServerConfig; PlotterMode removed from the benchmark; follow-up issue #49
 
 ### Done
@@ -10,5 +10,5 @@
 
 ### Next
 - User reviews the uncommitted change, then commit + push, update PR description (migration: debug_mode/plot_*/publish_debug_expressions gone) and the plan item notes
-- Ask whether is_in_github_workflow (now unused) can be removed
+- is_in_github_workflow deleted (user approved)
 - Before review: discuss the api-break with code owners / Cramgineers
