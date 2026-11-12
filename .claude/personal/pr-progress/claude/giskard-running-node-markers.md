@@ -12,6 +12,6 @@
 
 ### Next
 - Keep cram2#931's description current with each push
-- Address cram2#931 review: first round pushed at 47e9eab6ce, all threads resolved. New thread (spatial_type_publisher.py:129, marker caching) implemented in 42aa8b0035, local only; next push, update description (renderer API create_markers/update_markers, SpatialTypeMarkers, publish without root_frame_name, CompiledSpatialTypeVisualizations root_frame_name), reply on the thread with 9.6 -> 3.6 ms
+- Address cram2#931 review: all threads through marker caching resolved (pushed 42aa8b0035). Second-round review (5 threads) fixed locally: 39aaaa1fa1 restart + cause, 97c501ffe8 owning nodes, 37e063ab28 payload key enum + kw_only; not pushed, no replies yet. Description needs: failed publish restarts with next statechart, cause in error
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
