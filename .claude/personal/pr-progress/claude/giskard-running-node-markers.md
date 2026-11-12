@@ -12,6 +12,6 @@
 
 ### Next
 - Keep cram2#931's description current with each push
-- Address cram2#931 review: all but compile spike pushed at e383eab826 + 8 threads resolved; compile-once design committed locally (not pushed), measured; next push, update description bullet "evaluates the RUNNING nodes in one compiled function", reply on :276 with numbers; try-finally reply + post_goal_plotters decision still open
+- Address cram2#931 review: everything pushed at 47e9eab6ce, description current, 9 threads replied + resolved. Still open: try-finally thread (:150, needs a reply), post_goal_plotters.py (:300, user decides)
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
