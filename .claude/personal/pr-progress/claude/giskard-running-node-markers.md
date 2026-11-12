@@ -12,6 +12,6 @@
 
 ### Next
 - Keep cram2#931's description current with each push
-- Address cram2#931 review: everything pushed at 47e9eab6ce, description current, 9 threads replied + resolved. Still open: try-finally thread (:150, needs a reply), post_goal_plotters.py (:300, user decides)
+- Address cram2#931 review: first round pushed at 47e9eab6ce, all threads resolved. New thread (spatial_type_publisher.py:129, marker caching) implemented in 42aa8b0035, local only; next push, update description (renderer API create_markers/update_markers, SpatialTypeMarkers, publish without root_frame_name, CompiledSpatialTypeVisualizations root_frame_name), reply on the thread with 9.6 -> 3.6 ms
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
