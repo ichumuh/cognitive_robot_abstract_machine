@@ -12,6 +12,6 @@
 
 ### Next
 - Keep cram2#931's description current with each push
-- Address cram2#931 review: deadlock fixed locally (uncommitted, tests green); next kw_only + `*`, default publishes_debug_expressions=False, compile spike (measure p99/max), post_goal_plotters.py decision
+- Address cram2#931 review: deadlock (467c11d116) and kw_only + `*` (1aaef578e0) committed locally, not pushed; next default publishes_debug_expressions=False, compile spike (measure p99/max), post_goal_plotters.py decision, then replies on the threads
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
