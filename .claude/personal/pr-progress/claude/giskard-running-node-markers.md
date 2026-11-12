@@ -12,5 +12,6 @@
 
 ### Next
 - Keep cram2#931's description current with each push
-- Optional: migrate this branch's dataclasses/methods to the kw_only rules main brought in
+- Address cram2#931 review: deadlock on publish failure (test first), kw_only + `*`, default publishes_debug_expressions=False, compile spike
 - Before review: discuss the api-break with code owners / Cramgineers
+- Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
