@@ -7,7 +7,7 @@ Done
 - Fix + creep tests (fb603e39a3); per-cycle limit/jerk tests (2f55a4d960); PR opened (bug-fix, api-break).
 - 552-case sweep vs main: no overshoot, 1 QP failure removed, one 27 mm bounce regression documented.
 
+- Review fixes (2c0b97850c): bound as interpolation (cheaper than main), limit tolerance 1e-6, keyword-only _directional_velocity_bound. Other review findings skipped by the user.
+
 Next
-- Act on the running /code-review high findings.
-- Open question: rename shifted_by (preposition-ending name; api change).
 - Discuss the api-break (keyword-only distance) with giskardpy code owners.
