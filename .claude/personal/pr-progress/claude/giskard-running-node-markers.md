@@ -12,6 +12,6 @@
 
 ### Next
 - Keep cram2#931's description current with each push
-- Address cram2#931 review: deadlock on publish failure (test first), kw_only + `*`, default publishes_debug_expressions=False, compile spike
+- Address cram2#931 review: deadlock fixed locally (uncommitted, tests green); next kw_only + `*`, default publishes_debug_expressions=False, compile spike (measure p99/max), post_goal_plotters.py decision
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
