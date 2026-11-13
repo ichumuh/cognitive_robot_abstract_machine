@@ -10,10 +10,12 @@
 - Fork PRs #47 and #48 closed as superseded by cram2#931
 - Bowl and cup benchmark ~0.9 % tick time; markers per node, orientations/normals at the tip
 - CI fix: merged cram/main (keyword-only cramph API, #940) at a898a0de67; coraplex plan statechart tests and touched giskardpy tests pass locally; PR mergeable
+- Second review round: failed marker publisher closed on replace (0b17b2d2b5), send_goal/send_goal_async/add_goal_and_current_debug_expressions keyword-only (d9ab58414f); pushed, description updated
 
 ### Next
 - Keep cram2#931's description current with each push
 - Address cram2#931 review: both review rounds and the marker-caching thread done, description current, no open threads
-- Check cram2#931 CI on a898a0de67
+- Check cram2#931 CI on d9ab58414f
+- Post review replies once the user approved the drafts (Luca 123/164/167, MideDay 269/696); resolve only 164, 269, 696
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
