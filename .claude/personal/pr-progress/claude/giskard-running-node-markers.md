@@ -15,7 +15,7 @@
 ### Next
 - Keep cram2#931's description current with each push
 - Address cram2#931 review: both review rounds and the marker-caching thread done, description current, no open threads
-- Check cram2#931 CI on d9ab58414f
+- Confirm the re-run experiments job of CI run 43419293167 (d9ab58414f) passes; it failed only on the sage10k entry-point test timing out at 120 s, which takes 92 s locally on both this branch and the merge base
 - Post review replies once the user approved the drafts (Luca 123/164/167, MideDay 269/696); resolve only 164, 269, 696
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
