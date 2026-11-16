@@ -1,14 +1,15 @@
 # PR progress: control-loop-delay-compensation (cram2#984)
 
 ## Plan
-- Compensate the actuation dead time of joint group publishers with a configured delay (this PR).
-- Afterwards, in a separate PR: estimate the delay from joint state velocities vs. published commands; calibration script; mismatch warning (reporting channel undecided: diagnostic_msgs or log + action result).
+- Address the self-review on cram2#984 in this PR, redesign included:
+  - Fix history velocity (record sent/multiplier), stamp plausibility (skip + throttled warning), publish-time prediction (ROS clock at cycle start); each with a failing test first.
+  - Redesign: prediction declared on CommandPublisher (no-op default); compensation becomes an InputSynchronizer appended last; ControlLoop back to inputs.synchronize(); fixes profiler phase.
+  - actuation_delay for controller-manager discovery; skip recording without delay; naming, -> None, kw_only/writes, Time.from_msg.
+- Afterwards, separate PR: estimate the delay from joint state velocities vs. published commands.
 
 ## Done
 - Measured on the UR5e mock: 289 mrad overshoot at 0.3 s actuation delay, 1-4 mrad with compensation.
-- Implemented CommandHistory, DeadTimeCompensation, actuation_delay on JointGroupVelocityCommandPublisher, JointStateInputSynchronizer.latest_measurement; history sized from the delay.
-- Rebased on cram/main 48255cf31f; 139 tests passed at c679eb92ba; pushed; PR opened with label new-feature.
+- PR opened at c679eb92ba, CI green; review investigated (9 of 10 points valid, first-cycle point not a bug).
 
 ## Next
-- Wait for CI and review on cram2#984.
-- Possible follow-ups: actuation_delay for controller manager discovery, drive compensation.
+- Implement the review fixes, run tests, merge cram/main, push, reply to and resolve threads.
