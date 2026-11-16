@@ -9,13 +9,13 @@
 - Draft upstream PR cram2#931 opened at ec1894bdb8 (contains #47's work too); labels api-break, new-feature, maintenance; description condensed
 - Fork PRs #47 and #48 closed as superseded by cram2#931
 - Bowl and cup benchmark ~0.9 % tick time; markers per node, orientations/normals at the tip
-- CI fix: merged cram/main (keyword-only cramph API, #940) at a898a0de67; coraplex plan statechart tests and touched giskardpy tests pass locally; PR mergeable
+- Merged cram/main (keyword-only giskardpy API, #967) at 91c1b965f1, pushed; 10 conflicts resolved, 173 tests of the conflicted giskardpy files pass locally; committed with SKIP=krrood-check (88 docstring gaps all from upstream, user approved)
 - Second review round: failed marker publisher closed on replace (0b17b2d2b5), send_goal/send_goal_async/add_goal_and_current_debug_expressions keyword-only (d9ab58414f); pushed, description updated
 
 ### Next
 - Keep cram2#931's description current with each push
 - Address cram2#931 review: both review rounds and the marker-caching thread done, description current, no open threads
-- Confirm the re-run experiments job of CI run 43419293167 (d9ab58414f) passes; it failed only on the sage10k entry-point test timing out at 120 s, which takes 92 s locally on both this branch and the merge base
+- Confirm CI on 91c1b965f1 passes
 - Post review replies once the user approved the drafts (Luca 123/164/167, MideDay 269/696); resolve only 164, 269, 696
 - Before review: discuss the api-break with code owners / Cramgineers
 - Follow-up PR: GIL tail latency of the marker thread (p99/max tick time on/off), issue #50
