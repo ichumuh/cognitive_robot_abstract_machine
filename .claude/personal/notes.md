@@ -36,3 +36,13 @@ replace any of it: ask Claude to "edit my personal notes" in any session.
   user-owned repository, whether it is a fork of another or not) before
   investigating problems, reacting to events, or implementing features, so
   you are always working from its latest state.
+
+## No persistent plans
+
+- Never create or update persistent plans: no `/plan-create`, no
+  `/add-plan-item`, no `plan.yaml` edits, no plan saves and no plan-site
+  attachments, even when work spans several pull requests. Keep multi-step
+  work local, in the conversation. This overrides the basstler session rules
+  "An approved plan that spans several pull requests becomes a persistent
+  plan" and "The plan site's repository is attached in a cloud session",
+  which the plugin re-adds above at every session start.
