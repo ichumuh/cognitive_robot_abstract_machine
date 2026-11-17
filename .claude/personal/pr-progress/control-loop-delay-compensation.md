@@ -6,8 +6,8 @@
 
 ## Done
 - Measured on the UR5e mock: 289 mrad overshoot at 0.3 s actuation delay, 1-4 mrad with compensation.
-- Review 5936584750 fixes in the working tree (uncommitted); unit tests 64 passed.
+- Review 5936584750 fixes staged, uncommitted: giskardpy test_ros2_stuff + test_ros2_tools 419 passed, sdt test_ros 322 passed, krrood check clean.
 
 ## Next
-- Run the giskardpy ROS 2 suites and sdt test_ros, then commit, push, reply to the threads and update the PR description (publish()/stop() now take publish_time; compensate_dead_time() is gone).
+- Once asked: commit, push, reply to the threads and update the PR description (publish()/stop() now take publish_time; compensate_dead_time() is gone).
 - Discuss the writes() api-break with the semantic_digital_twin code owners (tomsch420, LucaKro) or in Cramgineers.
