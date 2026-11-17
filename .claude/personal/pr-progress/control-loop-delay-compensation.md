@@ -12,3 +12,4 @@
 ## Next
 - Discuss the writes() api-break with the semantic_digital_twin code owners (tomsch420, LucaKro) or in Cramgineers.
 - Wait for CI on e1d9635b61.
+- Address the 10-finding self-review posted as review 5936584750 (scaled-joint units, two misleading warnings, flaky test threshold first).
