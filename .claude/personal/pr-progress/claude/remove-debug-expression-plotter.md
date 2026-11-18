@@ -1,13 +1,12 @@
 ## PR progress: cram2#1007 (claude/remove-debug-expression-plotter)
 
 Plan
-- Remove the unused debug expression trajectory/plotter/recording; fix the debugging guide's RViz section
+- Remove the unused debug expression trajectory/plotter/recording and collect_from; fix the debugging guide's RViz section
 
 Done
-- Removed the modules, exception, tests and guide section; rewrote the RViz section (ef5fd2c4c3)
-- Local tests green: test_motion_statechart 478, publisher/motion_goal/orm 36
-- Draft PR opened with labels api-break, maintenance
+- Removed everything listed and rewrote the guide (ef5fd2c4c3, 1bc950950c, feb1533b22)
+- Local tests green at 1bc950950c: test_motion_statechart + publisher tests 503 passed
+- Draft PR with api-break, maintenance; the code owner (the user) agreed to the break
 
 Next
-- Ask whether `DebugExpression.collect_from` (now unused) can go too
-- Discuss the api-break with giskardpy code owners before requesting review
+- Wait for CI, then mark ready for review when the user wants
