@@ -8,8 +8,9 @@
 
 - Merged cram/main (29c47ff6ee, local, krrood-check skipped with the user's OK: moved test files count as new); spatial tests now in test/krrood_spatial_math_test
 - 6274231615: review fixes #1 (shape check) and #4 (helper now krrood_spatial_math.testing.orientation_comparison, angles via krrood shortest_angular_distance) - local, not pushed
+- 0c674ac903: giskardpy.data_types.exceptions -> giskardpy.exceptions (user's move), cls._derivative_link_model, module docstrings - local, not pushed; test_qp + ros2 action server/interactive marker 402 passed
 
 ### Next
-- Push 29c47ff6ee + 6274231615 when the user asks; add new-feature label and update PR description (new public krrood_spatial_math.testing)
+- Push 29c47ff6ee + 6274231615 + 0c674ac903 when the user asks; PR description must mention giskardpy.data_types removal (api-break); add new-feature label and update PR description (new public krrood_spatial_math.testing)
 - CI on cram2#999 not read yet
 - Before review: discuss the api-break (giskardpy.utils removed) with code owners / Cramgineers
