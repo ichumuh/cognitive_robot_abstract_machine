@@ -12,4 +12,5 @@
 ## Next
 - Threads #5 (first cycle) and #8 (measurement rebuilt every cycle) left open with replies explaining why no change; wait for the reviewer.
 - Discuss the writes() api-break with the semantic_digital_twin code owners (tomsch420, LucaKro) or in Cramgineers.
-- Branch is 43 commits behind cram/main; check with basstler.sh stack merge-probe before merging.
+- Address own review 5954243580 (7 threads at 4fe16c2cfb): measurement window tolerance, stop() publishes zeros before reading the clock, per-publisher warning throttle, two design suggestions, TYPE_CHECKING import, docstring justifications.
+- Merged cram/main at 4fe16c2cfb (brings in #992, scaled joint fix); check with basstler.sh stack merge-probe before merging.
