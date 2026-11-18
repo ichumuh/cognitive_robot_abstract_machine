@@ -7,7 +7,7 @@
 ## Done
 - Measured on the UR5e mock: 289 mrad overshoot at 0.3 s actuation delay, 1-4 mrad with compensation.
 - Review 5936584750 addressed in b1b870ff08 and pushed; threads replied and resolved.
-- Review 5954243580 implemented, not committed: expected publish time no earlier than inputs read (CycleTiming.mark_inputs_read), reject only stamps > inputs read + actuation_delay, per-publisher child logger, DeadTimeCompensation.apply takes inputs/publishers/timing, tutorial TYPE_CHECKING, docstrings. test_ros2_tools 81 passed, krrood check clean.
+- Review 5954243580 implemented, not committed: expected publish time no earlier than inputs read (CycleTiming.mark_inputs_read), reject only stamps > inputs read + actuation_delay, per-publisher child logger, DeadTimeCompensation.apply takes inputs/publishers/timing, tutorial TYPE_CHECKING, docstrings. test_ros2_tools 81 passed; test_ros2_stuff 355 passed, 1 skipped, 1 failed (test_world_updates TestRealWorldUpdatesDuringAMotion::test_a_state_update_reaches_the_running_motion, world-sync, no compensation involved; passes 5/5 alone); krrood check clean.
 
 ## Next
 - Discuss the writes() api-break with the semantic_digital_twin code owners (tomsch420, LucaKro) or in Cramgineers.
