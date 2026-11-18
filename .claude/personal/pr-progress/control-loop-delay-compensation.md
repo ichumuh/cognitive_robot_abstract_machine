@@ -1,6 +1,7 @@
 # PR progress: control-loop-delay-compensation (cram2#984)
 
 ## Plan
+- Review 5954243580: fix #1 (end displacement at max(expected publish, inputs read time); reject only stamps more than one actuation delay after the inputs were read), #3 (per-publisher child logger), #5 (pass inputs/publishers/timing to apply()), #6 (TYPE_CHECKING), #7 (docstrings). Reply without change on #2 and #4. Correct case 1 of #1 in the reply.
 - Afterwards, separate PR: estimate the delay from joint state velocities vs. published commands.
 
 ## Done
@@ -12,5 +13,4 @@
 ## Next
 - Threads #5 (first cycle) and #8 (measurement rebuilt every cycle) left open with replies explaining why no change; wait for the reviewer.
 - Discuss the writes() api-break with the semantic_digital_twin code owners (tomsch420, LucaKro) or in Cramgineers.
-- Address own review 5954243580 (7 threads at 4fe16c2cfb): measurement window tolerance, stop() publishes zeros before reading the clock, per-publisher warning throttle, two design suggestions, TYPE_CHECKING import, docstring justifications.
 - Merged cram/main at 4fe16c2cfb (brings in #992, scaled joint fix); check with basstler.sh stack merge-probe before merging.
