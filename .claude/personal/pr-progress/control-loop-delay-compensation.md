@@ -1,14 +1,14 @@
 # PR progress: control-loop-delay-compensation (cram2#984)
 
 ## Plan
-- Review 5954243580: commit, push, post the drafted replies (scratchpad replies.md), resolve 1/3/5/6/7, leave 2 and 4 open, update the PR description. Waiting for the user's go-ahead.
 - Afterwards, separate PR: estimate the delay from joint state velocities vs. published commands.
 
 ## Done
 - Measured on the UR5e mock: 289 mrad overshoot at 0.3 s actuation delay, 1-4 mrad with compensation.
-- Review 5936584750 addressed in b1b870ff08 and pushed; threads replied and resolved.
-- Review 5954243580 implemented, not committed: expected publish time no earlier than inputs read (CycleTiming.mark_inputs_read), reject only stamps > inputs read + actuation_delay, per-publisher child logger, DeadTimeCompensation.apply takes inputs/publishers/timing, tutorial TYPE_CHECKING, docstrings. test_ros2_tools 81 passed; test_ros2_stuff 355 passed, 1 skipped, 1 failed (test_world_updates TestRealWorldUpdatesDuringAMotion::test_a_state_update_reaches_the_running_motion, world-sync, no compensation involved; passes 5/5 alone); krrood check clean.
+- Review 5954243580 addressed in eb79243fcb, pushed: all 7 threads replied; 1/3/5/6/7 resolved; PR description updated.
+- Tests at eb79243fcb: test_ros2_tools 81 passed; test_ros2_stuff 355 passed, 1 skipped, 1 failed (test_world_updates TestRealWorldUpdatesDuringAMotion::test_a_state_update_reaches_the_running_motion, world sync, no compensation involved; passes 5/5 alone); krrood check clean.
 
 ## Next
+- Threads #2 (stop() reads the clock first) and #4 (move compensation into WorldStateInputs) left open with replies explaining why no change; wait for the reviewer.
 - Discuss the writes() api-break with the semantic_digital_twin code owners (tomsch420, LucaKro) or in Cramgineers.
-- Merged cram/main at 4fe16c2cfb (brings in #992, scaled joint fix); check with basstler.sh stack merge-probe before merging.
+- Check with basstler.sh stack merge-probe before merging.
