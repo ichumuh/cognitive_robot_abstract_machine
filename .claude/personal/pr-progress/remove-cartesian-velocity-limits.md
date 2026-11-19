@@ -1,13 +1,12 @@
 Branch remove-cartesian-velocity-limits (off cram/main 2789f7c001): delete the Cartesian velocity limit tasks; cruise velocity covers their uses. Closes #51, #52. Push to origin, do not open the PR yet.
 
 Plan:
-- Remove CartesianPositionVelocityLimit, CartesianRotationVelocityLimit, CartesianVelocityLimit and both constraint-builder methods.
-- Migrate the coraplex approach/lift/place/transport/retract speeds to the CartesianPose cruise velocity, with tests.
-- Remove the limit tests, reword docstrings that pointed at them.
-- Format, krrood check, run giskardpy motion_statechart and coraplex tests, commit, push to origin.
+- Run giskardpy motion_statechart and coraplex tests, commit, push to origin.
 
 Done:
-- Branch created.
+- Removed the three limit tasks and both builder methods; docstrings reworded.
+- coraplex: speeds set as CartesianPose cruise velocity, _reach_target inlined, Stretch straight line keeps cruise velocities; tests added (red without the fix).
+- Formatted, krrood check green, ORM regenerated.
 
 Next:
-- Remove the giskardpy tasks.
+- Ask the user whether error_signals.py (now used only by tests) can go.
