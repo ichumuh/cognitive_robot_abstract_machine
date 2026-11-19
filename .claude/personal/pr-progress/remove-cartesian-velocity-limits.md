@@ -1,12 +1,13 @@
-Branch remove-cartesian-velocity-limits (off cram/main 2789f7c001), pushed to origin at 2f6bad8a54: delete the Cartesian velocity limit tasks and error_signals.py (only they used it); cruise velocity covers their uses. Closes #51, #52. PR not opened yet (user's call).
+Branch remove-cartesian-velocity-limits, PR cram2#1020 (opened by the user, labels Giskard/CoraPlex/api-break), head 61263a04ab: delete the Cartesian velocity limit tasks and error_signals.py; cruise velocity covers their uses. Closes #51, #52.
 
 Plan:
-- User opens the PR (description drafted in the session scratchpad); label api-break.
+- Answer the two review threads on mixins.py once the user says so.
 
 Done:
-- Removal, coraplex migration to cruise velocity, tests; formatted, krrood check green.
-- error_signals.py and its two tests removed (user agreed).
-- giskardpy motion_statechart 460 passed; coraplex 987 passed, 1 failure that also fails on cram/main.
+- Removal, coraplex migration to cruise velocity, error_signals.py removed; formatted, krrood check green.
+- Review #1: tool_center_point_goal takes cruise_angular_velocity too (61263a04ab); PR description updated.
+- Review #2: keep CartesianPose unmodified is future work, issue ichumuh#58.
+- Tests: giskardpy motion_statechart 460 passed; designator + Stretch transformation files 395 passed, 14 skipped.
 
 Next:
-- Nothing until the user opens the PR.
+- Reply to and resolve the two threads if the user wants that.
