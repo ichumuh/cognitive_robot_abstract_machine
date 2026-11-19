@@ -1,4 +1,4 @@
-Branch remove-cartesian-velocity-limits, PR cram2#1020 (opened by the user, labels Giskard/CoraPlex/api-break), head bf583ca5fa: delete the Cartesian velocity limit tasks and error_signals.py; cruise velocity covers their uses. Closes #51, #52.
+Branch remove-cartesian-velocity-limits, PR cram2#1020 (opened by the user, labels Giskard/CoraPlex/api-break), head 7a3b674cc5: delete the Cartesian velocity limit tasks and error_signals.py; cruise velocity covers their uses. Closes #51, #52.
 
 Plan:
 - Wait for further review on cram2#1020.
@@ -10,7 +10,8 @@ Done:
 - Tests: giskardpy motion_statechart 460 passed; designator + Stretch transformation files 395 passed, 14 skipped.
 
 - Both review threads replied to and resolved.
-- CI fix (bf583ca5fa): krrood check on main needs module/class docstrings and the future import in touched files; check green with main's krrood, 71 affected tests pass.
+- CI fix (bf583ca5fa); CI green on it.
+- Review #3 (Tigul): coraplex tests only check the built cruise velocity; added giskardpy TestPoseGoalCruiseVelocity execution tests (7a3b674cc5), 74 passed in test_cartesian_tasks; thread replied and resolved.
 
 Next:
-- Wait for CI on bf583ca5fa, then the next review.
+- Wait for CI on 7a3b674cc5 and further review.
