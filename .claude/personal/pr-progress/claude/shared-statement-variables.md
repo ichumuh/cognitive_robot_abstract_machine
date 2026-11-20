@@ -1,12 +1,12 @@
 ## PR progress: cram2#1014 (claude/shared-statement-variables)
 
 Plan
-- Statements reusing an EQL variable share the choice: krrood generate under bound values, cramph StatementBindings, coraplex trials carry them
+- a(Sequence)(nodes=[a(...), the(...)]): a chooses (trial), the refers (no trial, no retry), the outer a is the scope a trial covers
 
 Done
-- krrood 71788d9f5d, cramph a6af74e67b, coraplex + guide e01d19ac76
-- Local tests green at e01d19ac76: krrood 1706, cramph 900, coraplex 346 + 364 + 4 passed
-- Draft PR with new-feature, api-break; description lists the breaks and migration
+- krrood generate under bound values; cramph StatementBindings, DefiniteStatementNode, ControlStructureNode.from_statement; coraplex trials carry bindings, chooser runs definite statements, root_around reaches the scope (71788d9f5d..8a18fd6079, merged cram2 main a720c71dad)
+- Green locally at 8a18fd6079: krrood test_eql 1607, cramph 909, coraplex 352 + 531
+- PR title and description updated for the rework
 
 Next
 - Wait for CI; discuss the api-break with the krrood/cramph/coraplex code owners
