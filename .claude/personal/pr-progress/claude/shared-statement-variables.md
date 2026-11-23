@@ -7,6 +7,7 @@ Done
 - krrood generate under bound values; cramph StatementBindings, DefiniteStatementNode, ControlStructureNode.from_statement; coraplex trials carry bindings, chooser runs definite statements, root_around reaches the scope (71788d9f5d..8a18fd6079, merged cram2 main a720c71dad)
 - Green locally at 8a18fd6079: krrood test_eql 1607, cramph 909, coraplex 352 + 531
 - PR title and description updated for the rework
+- Bowl-and-cup test with the(PlaceAction) and open pick-up arms (7a9996572b), 4 passed
 
 Next
 - Wait for CI; discuss the api-break with the krrood/cramph/coraplex code owners
