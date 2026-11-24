@@ -1,14 +1,14 @@
 ## PR progress: cram2#1014 (claude/shared-statement-variables)
 
 Plan
-- a(Sequence)(nodes=[a(...), the(...)]): a chooses (trial), the refers (no trial, no retry), the outer a is the scope a trial covers
+- Address review PRR_kwDOQga1Oc8AAAABZ83TFg (10 threads) test-first
+- Item 2 (decided with the user): a the(...) counts the actions it describes instead of quantifying; not exactly one fails the trial, and in the real run ends the plan with a named PlanFailure
 
 Done
-- krrood generate under bound values; cramph StatementBindings, DefiniteStatementNode, ControlStructureNode.from_statement; coraplex trials carry bindings, chooser runs definite statements, root_around reaches the scope (71788d9f5d..8a18fd6079, merged cram2 main a720c71dad)
-- Green locally at 8a18fd6079: krrood test_eql 1607, cramph 909, coraplex 352 + 531
-- PR title and description updated for the rework
-- Bowl-and-cup test with the(PlaceAction) and open pick-up arms (7a9996572b), 4 passed
+- Merged fork main (2f2f5aafc9) into the branch
+- Before the review: green locally at 8a18fd6079 (krrood test_eql 1607, cramph 909, coraplex 352 + 531)
 
 Next
-- Wait for CI; discuss the api-break with the krrood/cramph/coraplex code owners
-- Follow-up: let ReachabilityLocation range over an arm variable so TransportAction can share one
+- Fix 1 (!= compare), 3 (reground under changed bindings), 4 (the binds its variables), 5 (no StopIteration), 6 (bindings cleared at end of run), nits; item 2 as planned
+- Run krrood test_eql, cramph, coraplex tests; push; reply to and resolve each thread
+- Discuss the api-break with the krrood/cramph/coraplex code owners
