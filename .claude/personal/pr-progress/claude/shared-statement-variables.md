@@ -6,6 +6,7 @@ Plan
 Done
 - Review PRR_kwDOQga1Oc8AAAABZ83TFg addressed in 1f83573409 (merged fork main 2f2f5aafc9 first); all 10 threads replied to and resolved; PR description updated
 - the(...) counts what it describes (generate_without_quantifier): not exactly one fails the trial, or ends the plan with DefiniteStatementDescribesNoSingleAction
+- f07f8ca15d: bowl-and-cup version with one-arm domains in a plain Sequence (places bind through the(...), no trial around them); test_bowl_and_cup.py 5 passed
 - Green locally at 1f83573409: krrood test_eql 1618, cramph 916, coraplex core 853 + rest 291 (bullet-world place setting fails locally on clean checkout too)
 
 Next
