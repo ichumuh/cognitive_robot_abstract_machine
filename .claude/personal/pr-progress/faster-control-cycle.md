@@ -11,4 +11,4 @@ Done
 - 64b3139859 pushed (2026-11-26): LucaKro's review: dof_filter -> active_world_state_indices (NDArray[np.intp]), no None defaults, field docstrings; `or` -> `is None` cache fallback. test_qp + test_motion_statechart 1009 passed. Thread replied+resolved, PR comment on `or`, api-break label + migration section in body.
 
 Next
-- CI at 64b3139859; discuss the dof_filter api-break with giskardpy code owners before merge.
+- CI at d9fc8592be (fixes krrood check failure at 64b3139859: _set_active_dofs had no docstring -> _set_active_degrees_of_freedom, documented; 1009 passed); discuss the dof_filter api-break with maltehue before merge.
