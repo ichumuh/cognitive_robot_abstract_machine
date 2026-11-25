@@ -7,7 +7,8 @@ Done
 - fd3235b576 (2026-11-25): cache in giskardpy; cse dropped (only -0.05 ms/tick for +0.38 s compile). Bench: tick 1.75 -> 1.49 ms.
 - Pushed to origin, PR #1063 opened with new-feature (2026-11-25); giskardpy_test 1431 passed on fd3235b576.
 - c42a864739 pushed (2026-11-25): module docstrings; CI green at c42a864739 (20/21, deploy-all-docs skipped).
-- 3c9eab823c pushed (2026-11-25): all 6 review threads addressed (clip mode, warnings, take_submatrix/find_column_of_each_entry renames, staticmethods, docstring); #3 documented instead of indptr/nnz check, #5 helper not moved (YAGNI). test_qp 395 + test_motion_statechart 614 passed. Replied to and resolved all 6 threads; PR body updated.
+- 3c9eab823c (2026-11-25): first 6 review threads addressed and resolved; CI green at 3c9eab823c; approved by maltehue and LucaKro.
+- 64b3139859 pushed (2026-11-26): LucaKro's review: dof_filter -> active_world_state_indices (NDArray[np.intp]), no None defaults, field docstrings; `or` -> `is None` cache fallback. test_qp + test_motion_statechart 1009 passed. Thread replied+resolved, PR comment on `or`, api-break label + migration section in body.
 
 Next
-- Wait for CI at 3c9eab823c and further review (handle only when asked).
+- CI at 64b3139859; discuss the dof_filter api-break with giskardpy code owners before merge.
